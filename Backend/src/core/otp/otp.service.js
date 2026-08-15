@@ -50,7 +50,24 @@ const sendSmsViaIndiaHub = async (phone, otp) => {
         let parsed = null;
         try { parsed = JSON.parse(resultText); } catch (_) { /* plain text response is OK */ }
 
-        if (parsed && parsed.ErrorCode && parsed.ErrorCode !== '000') {
+        // …and it reports some failures as plain text rather than JSON, e.g.
+        // "Failed#Invalid Login" for bad credentials. Those do not parse, so
+        // without this check they fell through to the success branch and every
+        // undelivered OTP was logged as "✅ SMS sent successfully" — the failure
+        // was invisible while no customer could log in.
+        const plainTextFailure =
+            !parsed && /^\s*(failed|error)\b|invalid login/i.test(resultText);
+
+        if (plainTextFailure) {
+            const errMsg = `SMS India Hub ERROR for ${phone}: ${resultText.trim()}`;
+            logger.error(errMsg);
+            // eslint-disable-next-line no-console
+            console.error(`❌ [SMS ERROR] ${errMsg}`);
+            if (/invalid login/i.test(resultText)) {
+                // eslint-disable-next-line no-console
+                console.error('❌ [SMS ERROR] "Invalid Login" = the SMS India Hub API key / username is wrong or expired. No OTP is reaching any customer until it is corrected.');
+            }
+        } else if (parsed && parsed.ErrorCode && parsed.ErrorCode !== '000') {
             const errMsg = `SMS India Hub ERROR for ${phone}: [${parsed.ErrorCode}] ${parsed.ErrorMessage || resultText}`;
             logger.error(errMsg);
             // eslint-disable-next-line no-console
