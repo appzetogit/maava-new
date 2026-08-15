@@ -57,11 +57,29 @@ export const config = {
     otpRateWindow: Number(process.env.OTP_RATE_WINDOW || 600),
     useDefaultOtp: process.env.USE_DEFAULT_OTP === 'true',
 
-    // SMS India Hub
-    smsIndiaHubUsername: process.env.SMS_INDIA_HUB_USERNAME,
-    smsApiKey: process.env.SMS_INDIA_HUB_API_KEY,
-    smsSenderId: process.env.SMS_INDIA_HUB_SENDER_ID,
-    smsDltTemplateId: process.env.SMS_INDIA_HUB_DLT_TEMPLATE_ID,
+    // SMS India Hub.
+    //
+    // Both spellings are accepted because the deployed .env uses the
+    // unseparated form (SMSINDIAHUB_*) while this file only read the separated
+    // one (SMS_INDIA_HUB_*). The key therefore resolved to undefined and every
+    // send came back "Failed#Invalid Login" — no customer could receive an OTP,
+    // with credentials that were present the whole time.
+    smsIndiaHubUsername:
+        process.env.SMS_INDIA_HUB_USERNAME || process.env.SMSINDIAHUB_USERNAME,
+    smsApiKey: process.env.SMS_INDIA_HUB_API_KEY || process.env.SMSINDIAHUB_API_KEY,
+    smsSenderId:
+        process.env.SMS_INDIA_HUB_SENDER_ID || process.env.SMSINDIAHUB_SENDER_ID,
+    smsDltTemplateId:
+        process.env.SMS_INDIA_HUB_DLT_TEMPLATE_ID ||
+        process.env.SMSINDIAHUB_TEMPLATE_ID ||
+        process.env.SMSINDIAHUB_DLT_TEMPLATE_ID,
+    // The body must match the DLT-registered template for the id above, word
+    // for word, or the gateway rejects it with ErrorCode 006. Keeping it beside
+    // the id in config is what stops the two drifting apart. `{otp}` is
+    // substituted at send time.
+    smsMessageTemplate:
+        process.env.SMSINDIAHUB_MESSAGE_TEMPLATE ||
+        process.env.SMS_INDIA_HUB_MESSAGE_TEMPLATE,
 
     // Rate limiting
     rateLimitEnabled: process.env.RATE_LIMIT_ENABLED !== 'false',
