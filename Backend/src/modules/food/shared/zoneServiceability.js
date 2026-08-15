@@ -52,15 +52,57 @@ export const getActiveZones = async () => {
   return zones;
 };
 
-/** Ray casting over a lat/lng ring. */
+/**
+ * A zone ring as `[{latitude, longitude}]`, whatever shape it was stored in.
+ *
+ * The schema says `[{latitude, longitude}]` and that is what the admin panel
+ * saves, but `migrate-maava-legacy.js` wrote the legacy GeoJSON boundary
+ * straight through — `[[[lng, lat], …]]`, a ring nested one level deep, with
+ * raw driver writes that skipped schema casting. Every migrated zone therefore
+ * had `coordinates.length === 1`, tripped the `< 3` guard, and was silently
+ * skipped: no address matched any zone, so ordering was refused everywhere
+ * with "We don't deliver to this address yet".
+ *
+ * Normalising on read fixes the deployed data without a migration, and keeps
+ * working whichever shape a future import produces.
+ */
+export const normalizeZoneRing = (coordinates) => {
+  if (!Array.isArray(coordinates)) return [];
+
+  // Unwrap a GeoJSON-style ring: [[ [lng,lat], … ]] -> [ [lng,lat], … ]
+  let ring = coordinates;
+  if (ring.length === 1 && Array.isArray(ring[0]) && Array.isArray(ring[0][0])) {
+    ring = ring[0];
+  }
+
+  const points = [];
+  for (const point of ring) {
+    if (Array.isArray(point)) {
+      // GeoJSON pairs are [longitude, latitude] — that order, always.
+      const lng = toFiniteNumber(point[0]);
+      const lat = toFiniteNumber(point[1]);
+      if (lat !== null && lng !== null) points.push({ latitude: lat, longitude: lng });
+      continue;
+    }
+    if (point && typeof point === 'object') {
+      const lat = toFiniteNumber(point.latitude ?? point.lat);
+      const lng = toFiniteNumber(point.longitude ?? point.lng);
+      if (lat !== null && lng !== null) points.push({ latitude: lat, longitude: lng });
+    }
+  }
+  return points;
+};
+
+/** Ray casting over a lat/lng ring. Accepts any shape [normalizeZoneRing] takes. */
 export const isPointInPolygon = (lat, lng, polygon) => {
-  if (!Array.isArray(polygon) || polygon.length < 3) return false;
+  const ring = normalizeZoneRing(polygon);
+  if (ring.length < 3) return false;
   let inside = false;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = polygon[i].longitude;
-    const yi = polygon[i].latitude;
-    const xj = polygon[j].longitude;
-    const yj = polygon[j].latitude;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i].longitude;
+    const yi = ring[i].latitude;
+    const xj = ring[j].longitude;
+    const yj = ring[j].latitude;
     const intersect =
       yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi + 0.0) + xi;
     if (intersect) inside = !inside;
@@ -76,9 +118,11 @@ export const findZoneForPoint = async (lat, lng) => {
 
   const zones = await getActiveZones();
   for (const zone of zones) {
-    const coords = Array.isArray(zone.coordinates) ? zone.coordinates : [];
-    if (coords.length < 3) continue;
-    if (isPointInPolygon(latitude, longitude, coords)) return zone;
+    // Length is checked after normalising, not before: a GeoJSON-shaped ring
+    // arrives as a single nested array and would otherwise fail a raw `< 3`.
+    const ring = normalizeZoneRing(zone.coordinates);
+    if (ring.length < 3) continue;
+    if (isPointInPolygon(latitude, longitude, ring)) return zone;
   }
   return null;
 };
