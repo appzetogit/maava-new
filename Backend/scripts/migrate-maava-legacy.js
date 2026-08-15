@@ -72,17 +72,26 @@ const stats = [];
 const record = (name, r) => { stats.push({ name, ...r }); };
 
 /**
- * Insert documents that are not already present, keyed on _id.
+ * Insert documents that are not already present.
+ *
  * Never updates: a document already in the target was either migrated by an
  * earlier run or edited since, and silently overwriting an edit is worse than
  * skipping it.
+ *
+ * [keyField] is the field idempotency is judged on, and it must be whatever the
+ * target's unique index actually enforces. `_id` is right for collections
+ * carrying the source id across, but wrong for food_user_wallets: users with no
+ * source wallet row get a generated wallet, so its `_id` differs on every run
+ * while `userId` does not. Keyed on `_id` there, a second run reinserts all 947
+ * of them and dies on the unique userId index -- which is exactly what happened.
  */
-const insertMissing = async (target, collection, docs) => {
+const insertMissing = async (target, collection, docs, keyField = '_id') => {
     if (!docs.length) return { inserted: 0, skipped: 0 };
-    const ids = docs.map((d) => d._id);
+    const keys = docs.map((d) => d[keyField]).filter((k) => k !== undefined);
     const present = new Set((await target.collection(collection)
-        .find({ _id: { $in: ids } }, { projection: { _id: 1 } }).toArray()).map((d) => String(d._id)));
-    const fresh = docs.filter((d) => !present.has(String(d._id)));
+        .find({ [keyField]: { $in: keys } }, { projection: { [keyField]: 1 } }).toArray())
+        .map((d) => String(d[keyField])));
+    const fresh = docs.filter((d) => !present.has(String(d[keyField])));
     if (apply && fresh.length) {
         // ordered:false so one bad document cannot abort the rest of the batch.
         await target.collection(collection).insertMany(fresh, { ordered: false });
@@ -162,7 +171,7 @@ const run = async () => {
                 transactions: Array.isArray(w?.transactions) ? w.transactions : [],
                 createdAt: w?.createdAt || u.createdAt, updatedAt: w?.updatedAt || u.updatedAt,
             };
-        })));
+        }), 'userId'));
 
     // ---- restaurants ------------------------------------------------------
     const restaurants = await S.collection('restaurants').find({}).toArray();
@@ -262,7 +271,7 @@ const run = async () => {
             totalSettled: num(w.totalWithdrawn),
             lockedAmount: 0,
             createdAt: w.createdAt, updatedAt: w.updatedAt,
-        }))));
+        })), 'restaurantId'));
 
     // ---- categories -------------------------------------------------------
     const cats = await S.collection('restaurantcategories').find({}).toArray();
