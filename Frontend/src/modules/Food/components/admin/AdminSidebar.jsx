@@ -56,6 +56,8 @@ import { canAccessFeatureSettings, canAccessSuperPowers } from "@food/utils/admi
 import { canAdminAccess, isSuperAdmin, resolvePermissionSectionByPath } from "@food/utils/adminRbac"
 import quickSpicyLogo from "@food/assets/appzetologo.png"
 import SidebarVerticalTabs from "./SidebarVerticalTabs"
+import { getAdminVertical } from "@food/utils/adminVertical"
+import { verticalLabel, isSectionVisibleForVertical } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -148,6 +150,10 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
     }
   })
 
+  // Which catalogue the panel is showing. Read once per render; changing it
+  // reloads the page, so it cannot go stale mid-render.
+  const activeVertical = getAdminVertical()
+
   const parseFeatureEnabled = (value, fallback = true) => {
     if (typeof value === "boolean") return value
     if (typeof value === "string") {
@@ -165,9 +171,9 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
   const deriveMenuLabel = (menuItem, parentLabel = "") => {
     const rawPath = String(menuItem?.path || "").trim()
     const canonical = rawPath ? SIDEBAR_LABEL_BY_PATH.get(rawPath) : ""
-    if (canonical) return canonical
+    if (canonical) return verticalLabel(canonical, activeVertical)
     const explicit = String(menuItem?.label || "").trim()
-    if (explicit) return explicit
+    if (explicit) return verticalLabel(explicit, activeVertical)
     if (rawPath) {
       const last = rawPath.split("/").filter(Boolean).pop() || ""
       if (last) {
@@ -300,6 +306,8 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
       if (section.type !== "section" || !Array.isArray(section.items)) return section
       return {
         ...section,
+        label: verticalLabel(section.label, activeVertical),
+        sourceLabel: section.label,
         items: section.items
           .map((item) => {
             if (section.label === "ADMIN ACCESS" && !adminAccessSectionEnabled) {
@@ -348,6 +356,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
     })
     return mapped.filter((section) => {
       if (!section) return false
+      if (!isSectionVisibleForVertical(section.sourceLabel || section.label, activeVertical)) return false
       if (section?.type !== "section") return true
       return Array.isArray(section.items) && section.items.length > 0
     })
