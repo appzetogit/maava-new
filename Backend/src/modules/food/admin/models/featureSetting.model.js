@@ -10,6 +10,7 @@ const featureSettingSchema = new mongoose.Schema(
     { collection: 'food_feature_settings', timestamps: true }
 );
 
-featureSettingSchema.index({ key: 1 }, { unique: true });
+// The unique index comes from `unique: true` on the field above; declaring it
+// again here made mongoose build and maintain the same index twice.
 
 export const FoodFeatureSetting = mongoose.model('FoodFeatureSetting', featureSettingSchema);

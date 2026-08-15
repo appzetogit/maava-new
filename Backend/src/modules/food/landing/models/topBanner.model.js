@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { verticalPlugin } from '../../../../core/vertical/verticalScope.js';
 
 const topBannerSchema = new mongoose.Schema({
     image: {
@@ -19,6 +20,8 @@ const topBannerSchema = new mongoose.Schema({
 }, {
     timestamps: true
 });
+
+topBannerSchema.plugin(verticalPlugin);
 
 const TopBanner = mongoose.model('TopBanner', topBannerSchema);
 

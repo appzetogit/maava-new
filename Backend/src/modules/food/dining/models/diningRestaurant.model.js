@@ -40,7 +40,8 @@ const diningRestaurantSchema = new mongoose.Schema(
     }
 );
 
-diningRestaurantSchema.index({ restaurantId: 1 }, { unique: true });
+// The unique index on restaurantId comes from `unique: true` on the field
+// above; declaring it again here made mongoose build and maintain it twice.
 diningRestaurantSchema.index({ isEnabled: 1, primaryCategoryId: 1 });
 
 export const FoodDiningRestaurant = mongoose.model('FoodDiningRestaurant', diningRestaurantSchema);

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { verticalPlugin } from '../../../../core/vertical/verticalScope.js';
 
 const foodHeroBannerSchema = new mongoose.Schema(
     {
@@ -41,7 +42,9 @@ const foodHeroBannerSchema = new mongoose.Schema(
     }
 );
 
-foodHeroBannerSchema.index({ isActive: 1, sortOrder: 1 });
+foodHeroBannerSchema.plugin(verticalPlugin);
+
+foodHeroBannerSchema.index({ vertical: 1, isActive: 1, sortOrder: 1 });
 
 export const FoodHeroBanner = mongoose.model('FoodHeroBanner', foodHeroBannerSchema);
 

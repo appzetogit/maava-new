@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { verticalPlugin } from '../../../../core/vertical/verticalScope.js';
 
 const normalizeRatingValue = (value) => {
   const numeric = Number(value);
@@ -520,7 +521,24 @@ restaurantSchema.index(
     },
   },
 );
-restaurantSchema.index({ status: 1, createdAt: -1 });
+/**
+ * The seller is the ROOT of the vertical discriminator: a seller is a restaurant
+ * or a store, and orders, products and categories all copy their vertical from
+ * here.
+ *
+ * Only the admin list index is re-led. The single-field lookups above
+ * (ownerPhone, restaurantName, city) are selective enough on their own that
+ * prefixing a two-value field buys nothing, and the 2dsphere index is reached
+ * through $geoNear, which carries the vertical in its own `query`.
+ *
+ * The unique partial index on (restaurantNameNormalized, ownerPhoneLast10) is
+ * deliberately left alone -- see the phase 5 note in MERGE_PLAN.md. Changing a
+ * unique index needs a coordinated drop on a live cluster, and until the two
+ * databases actually merge there is nothing for it to collide with.
+ */
+restaurantSchema.plugin(verticalPlugin);
+
+restaurantSchema.index({ vertical: 1, status: 1, createdAt: -1 });
 
 export const FoodRestaurant = mongoose.model(
   "FoodRestaurant",

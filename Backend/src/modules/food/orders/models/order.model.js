@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { verticalPlugin } from '../../../../core/vertical/verticalScope.js';
 
 const orderItemSchema = new mongoose.Schema(
     {
@@ -388,18 +389,41 @@ const orderSchema = new mongoose.Schema(
     }
 );
 
-orderSchema.index({ createdAt: -1 });
-orderSchema.index({ orderStatus: 1, createdAt: -1 });
+orderSchema.plugin(verticalPlugin);
+
+/**
+ * `vertical` leads every compound index below.
+ *
+ * Once both verticals share one collection, an index that does not lead with it
+ * makes each of these queries scan the other vertical's orders as well -- the
+ * collection doubles and so does the work, for a filter every query now carries.
+ * Built now, while each collection is still half its eventual size, because a
+ * rebuild after the data merge is the expensive time to do it.
+ */
+orderSchema.index({ vertical: 1, createdAt: -1 });
+orderSchema.index({ vertical: 1, orderStatus: 1, createdAt: -1 });
 orderSchema.index({ 'deliveryAddress.location': '2dsphere' });
 orderSchema.index({ lastRiderLocation: '2dsphere' });
+orderSchema.index({ vertical: 1, userId: 1, createdAt: -1 });
+/**
+ * Kept WITHOUT vertical as well, deliberately. "All my orders, both verticals"
+ * is a real query the moment one customer shops in both -- it is most of the
+ * reason for merging -- and it runs with skipVerticalScope, which the
+ * vertical-leading index above cannot serve.
+ */
 orderSchema.index({ userId: 1, createdAt: -1 });
-orderSchema.index({ restaurantId: 1, orderStatus: 1, createdAt: -1 });
-orderSchema.index({ 'dispatch.deliveryPartnerId': 1, orderStatus: 1 });
-orderSchema.index({ 'dispatch.status': 1, orderStatus: 1 });
-orderSchema.index({ 'dispatch.status': 1, orderStatus: 1, updatedAt: -1 });
+orderSchema.index({ vertical: 1, restaurantId: 1, orderStatus: 1, createdAt: -1 });
+orderSchema.index({ vertical: 1, 'dispatch.deliveryPartnerId': 1, orderStatus: 1 });
+orderSchema.index({ vertical: 1, 'dispatch.status': 1, orderStatus: 1 });
+orderSchema.index({ vertical: 1, 'dispatch.status': 1, orderStatus: 1, updatedAt: -1 });
+/**
+ * Rider-facing, and NOT vertical-led: one rider takes a grocery run at 4pm and a
+ * dinner order at 8pm off the same shared fleet, so their active-job lookup must
+ * cross verticals by design.
+ */
 orderSchema.index({ 'dispatch.deliveryPartnerId': 1, 'dispatch.status': 1, updatedAt: -1 });
-orderSchema.index({ 'payment.status': 1, createdAt: -1 });
-orderSchema.index({ 'payment.method': 1, createdAt: -1 });
+orderSchema.index({ vertical: 1, 'payment.status': 1, createdAt: -1 });
+orderSchema.index({ vertical: 1, 'payment.method': 1, createdAt: -1 });
 
 orderSchema.pre('save', async function (next) {
     try {

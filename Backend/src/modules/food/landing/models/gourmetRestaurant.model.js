@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { verticalPlugin } from '../../../../core/vertical/verticalScope.js';
 
 const foodGourmetRestaurantSchema = new mongoose.Schema(
     {
@@ -28,8 +29,10 @@ const foodGourmetRestaurantSchema = new mongoose.Schema(
     }
 );
 
-foodGourmetRestaurantSchema.index({ restaurantId: 1 });
-foodGourmetRestaurantSchema.index({ isActive: 1, priority: 1 });
+foodGourmetRestaurantSchema.plugin(verticalPlugin);
+
+foodGourmetRestaurantSchema.index({ vertical: 1, restaurantId: 1 });
+foodGourmetRestaurantSchema.index({ vertical: 1, isActive: 1, priority: 1 });
 
 export const FoodGourmetRestaurant = mongoose.model('FoodGourmetRestaurant', foodGourmetRestaurantSchema);
 
