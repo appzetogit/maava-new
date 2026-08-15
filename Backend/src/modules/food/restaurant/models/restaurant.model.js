@@ -511,8 +511,18 @@ restaurantSchema.index({ location: "2dsphere" });
 restaurantSchema.index({ restaurantName: 1, ownerPhone: 1 });
 // Enforce uniqueness at the database level to avoid race conditions in registration.
 // Uses partial filter to avoid blocking older documents that may not yet have normalized fields.
+/**
+ * One seller per (name, phone) WITHIN a vertical.
+ *
+ * Compound with vertical because the same person can legitimately run a
+ * restaurant and a grocery store under one brand and one phone number -- which
+ * the old global index would reject the moment the two databases merge.
+ *
+ * ponytail: the legacy index `restaurantNameNormalized_1_ownerPhoneLast10_1`
+ * still exists on deployed clusters; scripts/merge-databases.js drops it.
+ */
 restaurantSchema.index(
-  { restaurantNameNormalized: 1, ownerPhoneLast10: 1 },
+  { vertical: 1, restaurantNameNormalized: 1, ownerPhoneLast10: 1 },
   {
     unique: true,
     partialFilterExpression: {

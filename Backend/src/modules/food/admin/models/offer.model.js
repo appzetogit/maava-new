@@ -3,7 +3,7 @@ import { verticalPlugin } from '../../../../core/vertical/verticalScope.js';
 
 const foodOfferSchema = new mongoose.Schema(
     {
-        couponCode: { type: String, required: true, trim: true, uppercase: true, unique: true },
+        couponCode: { type: String, required: true, trim: true, uppercase: true },
         discountType: { type: String, enum: ['percentage', 'flat-price'], default: 'percentage', index: true },
         discountValue: { type: Number, required: true, min: 0 },
         customerScope: { type: String, enum: ['all', 'first-time'], default: 'all', index: true },
@@ -28,6 +28,15 @@ const foodOfferSchema = new mongoose.Schema(
 );
 
 foodOfferSchema.plugin(verticalPlugin);
+
+/**
+ * A coupon code is unique per vertical, not globally: SAVE50 on groceries and
+ * SAVE50 on restaurant food are two different offers with two different budgets.
+ *
+ * ponytail: the legacy `couponCode_1` index still exists on deployed clusters;
+ * scripts/merge-databases.js drops it.
+ */
+foodOfferSchema.index({ vertical: 1, couponCode: 1 }, { unique: true });
 
 foodOfferSchema.index({ vertical: 1, restaurantId: 1, createdAt: -1 });
 foodOfferSchema.index({ vertical: 1, restaurantIds: 1, createdAt: -1 });
