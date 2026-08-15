@@ -50,7 +50,14 @@ export async function getGoogleMapsApiKey() {
   }
 
   try {
-    const settings = await loadBusinessSettings();
+    // `force` matters: loadBusinessSettings() otherwise returns the copy held
+    // in localStorage without contacting the server, and that copy survives a
+    // hard refresh. An admin whose cache predates the key being entered would
+    // keep seeing a blank map forever, and a rotated key would never arrive —
+    // the opposite of the "takes effect on the next page load" promise above.
+    // We only get here when the cached settings had no usable key, so this
+    // costs one request in exactly the case that is already broken.
+    const settings = await loadBusinessSettings({ force: true });
     const fromServer = sanitizeApiKey(settings?.googleMapsApiKey);
     if (fromServer) {
       cachedApiKey = fromServer;
