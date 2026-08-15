@@ -166,19 +166,48 @@ const run = async () => {
 
     // ---- restaurants ------------------------------------------------------
     const restaurants = await S.collection('restaurants').find({}).toArray();
+
+    /**
+     * Our schema has a partial unique index on
+     * (vertical, restaurantNameNormalized, ownerPhoneLast10) -- one seller per
+     * name+phone. The source has no such constraint and contains one seller
+     * registered twice.
+     *
+     * The duplicate is KEPT, not dropped: it is a real record and orders may
+     * reference either copy. Only the first in each group carries the two
+     * normalized fields; the later ones omit them, which puts them outside the
+     * partial index (it only covers documents where both are strings). They
+     * remain fully visible in the admin panel, where a human can merge them.
+     */
+    const seenNamePhone = new Set();
+    const isDuplicateRegistration = (r) => {
+        const key = `${str(r.name).trim().toLowerCase()}|${digits10(r.ownerPhone || r.phone)}`;
+        if (key === '|') return false;
+        if (seenNamePhone.has(key)) return true;
+        seenNamePhone.add(key);
+        return false;
+    };
+    let duplicateSellers = 0;
+
     record('restaurants -> food_restaurants', await insertMissing(T, 'food_restaurants',
         restaurants.map((r) => {
+            const duplicate = isDuplicateRegistration(r);
+            if (duplicate) duplicateSellers += 1;
             // The source has no `status`; it is implied by approvedAt/rejectedAt.
             const status = r.rejectedAt ? 'rejected' : (r.approvedAt ? 'approved' : 'pending');
             return {
                 _id: r._id,
                 vertical: 'food',
                 restaurantName: str(r.name, 'Unnamed'),
-                restaurantNameNormalized: str(r.name).trim().toLowerCase(),
                 ownerName: str(r.ownerName, str(r.name, 'Owner')),
                 ownerEmail: str(r.ownerEmail || r.email),
                 ownerPhone: str(r.ownerPhone || r.phone),
-                ownerPhoneLast10: digits10(r.ownerPhone || r.phone),
+                // Omitted on a duplicate registration so it falls outside the
+                // partial unique index instead of being rejected or dropped.
+                ...(duplicate ? {} : {
+                    restaurantNameNormalized: str(r.name).trim().toLowerCase(),
+                    ownerPhoneLast10: digits10(r.ownerPhone || r.phone),
+                }),
                 primaryContactNumber: str(r.primaryContactNumber || r.phone),
                 pureVegRestaurant: !!r.pureVegRestaurant,
                 status,
@@ -216,6 +245,11 @@ const run = async () => {
                 createdAt: r.createdAt, updatedAt: r.updatedAt,
             };
         })));
+
+    if (duplicateSellers) {
+        log(`  note: ${duplicateSellers} seller(s) share a name and phone with an earlier one;`);
+        log('        kept, but left outside the unique index for a human to merge.\n');
+    }
 
     // ---- restaurant wallets ----------------------------------------------
     const rWallets = await S.collection('restaurantwallets').find({}).toArray();
