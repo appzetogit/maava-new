@@ -2218,30 +2218,47 @@ export const listApprovedRestaurants = async (query = {}) => {
 };
 
 /**
- * Everything a customer-facing client may see about a seller.
+ * The only seller fields an unauthenticated caller may receive.
  *
- * An allowlist on purpose. As an exclusion list, any sensitive field added to
- * the schema later would leak by default — which is exactly how this endpoint
- * came to return bank account numbers, IFSC codes, PAN numbers and a URL to the
- * PAN scan to anyone who asked, unauthenticated.
+ * This endpoint returned the entire document, so anyone holding a seller id
+ * could read that seller's bank account number, IFSC, PAN number and a URL to
+ * the scan of the PAN card, plus the owner's name, email and phone and their
+ * FCM device tokens. No credentials were needed.
+ *
+ * An allowlist rather than a deny-list, deliberately. The failure mode here is
+ * silent -- nothing errors, the response merely contains too much -- so the
+ * default for a field nobody has thought about has to be "withheld". A
+ * deny-list leaks every sensitive field added to the schema after it is
+ * written, which is exactly how a shop-details document came to carry banking
+ * credentials in the first place.
  *
  * Never add to this list: accountNumber, accountHolderName, accountType,
  * ifscCode, nameOnPan, panNumber, panImage, gstImage, gstRegistered,
  * fssaiNumber, fssaiImage, fssaiExpiry, ownerName, ownerEmail, ownerPhone,
  * ownerPhoneDigits, ownerPhoneLast10, primaryContactNumber, fcmTokens,
- * fcmTokenMobile, tokenVersion, any subscription* or onboardingFee* field.
+ * fcmTokenMobile, tokenVersion, upiQrImage, businessModel, rejectionReason,
+ * any subscription* field, any onboardingFee* field (one of them is a Razorpay
+ * signature). upiQrImage and businessModel are read only by the admin panel
+ * and the seller's own pages, which authenticate and use other endpoints.
+ *
+ * `location` is selected whole because the customer app reads latitude,
+ * longitude and formattedAddress from inside it -- they are not top-level
+ * fields, so selecting them by those names does nothing. outletTimings is
+ * likewise not on this schema: attachOutletTimingsToRestaurants merges it in
+ * from FoodRestaurantOutletTimings after this query, unaffected by the
+ * projection.
  */
-export const PUBLIC_RESTAURANT_SELECT = [
-    '_id', 'restaurantName', 'restaurantNameNormalized', 'description',
+const PUBLIC_RESTAURANT_SELECT = [
+    '_id', 'restaurantName', 'restaurantNameNormalized', 'status',
     'profileImage', 'coverImage', 'coverImages', 'galleryImages', 'menuImages',
-    'cuisines', 'rating', 'totalRatings',
+    'cuisines', 'rating', 'totalRatings', 'menu', 'offer',
+    'featuredDish', 'featuredPrice', 'pureVegRestaurant', 'diningSettings',
     'addressLine1', 'addressLine2', 'area', 'city', 'state', 'pincode',
-    'landmark', 'formattedAddress', 'location', 'latitude', 'longitude',
+    'landmark', 'location', 'zoneId',
     'estimatedDeliveryTime', 'estimatedDeliveryTimeMinutes',
-    'isAcceptingOrders', 'isVerified', 'openingTime', 'closingTime', 'openDays',
-    'outletTimings', 'deliveryTimings', 'outsideHoursOverride',
-    'pureVegRestaurant', 'diningSettings', 'offer', 'featuredDish',
-    'featuredPrice', 'status', 'zoneId', 'createdAt',
+    'isAcceptingOrders', 'openingTime', 'closingTime', 'openDays',
+    'outsideHoursOverride',
+    'createdAt', 'updatedAt', 'approvedAt', 'rejectedAt',
 ].join(' ');
 
 export const getApprovedRestaurantByIdOrSlug = async (idOrSlug) => {
