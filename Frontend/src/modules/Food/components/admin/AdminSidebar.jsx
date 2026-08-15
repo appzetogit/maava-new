@@ -54,7 +54,8 @@ import { adminAPI } from "@food/api"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
 import { canAccessFeatureSettings, canAccessSuperPowers } from "@food/utils/adminPermissions"
 import { canAdminAccess, isSuperAdmin, resolvePermissionSectionByPath } from "@food/utils/adminRbac"
-import quickSpicyLogo from "@food/assets/switcheats-logo.png"
+import quickSpicyLogo from "@food/assets/appzetologo.png"
+import SidebarVerticalTabs from "./SidebarVerticalTabs"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -987,6 +988,10 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
             </div>
           )}
         </div>
+
+        {/* Which catalogue the panel is showing. Sits above the menu because it
+            changes what every item below it lists. */}
+        <SidebarVerticalTabs isCollapsed={isCollapsed} />
 
         {/* Navigation Menu */}
         <nav className="admin-sidebar-scroll flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-3 py-3 space-y-2">
