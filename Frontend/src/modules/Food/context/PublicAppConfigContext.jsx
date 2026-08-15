@@ -23,7 +23,6 @@ const PublicAppConfigContext = createContext(null);
 
 const resolveModuleFromPath = (pathname = "") => {
   if (pathname.startsWith("/seller")) return "restaurant";
-  if (pathname.startsWith("/food/delivery")) return "delivery";
   return "user";
 };
 

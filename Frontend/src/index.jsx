@@ -44,7 +44,10 @@ function isNativeLikeShell() {
 }
 
 function resolveNativeInitialRoute() {
-  if (typeof window === 'undefined') return '/food/user'
+  // The customer and rider web apps are gone -- both are Flutter, and this shell
+  // now wraps only the admin panel and the seller portal. Anything that used to
+  // resolve to /food/user or /food/delivery resolves to /admin instead.
+  if (typeof window === 'undefined') return '/admin'
 
   const rawPathname = String(window.location?.pathname || '')
   const pathname = rawPathname.replace(/\/index\.html$/i, '') || '/'
@@ -60,11 +63,9 @@ function resolveNativeInitialRoute() {
   }
 
   if (isModuleAuthenticated('restaurant')) return '/seller'
-  if (isModuleAuthenticated('delivery')) return '/food/delivery'
   if (isModuleAuthenticated('admin')) return '/admin'
-  if (isModuleAuthenticated('user')) return '/food/user'
 
-  return '/food/user'
+  return '/admin'
 }
 
 function bootstrapNativeHashRoute() {

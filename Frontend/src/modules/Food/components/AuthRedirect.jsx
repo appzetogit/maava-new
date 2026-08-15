@@ -8,15 +8,17 @@ import { isModuleAuthenticated } from "@food/utils/auth"
 export default function AuthRedirect({ children, module, redirectTo = null }) {
   const isAuthenticated = isModuleAuthenticated(module)
 
+  // `admin` said "/food/admin", which has never been a route in this app -- the
+  // admin panel is mounted at /admin. An already-signed-in admin landing on the
+  // login page was redirected into the Food module and only reached the panel
+  // via its catch-all, which is a bug that happened to look like it worked.
   const moduleHomePages = {
-    user: "/food",
     restaurant: "/seller",
-    delivery: "/food/delivery",
-    admin: "/food/admin",
+    admin: "/admin",
   }
 
   if (isAuthenticated) {
-    const homePath = redirectTo || moduleHomePages[module] || "/food"
+    const homePath = redirectTo || moduleHomePages[module] || "/admin"
     return <Navigate to={homePath} replace />
   }
 

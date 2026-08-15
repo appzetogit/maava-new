@@ -8,7 +8,6 @@ const NATIVE_LAST_ROUTE_KEY = 'native_last_route'
 
 // Lazy load the Food service module (Quick-spicy app)
 const FoodApp = lazy(() => import('../modules/Food/routes'))
-const AuthApp = lazy(() => import('../modules/auth/routes'))
 import ProtectedRoute from '@food/components/ProtectedRoute'
 
 const PageLoader = () => <AppShellSkeleton />
@@ -113,9 +112,6 @@ const AppRoutes = () => {
       {/* Root → Master Landing Page */}
       <Route path="/" element={<RootEntryRoute />} />
 
-      {/* Auth Module */}
-
-
       {/*
         Public CMS pages -- privacy, terms, about, support. The landing page
         footer links here. They previously lived at /food/user/profile/*, which
@@ -161,7 +157,11 @@ const AppRoutes = () => {
         }
       />
 
-      {/* Dynamic intercept redirects for bare paths (accessed programmatically) */}
+      {/*
+        Redirect SOURCES, not targets. These are the bare paths older builds and
+        deep links still navigate to programmatically; each one lands on /admin
+        rather than the 404 catch-all.
+      */}
       <Route path="/user/*" element={<RedirectToAdmin />} />
       <Route path="/restaurant/*" element={<RedirectToSeller />} />
       <Route path="/delivery/*" element={<RedirectToAdmin />} />

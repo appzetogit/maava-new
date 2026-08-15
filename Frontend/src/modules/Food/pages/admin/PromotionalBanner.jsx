@@ -238,6 +238,9 @@ export default function PromotionalBanner() {
       setFormData(prev => ({
         ...prev, 
         restaurantId: id,
+        // A deep link for the CUSTOMER APP, not a route in this one. It is
+        // stored on the banner and handed to the Flutter client, so it must
+        // keep pointing at that app's path even though the web copy is gone.
         ctaLink: `/food/user/restaurants/${slug}`
       }))
     } else {

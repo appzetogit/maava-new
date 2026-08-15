@@ -9,7 +9,6 @@ import { isModuleAuthenticated } from "@food/utils/auth"
 import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications"
 import { applyModulePowerScanning, getCachedSettings } from "@food/utils/businessSettings"
 import { PublicAppConfigProvider } from "@food/context/PublicAppConfigContext"
-import { shouldSkipScrollResetForHome } from "@food/utils/homeScrollRestore"
 
 // Restaurant Module
 const RestaurantRouter = lazy(() => import("@food/components/restaurant/RestaurantRouter"))
@@ -20,11 +19,16 @@ const AdminLogin = lazy(() => import("@food/pages/admin/auth/AdminLogin"))
 const AdminSignup = lazy(() => import("@food/pages/admin/auth/AdminSignup"))
 const AdminForgotPassword = lazy(() => import("@food/pages/admin/auth/AdminForgotPassword"))
 
-// Scroll to top on route change (skip when Home has a pending scroll restore)
+/**
+ * Scroll to top on route change.
+ *
+ * The exception this used to carry -- skip the reset when the customer home page
+ * had a pending scroll restore -- went with that page. Nothing left under this
+ * module wants to preserve scroll across a navigation.
+ */
 function ScrollToTop() {
   const location = useLocation();
   useEffect(() => {
-    if (shouldSkipScrollResetForHome(location.pathname)) return;
     window.scrollTo(0, 0);
   }, [location.pathname, location.search, location.key]);
   return null;
@@ -77,7 +81,6 @@ export default function App() {
   useEffect(() => {
     const resolveModule = () => {
       if (location.pathname.startsWith("/seller")) return "restaurant"
-      if (location.pathname.startsWith("/food/delivery")) return "delivery"
       return "user"
     }
 

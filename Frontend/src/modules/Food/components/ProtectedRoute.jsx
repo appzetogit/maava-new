@@ -13,7 +13,9 @@ import { ensureValidAccessToken, isModuleAuthenticated } from "@food/utils/auth"
  * dues are billed at month end and settled by the admin, so no payment
  * gate exists here anymore.
  */
-export default function ProtectedRoute({ children, requiredRole, loginPath = "/food/user/auth/login" }) {
+// Defaults to the admin login: the customer app that owned the old default
+// no longer exists on the web. Callers that need another gate pass loginPath.
+export default function ProtectedRoute({ children, requiredRole, loginPath = "/admin/login" }) {
   const location = useLocation();
   const [status, setStatus] = useState(() => {
     if (!requiredRole) return "ok";
