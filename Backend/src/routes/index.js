@@ -22,7 +22,7 @@ import chatRoutes from '../modules/food/chat/routes/chat.routes.js';
 import { getCashbackSettingsPublicController } from '../modules/food/user/controllers/cashback.controller.js';
 import { config } from '../config/env.js';
 import { getRateLimitSummary } from '../middleware/rateLimit.js';
-import { withVertical } from '../core/vertical/verticalScope.js';
+import { withVertical, withAllVerticals } from '../core/vertical/verticalScope.js';
 
 const router = express.Router();
 
@@ -50,7 +50,18 @@ if (config.nodeEnv !== 'production') {
 const verticalScopedRoutes = express.Router();
 
 verticalScopedRoutes.use('/auth', authRoutes);
-verticalScopedRoutes.use('/delivery', deliveryRoutes);
+/**
+ * Rider routes run across BOTH verticals.
+ *
+ * The fleet is shared -- one rider takes a grocery run at 4pm and a dinner
+ * order at 8pm -- so their active job, earnings, history and availability are
+ * cross-vertical questions. Scoped to the mount prefix instead, a rider signed
+ * in through the food app would not see the grocery order they are currently
+ * carrying.
+ *
+ * Both prefixes still resolve, so neither rider app changes its base URL.
+ */
+verticalScopedRoutes.use('/delivery', withAllVerticals(), deliveryRoutes);
 verticalScopedRoutes.use('/restaurant', restaurantRoutes);
 // Landing & hero-banners (paths start with /hero-banners/...)
 verticalScopedRoutes.use('/', landingRoutes);

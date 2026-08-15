@@ -6,7 +6,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scopePipeline, runWithVertical, currentVertical, isVertical, VERTICALS } from './verticalScope.js';
+import { scopePipeline, runWithVertical, currentVertical, isVertical, isCrossVertical, VERTICALS, CROSS_VERTICAL } from './verticalScope.js';
 
 test('scopePipeline puts $match first for an ordinary pipeline', () => {
     const pipeline = [{ $sort: { createdAt: -1 } }, { $limit: 10 }];
@@ -75,4 +75,20 @@ test('isVertical rejects anything not in the enum', () => {
     assert.equal(isVertical(''), false);
     assert.equal(isVertical(undefined), false);
     assert.deepEqual([...VERTICALS], ['food', 'quick']);
+});
+
+test('CROSS_VERTICAL is a scope, never a stored value', () => {
+    assert.equal(isCrossVertical(CROSS_VERTICAL), true);
+    assert.equal(isCrossVertical('food'), false);
+    // It must not be a member of the enum, or it could be written to a document.
+    assert.equal(isVertical(CROSS_VERTICAL), false);
+    assert.ok(!VERTICALS.includes(CROSS_VERTICAL));
+});
+
+test('the cross-vertical scope propagates like any other', async () => {
+    const seen = await runWithVertical(CROSS_VERTICAL, async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return currentVertical();
+    });
+    assert.equal(seen, CROSS_VERTICAL);
 });

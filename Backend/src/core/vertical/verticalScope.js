@@ -9,6 +9,24 @@ export const VERTICALS = Object.freeze(['food', 'quick']);
 
 export const isVertical = (value) => VERTICALS.includes(value);
 
+/**
+ * Ambient scope meaning "every vertical", for actors that are shared.
+ *
+ * The rider fleet is the reason this exists. One rider takes a grocery run at
+ * 4pm and a dinner order at 8pm, so every rider-facing read -- their active
+ * job, their earnings, their history, and above all whether they are already
+ * busy -- has to span both verticals or it is answering the wrong question.
+ *
+ * Setting it per route group rather than per query is deliberate. The delivery
+ * module alone makes sixteen separate reads against the order collection; an
+ * escape hatch on each is sixteen chances to forget one, and forgetting the
+ * busy-rider check specifically means handing a rider a second order while they
+ * are still carrying the first.
+ */
+export const CROSS_VERTICAL = 'all';
+
+export const isCrossVertical = (value) => value === CROSS_VERTICAL;
+
 const store = new AsyncLocalStorage();
 
 /**
@@ -113,20 +131,40 @@ export const verticalPlugin = (schema) => {
         if (this.getQuery().vertical !== undefined) return;
 
         const vertical = currentVertical();
-        if (vertical) this.where({ vertical });
+        if (!vertical || isCrossVertical(vertical)) return;
+        this.where({ vertical });
     });
 
     schema.pre('aggregate', function applyVerticalScopeToPipeline() {
         if (this.options?.skipVerticalScope) return;
-        scopePipeline(this.pipeline(), currentVertical());
+        const vertical = currentVertical();
+        if (isCrossVertical(vertical)) return;
+        scopePipeline(this.pipeline(), vertical);
     });
 
-    schema.pre('save', function stampVertical() {
-        if (!this.vertical) this.vertical = currentVertical();
+    /**
+     * pre('validate'), NOT pre('save').
+     *
+     * Mongoose runs validation ahead of any pre('save') hook a plugin adds, so
+     * stamping on save was too late: `vertical` is required, and a document
+     * created without one threw ValidationError before the hook that would have
+     * filled it in ever ran. Every lazy settings creation did this --
+     * FoodLandingSettings.create({}) and FoodBusinessSettings.create({...}) are
+     * the paths a fresh deployment takes on its very first request.
+     */
+    schema.pre('validate', function stampVertical() {
+        // Never stamp the sentinel onto a document: it is a query scope, not a
+        // value, and the enum would reject it. Nothing under a cross-vertical
+        // scope creates a scoped document today -- riders update orders, they do
+        // not create them -- but the fallback keeps a future caller safe.
+        if (this.vertical) return;
+        const vertical = currentVertical();
+        this.vertical = isCrossVertical(vertical) ? config.defaultVertical : vertical;
     });
 
     schema.pre('insertMany', function stampVerticalOnAll(next, docs) {
-        const vertical = currentVertical();
+        const ambient = currentVertical();
+        const vertical = isCrossVertical(ambient) ? config.defaultVertical : ambient;
         if (vertical && Array.isArray(docs)) {
             for (const doc of docs) {
                 if (doc && !doc.vertical) doc.vertical = vertical;
@@ -149,3 +187,11 @@ export const verticalPlugin = (schema) => {
  * every bug twice.
  */
 export const withVertical = (vertical) => (_req, _res, next) => runWithVertical(vertical, next);
+
+/**
+ * Express middleware for a route group belonging to a SHARED actor.
+ *
+ * Applied to the rider routes: the fleet serves both verticals, so a rider's
+ * orders, earnings and availability are cross-vertical by definition.
+ */
+export const withAllVerticals = () => (_req, _res, next) => runWithVertical(CROSS_VERTICAL, next);

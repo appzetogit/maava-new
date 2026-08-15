@@ -994,12 +994,29 @@ export async function listOrdersUser(userId, query) {
   await expireStalePendingPaymentOrders();
   await expireUnacceptedOrders();
   const { page, limit, skip } = buildPaginationOptions(query);
-  const filter = { 
+  const filter = {
     userId: new mongoose.Types.ObjectId(userId),
     orderStatus: { $ne: 'pending_payment' }
   };
+
+  /**
+   * `?allVerticals=true` returns the customer's orders from BOTH verticals in
+   * one list, newest first.
+   *
+   * One phone, one login, one wallet -- and, if they ask for it, one order
+   * history. This is the customer-visible half of what merging was for: a
+   * shopper who bought dinner and then milk should not have to know the company
+   * runs two catalogues to find both receipts.
+   *
+   * Opt-in rather than the default, so the existing single-vertical apps keep
+   * exactly the list they show today. It is served by the deliberately
+   * vertical-less { userId, createdAt } index kept in phase 2 for this.
+   */
+  const allVerticals = String(query?.allVerticals ?? '').toLowerCase() === 'true';
+  const scope = (q) => (allVerticals ? q.setOptions({ skipVerticalScope: true }) : q);
+
   const [docs, total] = await Promise.all([
-    FoodOrder.find(filter)
+    scope(FoodOrder.find(filter))
       .populate(
         "restaurantId",
         "restaurantName profileImage area city location rating totalRatings",
@@ -1009,7 +1026,7 @@ export async function listOrdersUser(userId, query) {
       .skip(skip)
       .limit(limit)
       .lean(),
-    FoodOrder.countDocuments(filter),
+    scope(FoodOrder.countDocuments(filter)),
   ]);
   return buildPaginatedResult({
     docs: docs.map((doc) => normalizeOrderForClient(doc)),

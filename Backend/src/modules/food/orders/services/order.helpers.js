@@ -132,6 +132,13 @@ export async function getBusyDeliveryPartnerIds() {
     'dispatch.deliveryPartnerId': { $exists: true, $ne: null },
     orderStatus: { $nin: TERMINAL_ORDER_STATUSES },
   })
+    // Explicitly cross-vertical, and it must stay that way.
+    //
+    // This runs inside dispatch, which is scoped to the order being assigned --
+    // so without this a grocery order cannot see that a rider is already out
+    // with a dinner order, and hands them a second one. The rider is shared;
+    // "is this rider busy" is never a per-vertical question.
+    .setOptions({ skipVerticalScope: true })
     .select('dispatch.deliveryPartnerId')
     .lean();
 
