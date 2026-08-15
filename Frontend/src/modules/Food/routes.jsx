@@ -11,9 +11,6 @@ import { applyModulePowerScanning, getCachedSettings } from "@food/utils/busines
 import { PublicAppConfigProvider } from "@food/context/PublicAppConfigContext"
 import { shouldSkipScrollResetForHome } from "@food/utils/homeScrollRestore"
 
-// Lazy Loading Components
-const UserRouter = lazy(() => import("@food/components/user/UserRouter"))
-
 // Restaurant Module
 const RestaurantRouter = lazy(() => import("@food/components/restaurant/RestaurantRouter"))
 
@@ -22,16 +19,6 @@ const AdminRouter = lazy(() => import("@food/components/admin/AdminRouter"))
 const AdminLogin = lazy(() => import("@food/pages/admin/auth/AdminLogin"))
 const AdminSignup = lazy(() => import("@food/pages/admin/auth/AdminSignup"))
 const AdminForgotPassword = lazy(() => import("@food/pages/admin/auth/AdminForgotPassword"))
-
-// Delivery Module
-const DeliveryRouter = lazy(() => import("../DeliveryV2"))
-
-function UserPathRedirect() {
-  const location = useLocation()
-  // Correctly handle the /food/user -> /food redirect regardless of where it starts
-  const newPath = location.pathname.replace("/user", "") || "/food"
-  return <Navigate to={newPath} replace />
-}
 
 // Scroll to top on route change (skip when Home has a pending scroll restore)
 function ScrollToTop() {
@@ -107,12 +94,6 @@ export default function App() {
       <PushSoundEnableButton />
       <Suspense fallback={<Loader />}>
         <Routes>
-          {/* User Module - Explicitly mapped to /user */}
-          <Route
-            path="user/*"
-            element={<UserRouter />}
-          />
-
           {/* Restaurant Module - Already mapped to /restaurant */}
           <Route
             path="restaurant/*"
@@ -121,15 +102,14 @@ export default function App() {
             }
           />
 
-          {/* Delivery Module - Already mapped to /delivery */}
-          <Route
-            path="delivery/*"
-            element={<DeliveryRouter />}
-          />
-
-          {/* Legacy Redirects & Fallbacks - use absolute path to avoid /user appended in a loop */}
-          <Route path="/" element={<Navigate to="/food/user" replace />} />
-          <Route path="*" element={<Navigate to="/food/user" replace />} />
+          {/*
+            The customer app that used to live under /food/user is gone -- it is a
+            Flutter app, and the web copy was 36k lines nobody opened. Anything still
+            pointing here lands on the admin panel rather than looping on a route
+            that no longer exists.
+          */}
+          <Route path="/" element={<Navigate to="/admin" replace />} />
+          <Route path="*" element={<Navigate to="/admin" replace />} />
         </Routes>
       </Suspense>
     </PublicAppConfigProvider>

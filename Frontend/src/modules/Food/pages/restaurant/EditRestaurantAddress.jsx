@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import Lenis from "lenis"
 import { ArrowLeft, ChevronDown } from "lucide-react"
-import BottomPopup from "@delivery/components/BottomPopup"
+import BottomPopup from "@food/components/restaurant/BottomPopup"
 import { restaurantAPI } from "@food/api"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}

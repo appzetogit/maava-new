@@ -29,13 +29,14 @@ const FoodAppWrapper = () => {
   )
 }
 
-const RedirectToFood = () => {
-  const location = useLocation();
-  // We safely replace the exact current pathname with a /food prefixed pathname
-  // This effectively catches programmatic navigation to absolute paths like '/restaurant/login'
-  // and turns them into '/food/restaurant/login'
-  return <Navigate to={`/food${location.pathname}${location.search}`} replace />;
-};
+/**
+ * Anything that used to belong to the customer or rider web apps.
+ *
+ * Both are Flutter apps; the web copies were deleted rather than kept in step
+ * with them. These paths stay mapped instead of falling through to the 404
+ * catch-all so an old bookmark lands somewhere real.
+ */
+const RedirectToAdmin = () => <Navigate to="/admin" replace />;
 
 const RootEntryRoute = () => {
   const [loading, setLoading] = useState(true)
@@ -58,7 +59,7 @@ const RootEntryRoute = () => {
   }, [])
 
   if (loading) return <PageLoader />
-  if (!showLandingAtRoot) return <Navigate to="/food/user" replace />
+  if (!showLandingAtRoot) return <Navigate to="/admin" replace />
   return <LandingPage />
 }
 
@@ -129,11 +130,12 @@ const AppRoutes = () => {
       {/* Where the panel used to live; bookmarks and old links still resolve. */}
       <Route path="/food/restaurant/*" element={<RedirectToSeller />} />
 
-      {/* Global Admin Portal - AdminRouter handles its own protection for sub-routes */}
-      <Route path="/admin/*" element={<AdminRouter />} />
-
-      {/* NEW Delivery V2 (Parallel testing) */}
-      {/* Global Admin Portal - wrap lazy router in Suspense to avoid blank/crash on direct admin URLs */}
+      {/*
+        Global Admin Portal. AdminRouter handles its own protection for sub-routes.
+        Wrapped in Suspense because it is lazy: without it a direct /admin URL
+        renders blank. This route was previously declared twice, once bare and
+        once wrapped, and React Router kept the first -- the unwrapped one.
+      */}
       <Route
         path="/admin/*"
         element={
@@ -142,15 +144,15 @@ const AppRoutes = () => {
           </Suspense>
         }
       />
-      
+
       {/* Dynamic intercept redirects for bare paths (accessed programmatically) */}
-      <Route path="/user/*" element={<RedirectToFood />} />
+      <Route path="/user/*" element={<RedirectToAdmin />} />
       <Route path="/restaurant/*" element={<RedirectToSeller />} />
-      <Route path="/delivery/*" element={<RedirectToFood />} />
-      <Route path="/usermain/*" element={<RedirectToFood />} />
-      <Route path="/profile/*" element={<RedirectToFood />} />
-      <Route path="/cart/*" element={<Navigate to="/food/user/cart" replace />} />
-      <Route path="/orders/*" element={<RedirectToFood />} />
+      <Route path="/delivery/*" element={<RedirectToAdmin />} />
+      <Route path="/usermain/*" element={<RedirectToAdmin />} />
+      <Route path="/profile/*" element={<RedirectToAdmin />} />
+      <Route path="/cart/*" element={<RedirectToAdmin />} />
+      <Route path="/orders/*" element={<RedirectToAdmin />} />
 
       {/* Fallback 404 */}
       <Route path="*" element={<Navigate to="/" replace />} />

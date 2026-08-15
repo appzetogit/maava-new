@@ -11,7 +11,7 @@ import { adminAPI } from "@/services/api"
 import { getTimelineStatusLabel, getTimelineRoleLabel } from "@food/utils/orderStatus"
 import { computeDeliveryFeeGst, formatDeliveryFeeBreakdownSubtext, getDeliveryFeeTotal, resolveDeliveryFeeGst } from "@food/utils/deliveryFeeDisplay"
 import { getCartCompareItemTotal, getLineCompareUnitPrice } from "@food/utils/foodVariants"
-import { DualMoney } from "@food/components/user/FoodPriceDisplay"
+import { DualMoney } from "@food/components/shared/FoodPriceDisplay"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
