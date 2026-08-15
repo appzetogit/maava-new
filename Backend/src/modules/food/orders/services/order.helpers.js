@@ -235,10 +235,29 @@ export const AVG_SPEED_KMPH = 22;
  * truth once the order is already in a bag. Quoting travel alone means every
  * order reads late from the moment it is placed.
  *
+ * The fallback only. The live value is per vertical and lives in fee settings;
+ * this covers a deployment that has not configured one, and keeps the old
+ * PACKING_MINUTES env var working as the tier below that.
+ *
  * ponytail: one flat number for every seller. Derive it per seller from their
  * own accept-to-ready times once there is enough history to be worth trusting.
  */
-export const PACKING_MINUTES = Number(process.env.PACKING_MINUTES) || 3;
+export const DEFAULT_PACKING_MINUTES = Number(process.env.PACKING_MINUTES) || 3;
+
+/**
+ * Packing time as it was quoted for THIS order.
+ *
+ * Read from the order's own pricing snapshot rather than from settings, for two
+ * reasons. It keeps buildLiveEta synchronous -- it is called on every order
+ * fetch and poll, so a database read here would be paid per refresh. And it
+ * keeps the tracking screen honest: an admin raising packing time next week must
+ * not retroactively change what an order placed today was promised, exactly as
+ * price and gstRate are already snapshotted on the line items.
+ */
+export const packingMinutesForOrder = (order) => {
+  const quoted = Number(order?.pricing?.packingMinutes);
+  return Number.isFinite(quoted) && quoted >= 0 ? quoted : DEFAULT_PACKING_MINUTES;
+};
 
 /**
  * Live ETA derived from the rider's last known position, recomputed on every read.
@@ -317,7 +336,7 @@ function buildDeliveryPromise(order, { minutes, pickedUp, status }) {
   if (!Number.isFinite(legToCustomer) || legToCustomer <= 0) return null;
 
   const alreadyPacked = ['ready_for_pickup', 'reached_pickup'].includes(String(status));
-  const packing = alreadyPacked ? 0 : PACKING_MINUTES;
+  const packing = alreadyPacked ? 0 : packingMinutesForOrder(order);
   const legToSeller = Number.isFinite(minutes) ? minutes : 0;
 
   return Math.ceil(Math.max(packing, legToSeller) + legToCustomer);

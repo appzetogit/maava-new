@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { verticalPlugin } from '../../../../core/vertical/verticalScope.js';
 
 const restaurantSubscriptionSettingsSchema = new mongoose.Schema(
     {
@@ -14,5 +15,7 @@ const restaurantSubscriptionSettingsSchema = new mongoose.Schema(
     },
     { collection: 'food_restaurant_subscription_settings', timestamps: true }
 );
+
+restaurantSubscriptionSettingsSchema.plugin(verticalPlugin);
 
 export const FoodRestaurantSubscriptionSettings = mongoose.model('FoodRestaurantSubscriptionSettings', restaurantSubscriptionSettingsSchema);

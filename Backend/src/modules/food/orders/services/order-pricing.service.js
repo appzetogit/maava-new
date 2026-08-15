@@ -16,7 +16,7 @@ import { fetchDrivingRoute } from '../utils/googleMaps.js';
 import { attachOutletTimingsToRestaurants } from '../../restaurant/services/outletTimings.service.js';
 import { getRestaurantAvailabilityStatus } from '../../restaurant/helpers/restaurantAvailability.helper.js';
 import { resolveOrderCartItems } from '../helpers/order-cart-items.helper.js';
-import { AVG_SPEED_KMPH, PACKING_MINUTES } from './order.helpers.js';
+import { AVG_SPEED_KMPH, DEFAULT_PACKING_MINUTES } from './order.helpers.js';
 
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
@@ -184,13 +184,50 @@ export async function loadActiveFeeSettings() {
  * Same speed and packing constants the live countdown uses, so a customer is
  * not quoted one number before ordering and shown a different one after.
  */
-export function estimateDeliveryPromiseMinutes(distanceKm) {
+export function estimateDeliveryPromiseMinutes(distanceKm, packingMinutes = DEFAULT_PACKING_MINUTES) {
   // Number(null) is 0, so an unknown distance would otherwise quote the packing
   // time alone -- a confident promise built on a distance nobody measured.
   if (distanceKm === null || distanceKm === undefined || distanceKm === '') return null;
   const km = Number(distanceKm);
   if (!Number.isFinite(km) || km < 0) return null;
-  return Math.ceil(PACKING_MINUTES + (km / AVG_SPEED_KMPH) * 60);
+  const packing = Number.isFinite(Number(packingMinutes)) && Number(packingMinutes) >= 0
+    ? Number(packingMinutes)
+    : DEFAULT_PACKING_MINUTES;
+  return Math.ceil(packing + (km / AVG_SPEED_KMPH) * 60);
+}
+
+/**
+ * Packing minutes for a vertical, from its fee settings, falling back to the
+ * env var and then to 3. Split out so the quote and the live countdown cannot
+ * resolve it differently.
+ */
+export function resolvePackingMinutes(feeSettings = {}) {
+  const configured = Number(feeSettings.packingMinutes);
+  return Number.isFinite(configured) && configured >= 0 ? configured : DEFAULT_PACKING_MINUTES;
+}
+
+const parseBands = (value) => String(value ?? '')
+  .split(',')
+  .map((entry) => Number(String(entry).trim()))
+  .filter((entry) => Number.isFinite(entry) && entry > 0);
+
+/**
+ * Rider search radius per dispatch attempt, widest last.
+ *
+ * Settings first, then DISPATCH_RADIUS_BANDS_KM, then 3/5/8/12. The env tier is
+ * kept because it is what a deployment can change without waiting for someone to
+ * open the admin panel, and rider density is exactly the kind of thing that gets
+ * tuned at 2am.
+ */
+export async function resolveDispatchRadiusBands() {
+  const feeSettings = await loadActiveFeeSettings();
+  const configured = Array.isArray(feeSettings.dispatchRadiusBandsKm)
+    ? feeSettings.dispatchRadiusBandsKm.filter((n) => Number.isFinite(Number(n)) && Number(n) > 0).map(Number)
+    : [];
+  if (configured.length > 0) return configured;
+
+  const fromEnv = parseBands(process.env.DISPATCH_RADIUS_BANDS_KM);
+  return fromEnv.length > 0 ? fromEnv : [3, 5, 8, 12];
 }
 
 /**
@@ -502,7 +539,14 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
     // quick-commerce promise: it is a reason to order, not a status to check
     // afterwards. Packing plus the ride, from the same numbers the live
     // countdown uses, so the quote and the tracking screen agree.
-    deliveryPromiseMinutes: estimateDeliveryPromiseMinutes(distanceKm),
+    deliveryPromiseMinutes: estimateDeliveryPromiseMinutes(
+      distanceKm,
+      resolvePackingMinutes(feeSettings),
+    ),
+    // Snapshotted so the live countdown on the tracking screen uses the number
+    // this order was quoted with, not whatever settings say by the time someone
+    // opens it.
+    packingMinutes: resolvePackingMinutes(feeSettings),
   };
 
   const pricing = applyDeliveryModePricing(

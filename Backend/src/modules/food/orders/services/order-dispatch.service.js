@@ -4,6 +4,7 @@ import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
 import { FoodDeliveryWallet } from '../../delivery/models/deliveryWallet.model.js';
 import { FoodDeliveryCashLimit } from '../../admin/models/deliveryCashLimit.model.js';
+import { resolveDispatchRadiusBands } from './order-pricing.service.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 import { logger } from '../../../../utils/logger.js';
 import { config } from '../../../../config/env.js';
@@ -409,13 +410,11 @@ export async function tryAutoAssign(orderId, options = {}) {
     // would have got it delivered. Expanding to a few km buys a real second
     // chance; expanding past that buys a worse outcome than admitting failure.
     //
-    // Overridable without a deploy, because the honest radius depends on rider
-    // density in a way only live data shows.
-    const bands = String(process.env.DISPATCH_RADIUS_BANDS_KM || '3,5,8,12')
-      .split(',')
-      .map((value) => Number(value.trim()))
-      .filter((value) => Number.isFinite(value) && value > 0);
-    const radiusBands = bands.length > 0 ? bands : [3, 5, 8, 12];
+    // Configured per vertical in fee settings, because food ran 15/25/40/60 and
+    // quick runs 3/5/8/12 -- one env var cannot hold both once a single process
+    // serves both verticals. DISPATCH_RADIUS_BANDS_KM still works as the
+    // fallback for a deployment that has not configured settings yet.
+    const radiusBands = await resolveDispatchRadiusBands();
     const maxKm = radiusBands[Math.min(Math.max(attempt, 1), radiusBands.length) - 1];
 
     const searchOptions = { maxKm, limit: 15 };

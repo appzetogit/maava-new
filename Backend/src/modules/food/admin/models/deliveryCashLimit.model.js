@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { verticalPlugin } from '../../../../core/vertical/verticalScope.js';
 
 const deliveryCashLimitSchema = new mongoose.Schema(
     {
@@ -9,7 +10,9 @@ const deliveryCashLimitSchema = new mongoose.Schema(
     { collection: 'food_delivery_cash_limits', timestamps: true }
 );
 
-deliveryCashLimitSchema.index({ isActive: 1, createdAt: -1 });
+deliveryCashLimitSchema.plugin(verticalPlugin);
+
+deliveryCashLimitSchema.index({ vertical: 1, isActive: 1, createdAt: -1 });
 
 export const FoodDeliveryCashLimit = mongoose.model('FoodDeliveryCashLimit', deliveryCashLimitSchema);
 

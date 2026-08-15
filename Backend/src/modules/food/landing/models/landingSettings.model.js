@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { verticalPlugin } from '../../../../core/vertical/verticalScope.js';
 
 const foodLandingSettingsSchema = new mongoose.Schema(
     {
@@ -41,6 +42,8 @@ const foodLandingSettingsSchema = new mongoose.Schema(
         timestamps: true
     }
 );
+
+foodLandingSettingsSchema.plugin(verticalPlugin);
 
 export const FoodLandingSettings = mongoose.model('FoodLandingSettings', foodLandingSettingsSchema);
 

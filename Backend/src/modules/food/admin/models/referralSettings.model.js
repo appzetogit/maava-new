@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { verticalPlugin } from '../../../../core/vertical/verticalScope.js';
 
 const referralSettingsSchema = new mongoose.Schema(
     {
@@ -20,7 +21,9 @@ const referralSettingsSchema = new mongoose.Schema(
     { collection: 'food_referral_settings', timestamps: true }
 );
 
-referralSettingsSchema.index({ isActive: 1, createdAt: -1 });
+referralSettingsSchema.plugin(verticalPlugin);
+
+referralSettingsSchema.index({ vertical: 1, isActive: 1, createdAt: -1 });
 
 export const FoodReferralSettings = mongoose.model('FoodReferralSettings', referralSettingsSchema);
 

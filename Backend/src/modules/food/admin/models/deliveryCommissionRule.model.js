@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { verticalPlugin } from '../../../../core/vertical/verticalScope.js';
 
 const deliveryCommissionRuleSchema = new mongoose.Schema(
     {
@@ -12,7 +13,9 @@ const deliveryCommissionRuleSchema = new mongoose.Schema(
     { collection: 'food_delivery_commission_rules', timestamps: true }
 );
 
-deliveryCommissionRuleSchema.index({ createdAt: -1 });
+deliveryCommissionRuleSchema.plugin(verticalPlugin);
+
+deliveryCommissionRuleSchema.index({ vertical: 1, createdAt: -1 });
 
 export const FoodDeliveryCommissionRule = mongoose.model('FoodDeliveryCommissionRule', deliveryCommissionRuleSchema);
 

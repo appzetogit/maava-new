@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { verticalPlugin } from '../../../../core/vertical/verticalScope.js';
 
 /**
  * Admin-configured cashback rules. Cashback is awarded once per order, when the order is
@@ -25,7 +26,9 @@ const cashbackSettingsSchema = new mongoose.Schema(
     { collection: 'food_cashback_settings', timestamps: true }
 );
 
-cashbackSettingsSchema.index({ isActive: 1, createdAt: -1 });
+cashbackSettingsSchema.plugin(verticalPlugin);
+
+cashbackSettingsSchema.index({ vertical: 1, isActive: 1, createdAt: -1 });
 
 export const FoodCashbackSettings = mongoose.model(
     'FoodCashbackSettings',

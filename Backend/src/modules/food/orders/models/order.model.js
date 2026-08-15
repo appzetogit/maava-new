@@ -102,6 +102,14 @@ const pricingSchema = new mongoose.Schema(
         /** Driving / road restaurant ↔ customer km (Directions API) */
         roadDistanceKm: { type: Number, default: null, min: 0 },
         roadDurationMins: { type: Number, default: null, min: 0 },
+        /**
+         * Packing minutes this order was quoted with, snapshotted like the
+         * prices are. Per-vertical now, and an admin changing it must not
+         * retroactively alter what an already-placed order promised.
+         * null means "whatever the current default is" — every order created
+         * before this field existed.
+         */
+        packingMinutes: { type: Number, default: null, min: 0 },
     },
     { _id: false }
 );
@@ -459,7 +467,7 @@ export const FoodOrder = mongoose.model('FoodOrder', orderSchema);
 
 const settingsSchema = new mongoose.Schema(
     {
-        key: { type: String, required: true, unique: true, trim: true },
+        key: { type: String, required: true, trim: true },
         dispatchMode: { type: String, enum: ['auto'], default: 'auto' },
         updatedBy: {
             role: { type: String },
@@ -469,5 +477,16 @@ const settingsSchema = new mongoose.Schema(
     },
     { collection: 'food_settings', timestamps: true }
 );
+
+settingsSchema.plugin(verticalPlugin);
+
+/**
+ * ponytail: the legacy unique index `key_1` still exists on deployed
+ * clusters and must be dropped before the two databases merge -- until then
+ * it rejects the second vertical's copy of any given key. Nothing collides
+ * while each database holds one vertical, so the drop belongs with the phase 5
+ * migration.
+ */
+settingsSchema.index({ vertical: 1, key: 1 }, { unique: true });
 
 export const FoodSettings = mongoose.model('FoodSettings', settingsSchema);

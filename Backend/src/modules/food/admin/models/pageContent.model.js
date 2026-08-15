@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { verticalPlugin } from '../../../../core/vertical/verticalScope.js';
 
 const featureSchema = new mongoose.Schema(
     {
@@ -56,7 +57,20 @@ const pageContentSchema = new mongoose.Schema(
     { collection: 'food_page_contents', timestamps: true }
 );
 
-pageContentSchema.index({ key: 1, module: 1 }, { unique: true });
+pageContentSchema.plugin(verticalPlugin);
+
+/**
+ * CMS pages are per vertical: a grocery app's terms, privacy policy and about
+ * page are not the restaurant app's, and serving one for the other is a legal
+ * problem rather than a cosmetic one.
+ *
+ * ponytail: the legacy unique index `key_1_module_1` still exists on deployed
+ * clusters and must be dropped before the two databases merge -- until then
+ * it rejects the second vertical's copy of any given key. Nothing collides
+ * while each database holds one vertical, so the drop belongs with the phase 5
+ * migration.
+ */
+pageContentSchema.index({ vertical: 1, key: 1, module: 1 }, { unique: true });
 
 export const FoodPageContent = mongoose.model('FoodPageContent', pageContentSchema);
 
