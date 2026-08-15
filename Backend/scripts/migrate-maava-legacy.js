@@ -889,6 +889,23 @@ const run = async () => {
                 await T.collection('foodbusinesssettings').updateOne({ _id: keep._id }, {
                     $set: Object.fromEntries(Object.entries(branding).filter(([, val]) => val !== undefined && val !== '')),
                 });
+
+                // A vertical with no logo of its own must not keep another
+                // vertical's. An earlier run applied the food branding to both,
+                // so Hibermart was wearing Maava's logo -- which looks correct
+                // and is wrong. Cleared ONLY when it still matches the other
+                // vertical's, so a logo since uploaded here survives.
+                if (!branding.logo?.url) {
+                    const otherLogo = BRANDING[v === 'food' ? 'quick' : 'food']?.logo?.url;
+                    const currentLogo = keep.logo?.url;
+                    if (currentLogo && otherLogo && currentLogo === otherLogo) {
+                        await T.collection('foodbusinesssettings').updateOne(
+                            { _id: keep._id },
+                            { $set: { logo: { url: '', publicId: '' }, favicon: { url: '', publicId: '' } } },
+                        );
+                        log(`  cleared ${v}: it was showing the other vertical's logo`);
+                    }
+                }
                 if (extras.length) {
                     await T.collection('foodbusinesssettings')
                         .deleteMany({ _id: { $in: extras.map((r) => r._id) } });
