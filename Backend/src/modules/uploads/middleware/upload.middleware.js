@@ -1,9 +1,13 @@
 import multer from 'multer';
 import { config } from '../../../config/env.js';
+import { withVerticalSafeUploads } from '../../../middleware/upload.js';
 
 const memoryStorage = multer.memoryStorage();
 
-export const imageUpload = multer({
+// Wrapped for the same reason as `upload` in middleware/upload.js: multer
+// parses off the socket and the AsyncLocalStorage vertical does not survive it,
+// so anything written after this middleware would default to `food`.
+export const imageUpload = withVerticalSafeUploads(multer({
     storage: memoryStorage,
     limits: {
         fileSize: config.uploadMaxFileSizeBytes,
@@ -16,6 +20,6 @@ export const imageUpload = multer({
         }
         return cb(null, true);
     }
-});
+}));
 
 export { uploadRateLimiter } from '../../../middleware/rateLimit.js';
