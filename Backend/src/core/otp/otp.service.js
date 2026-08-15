@@ -3,7 +3,8 @@ import ms from 'ms';
 import { FoodOtp } from './otp.model.js';
 import { config } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
-import { ValidationError } from '../auth/errors.js';
+import { RateLimitError } from '../auth/errors.js';
+import { evaluateOtpRateWindow } from './otp.rateWindow.js';
 
 const generateOtpCode = () => {
     const code = crypto.randomInt(1000, 9999);
@@ -73,21 +74,25 @@ export const createOrUpdateOtp = async (phone) => {
     const existing = await FoodOtp.findOne({ phone });
     const now = new Date();
 
-    // Rate Limiting Logic
-    if (existing) {
-        const windowMs = (config.otpRateWindow || 600) * 1000;
-        const isInWindow = now - existing.lastRequestAt < windowMs;
+    const windowMs = (config.otpRateWindow || 600) * 1000;
+    const decision = evaluateOtpRateWindow(existing, now, {
+        windowMs,
+        limit: config.otpRateLimit || 3,
+    });
+    const windowStartedAt = decision.windowStartedAt;
 
-        if (isInWindow) {
-            if (existing.requestCount >= (config.otpRateLimit || 3)) {
-                logger.warn(`Rate limit exceeded for phone ${phone}`);
-                throw new ValidationError(`Too many OTP requests. Please try again after ${Math.ceil(windowMs / 60000)} minutes.`);
-            }
-            existing.requestCount += 1;
-        } else {
-            // Reset count if window has passed
-            existing.requestCount = 1;
-        }
+    if (!decision.allowed) {
+        logger.warn(
+            `OTP rate limit exceeded for phone ${phone} — retry in ${decision.retryAfterSeconds}s`,
+        );
+        throw new RateLimitError(
+            `Too many OTP requests. Please try again in ${Math.ceil(decision.retryAfterSeconds / 60)} minute(s).`,
+            decision.retryAfterSeconds,
+        );
+    }
+
+    if (existing) {
+        existing.requestCount = decision.requestCount;
     }
 
     let otp;
@@ -108,20 +113,27 @@ export const createOrUpdateOtp = async (phone) => {
         ttlMs = ms(config.otpExpiry || '5m');
     }
     const expiresAt = new Date(now.getTime() + ttlMs);
+    // The document must outlive the OTP itself so requestCount survives the whole
+    // quota window — otherwise the TTL reaper resets the per-phone limit early.
+    const purgeAt = new Date(now.getTime() + Math.max(ttlMs, windowMs));
 
     if (existing) {
         existing.otp = otp;
         existing.expiresAt = expiresAt;
+        existing.purgeAt = purgeAt;
         existing.attempts = 0;
         existing.lastRequestAt = now;
+        existing.windowStartedAt = windowStartedAt;
         await existing.save();
     } else {
-        await FoodOtp.create({ 
-            phone, 
-            otp, 
+        await FoodOtp.create({
+            phone,
+            otp,
             expiresAt,
+            purgeAt,
             requestCount: 1,
-            lastRequestAt: now
+            lastRequestAt: now,
+            windowStartedAt: now
         });
     }
 

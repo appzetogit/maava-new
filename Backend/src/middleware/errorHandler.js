@@ -20,6 +20,13 @@ const errorHandler = (err, req, res, next) => {
         }
     }
 
+    // Business-layer rate limits (RateLimitError) must advertise when to retry,
+    // the same way the HTTP limiter's handler does. Without this a 429 from the
+    // per-phone OTP quota is indistinguishable from a permanent failure.
+    if (err.retryAfterSeconds) {
+        res.setHeader('Retry-After', String(err.retryAfterSeconds));
+    }
+
     const requestId = req.requestId || '-';
 
     logger.error(
@@ -34,7 +41,8 @@ const errorHandler = (err, req, res, next) => {
         // `message` matches sendError() and every success response, so clients reading
         // data.message see thrown-error text (ValidationError, NotFoundError, ...) too.
         message,
-        error: message // retained for clients already reading this key
+        error: message, // retained for clients already reading this key
+        ...(err.retryAfterSeconds ? { retryAfterSeconds: err.retryAfterSeconds } : {})
     });
 };
 

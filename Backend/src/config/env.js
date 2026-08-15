@@ -55,8 +55,15 @@ export const config = {
     rateLimitMaxRequests: Number(process.env.RATE_LIMIT_MAX || 2500),
     rateLimitDevMaxRequests: Number(process.env.RATE_LIMIT_DEV_MAX || 2000),
     authRateLimitWindowMinutes: Number(process.env.AUTH_RATE_LIMIT_WINDOW || 15),
+    // Per IP+phone. 30 attempts against ONE account in 15 min is still firmly
+    // brute-force territory; because the key now includes the phone, this no
+    // longer has to be shared by every user behind a NAT.
     authRateLimitMax: Number(process.env.AUTH_RATE_LIMIT_MAX || 30),
     authRateLimitDevMax: Number(process.env.AUTH_RATE_LIMIT_DEV_MAX || 100),
+    // Per IP across all auth routes — the enumeration backstop. High enough to
+    // never fire for a shared office/CGNAT address doing normal logins.
+    authIpCeilingMax: Number(process.env.AUTH_IP_CEILING_MAX || 300),
+    authIpCeilingDevMax: Number(process.env.AUTH_IP_CEILING_DEV_MAX || 1000),
 
     // Security
     bcryptSaltRounds: Number(process.env.BCRYPT_SALT_ROUNDS || 10),

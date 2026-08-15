@@ -114,6 +114,7 @@ const createLimiter = ({
     keyGenerator,
     prefix,
     skip,
+    skipSuccessfulRequests = false,
 }) => {
     if (!config.rateLimitEnabled) {
         const passthrough = (_req, _res, next) => next();
@@ -129,6 +130,7 @@ const createLimiter = ({
         keyGenerator,
         handler: buildHandler(message, name),
         store: new RedisRateLimitStore({ prefix }),
+        skipSuccessfulRequests,
         skip: skip || ((request) => request.method === 'OPTIONS'),
         validate: {
             creationStack: false,
@@ -163,13 +165,77 @@ export const apiRateLimiter = createLimiter({
     skip: shouldSkipGlobalRateLimit,
 });
 
-/** Layer 2 — Auth / OTP / login brute-force protection. Key: IP (stacked on global). */
+/**
+ * Layer 2 — Auth / OTP / login brute-force protection.
+ *
+ * Key: IP + phone (falls back to IP alone when no phone is in the body).
+ *
+ * Keying on IP alone put every user behind one NAT — an office, a college, or a
+ * mobile carrier's CGNAT — into a single 30-request bucket shared across the
+ * user, restaurant, delivery AND admin auth routes. One person testing logins
+ * locked out everyone else on that IP, which is what produced
+ * "Too many authentication attempts" for legitimate first-time callers.
+ * Adding the phone keeps genuine brute-force protection (an attacker grinding
+ * one account still hits the limit) while isolating unrelated users from each
+ * other. The IP component is retained so an attacker cannot get a fresh bucket
+ * per made-up phone number without also rotating IPs — and the coarser
+ * per-IP-only ceiling below still backstops exactly that.
+ */
+const authPhone = (req) => {
+    const raw = req.body?.phone ?? req.body?.mobile ?? req.body?.email ?? '';
+    const normalized = String(raw).replace(/\D/g, '').slice(-10);
+    return normalized || String(raw).trim().toLowerCase() || null;
+};
+
+export const authRateLimitKey = (req) => {
+    const phone = authPhone(req);
+    const base = ipRateLimitKey(req);
+    return phone ? `${base}|id:${phone}` : base;
+};
+
+/**
+ * For request-otp: every request costs a billable SMS, so successes must count
+ * too — this path needs a spend ceiling, not just a failure ceiling.
+ */
 export const authRateLimiter = createLimiter({
     name: 'auth',
     prefix: 'rl:auth',
     windowMs: authWindowMs,
     max: resolveMax(config.authRateLimitMax, config.authRateLimitDevMax),
     message: 'Too many authentication attempts. Please try again later.',
+    keyGenerator: authRateLimitKey,
+});
+
+/**
+ * For verify-otp / password login: a SUCCESSFUL authentication is evidence the
+ * caller is legitimate and should not consume brute-force budget. Only failed
+ * attempts count, which is the only thing brute-force protection needs to
+ * measure. Without this, a user who logs in and out normally was spending the
+ * same quota as an attacker guessing codes.
+ */
+export const authVerifyRateLimiter = createLimiter({
+    name: 'auth-verify',
+    prefix: 'rl:authverify',
+    windowMs: authWindowMs,
+    max: resolveMax(config.authRateLimitMax, config.authRateLimitDevMax),
+    message: 'Too many authentication attempts. Please try again later.',
+    keyGenerator: authRateLimitKey,
+    skipSuccessfulRequests: true,
+});
+
+/**
+ * Layer 2b — coarse per-IP ceiling across ALL auth routes.
+ *
+ * Backstops the phone-scoped limiter above: without it, an attacker could cycle
+ * phone numbers to get a fresh bucket each time. Set deliberately high so it
+ * never fires for normal use — it only catches bulk enumeration from one host.
+ */
+export const authIpCeilingRateLimiter = createLimiter({
+    name: 'auth-ip-ceiling',
+    prefix: 'rl:authip',
+    windowMs: authWindowMs,
+    max: resolveMax(config.authIpCeilingMax, config.authIpCeilingDevMax),
+    message: 'Too many authentication attempts from this network. Please try again later.',
     keyGenerator: ipRateLimitKey,
 });
 
@@ -189,7 +255,8 @@ export const getRateLimitSummary = () => ({
     storage: config.redisEnabled ? 'redis-with-memory-fallback' : 'memory-per-process',
     keyStrategy: {
         globalApi: 'per IP',
-        auth: 'per IP',
+        auth: 'per IP + phone (failed attempts only; successes are not counted)',
+        authIpCeiling: 'per IP across all auth routes (enumeration backstop)',
         upload: 'per user id (if authenticated) else per IP',
         otpRequest: 'per phone in MongoDB (business layer)',
         otpVerify: 'per phone attempts in MongoDB',
@@ -205,6 +272,11 @@ export const getRateLimitSummary = () => ({
             maxProduction: config.authRateLimitMax,
             maxDevelopment: resolveMax(config.authRateLimitMax, config.authRateLimitDevMax),
         },
+        authIpCeiling: {
+            windowMinutes: config.authRateLimitWindowMinutes,
+            maxProduction: config.authIpCeilingMax,
+            maxDevelopment: resolveMax(config.authIpCeilingMax, config.authIpCeilingDevMax),
+        },
         upload: {
             windowMinutes: config.uploadRateLimitWindowMinutes,
             maxProduction: config.uploadRateLimitMax,
@@ -213,6 +285,7 @@ export const getRateLimitSummary = () => ({
         otp: {
             maxRequestsPerPhone: config.otpRateLimit,
             windowSeconds: config.otpRateWindow,
+            windowType: 'fixed, anchored on windowStartedAt',
             maxVerifyAttempts: config.otpMaxAttempts,
         },
     },
