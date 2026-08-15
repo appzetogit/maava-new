@@ -37,6 +37,12 @@ const FoodAppWrapper = () => {
  */
 const RedirectToAdmin = () => <Navigate to="/admin" replace />;
 
+/** Bare customer paths older builds and deep links still navigate to. */
+const RedirectToShop = () => {
+  const location = useLocation();
+  return <Navigate to={`/food${location.pathname}${location.search}`} replace />;
+};
+
 const RootEntryRoute = () => {
   const [loading, setLoading] = useState(true)
   const [showLandingAtRoot, setShowLandingAtRoot] = useState(true)
@@ -58,7 +64,9 @@ const RootEntryRoute = () => {
   }, [])
 
   if (loading) return <PageLoader />
-  if (!showLandingAtRoot) return <Navigate to="/admin" replace />
+  // With the customer storefront restored, the root belongs to shoppers. The
+  // marketing landing page still shows when the feature flag asks for it.
+  if (!showLandingAtRoot) return <Navigate to="/food/user" replace />
   return <LandingPage />
 }
 
@@ -162,13 +170,13 @@ const AppRoutes = () => {
         deep links still navigate to programmatically; each one lands on /admin
         rather than the 404 catch-all.
       */}
-      <Route path="/user/*" element={<RedirectToAdmin />} />
+      <Route path="/user/*" element={<RedirectToShop />} />
       <Route path="/restaurant/*" element={<RedirectToSeller />} />
       <Route path="/delivery/*" element={<RedirectToAdmin />} />
-      <Route path="/usermain/*" element={<RedirectToAdmin />} />
-      <Route path="/profile/*" element={<RedirectToAdmin />} />
-      <Route path="/cart/*" element={<RedirectToAdmin />} />
-      <Route path="/orders/*" element={<RedirectToAdmin />} />
+      <Route path="/usermain/*" element={<RedirectToShop />} />
+      <Route path="/profile/*" element={<RedirectToShop />} />
+      <Route path="/cart/*" element={<Navigate to="/food/user/cart" replace />} />
+      <Route path="/orders/*" element={<RedirectToShop />} />
 
       {/* Fallback 404 */}
       <Route path="*" element={<Navigate to="/" replace />} />

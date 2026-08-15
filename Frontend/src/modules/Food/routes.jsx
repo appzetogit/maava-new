@@ -10,6 +10,9 @@ import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotificatio
 import { applyModulePowerScanning, getCachedSettings } from "@food/utils/businessSettings"
 import { PublicAppConfigProvider } from "@food/context/PublicAppConfigContext"
 
+// User (customer) Module
+const UserRouter = lazy(() => import("@food/components/user/UserRouter"))
+
 // Restaurant Module
 const RestaurantRouter = lazy(() => import("@food/components/restaurant/RestaurantRouter"))
 
@@ -105,14 +108,12 @@ export default function App() {
             }
           />
 
-          {/*
-            The customer app that used to live under /food/user is gone -- it is a
-            Flutter app, and the web copy was 36k lines nobody opened. Anything still
-            pointing here lands on the admin panel rather than looping on a route
-            that no longer exists.
-          */}
-          <Route path="/" element={<Navigate to="/admin" replace />} />
-          <Route path="*" element={<Navigate to="/admin" replace />} />
+          {/* Customer storefront. Restored so maava.in serves a shop rather
+              than a redirect to the admin panel. */}
+          <Route path="user/*" element={<UserRouter />} />
+
+          <Route path="/" element={<Navigate to="/food/user" replace />} />
+          <Route path="*" element={<Navigate to="/food/user" replace />} />
         </Routes>
       </Suspense>
     </PublicAppConfigProvider>
