@@ -7,6 +7,7 @@
  */
 
 import axios from "axios";
+import { applyVerticalToPath } from "@food/utils/adminVertical";
 
 // Prefer explicit env. If not set, use same-origin (works with a Vite proxy).
 // This avoids hardcoding ports like 5000 that may conflict with local setups.
@@ -355,6 +356,25 @@ apiClient.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    // Point admin calls at the vertical the panel is currently showing.
+    //
+    // LAST, deliberately. Everything above -- the RBAC path map, the per-route
+    // permission checks, the public/auth exemptions -- matches on /food/...,
+    // which is the canonical form throughout this codebase. Rewriting earlier
+    // would silently defeat all of it, and the failure would be a sub-admin
+    // getting past a client-side permission gate rather than a visible error.
+    //
+    // Auth is exempt: it is mounted identically on both prefixes and is not
+    // vertical-scoped, and an admin logging in should not have their login URL
+    // depend on a preference set in a previous session.
+    if (config.contextModule === "admin") {
+      const path = normalizePath(config?.url);
+      if (!path.includes("/auth/")) {
+        config.url = applyVerticalToPath(config.url);
+      }
+    }
+
     return config;
   },
   (err) => Promise.reject(err)
