@@ -8,6 +8,7 @@ import {
   Users, Percent, Heart, Sparkles, X, Home, Store, Bike, Loader2
 } from "lucide-react";
 import { APP_CONFIG } from "../config/constants"; // Adjust path if needed
+import { Link } from "react-router-dom";
 import apiClient, { restaurantAPI } from "../services/api";
 
 // --- Animation Variants for Cinematic Reveals ---
@@ -1021,42 +1022,34 @@ export default function LandingPage() {
 
             <div className="flex flex-col gap-5 text-sm font-medium">
               <h4 className="text-slate-900 font-bold tracking-widest text-xs uppercase mb-1">Legal</h4>
-              <a 
-                href="https://switcheats.com/food/user/profile/privacy" 
-                target="_blank" 
-                rel="noopener noreferrer" 
+              <Link
+                to="/pages/privacy"
                 className="hover:text-[#FA0272] transition-colors"
               >
                 Privacy Policy
-              </a>
-              <a 
-                href="https://switcheats.com/food/user/profile/terms" 
-                target="_blank" 
-                rel="noopener noreferrer" 
+              </Link>
+              <Link
+                to="/pages/terms"
                 className="hover:text-[#FA0272] transition-colors"
               >
                 Terms of Service
-              </a>
+              </Link>
             </div>
 
             <div className="flex flex-col gap-5 text-sm font-medium">
               <h4 className="text-slate-900 font-bold tracking-widest text-xs uppercase mb-1">Company</h4>
-              <a 
-                href="https://switcheats.com/food/user/profile/about" 
-                target="_blank" 
-                rel="noopener noreferrer" 
+              <Link
+                to="/pages/about"
                 className="hover:text-[#FA0272] transition-colors"
               >
                 About Us
-              </a>
-              <a 
-                href="https://switcheats.com/food/user/profile/help-content" 
-                target="_blank" 
-                rel="noopener noreferrer" 
+              </Link>
+              <Link
+                to="/pages/support"
                 className="hover:text-[#FA0272] transition-colors"
               >
                 Support
-              </a>
+              </Link>
             </div>
 
             <div className="flex flex-col gap-5 text-sm font-medium">

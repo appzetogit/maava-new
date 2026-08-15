@@ -64,6 +64,7 @@ const RootEntryRoute = () => {
 }
 
 
+const PublicCmsPage = lazy(() => import('./PublicCmsPage'))
 const AdminRouter = lazy(() => import('../modules/Food/components/admin/AdminRouter'))
 const SellerRouter = lazy(() => import('../modules/Food/components/restaurant/RestaurantRouter'))
 
@@ -114,6 +115,21 @@ const AppRoutes = () => {
 
       {/* Auth Module */}
 
+
+      {/*
+        Public CMS pages -- privacy, terms, about, support. The landing page
+        footer links here. They previously lived at /food/user/profile/*, which
+        went with the customer web app; a consumer product still has to keep its
+        privacy policy and terms reachable.
+      */}
+      <Route
+        path="/pages/:slug"
+        element={
+          <Suspense fallback={<PageLoader />}>
+            <PublicCmsPage />
+          </Suspense>
+        }
+      />
 
       {/* Food Module */}
       <Route path="/food/*" element={<FoodAppWrapper />} />
