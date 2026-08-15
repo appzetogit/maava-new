@@ -1031,6 +1031,12 @@ export const getCurrentRestaurantProfile = async (restaurantId) => {
                 'restaurantName',
                 'cuisines',
                 'location',
+                // Absent from this projection, so toRestaurantProfile's
+                // `doc.zoneId ? ... : ''` always took the empty branch and the
+                // seller's own panel reported no zone for a seller that has
+                // one. The zone drives serviceability, so the panel was
+                // inviting them to fix something that was not broken.
+                'zoneId',
                 'addressLine1',
                 'addressLine2',
                 'area',
