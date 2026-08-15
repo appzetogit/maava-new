@@ -4,8 +4,8 @@ Clones live in `_src/food-backend` and `_src/quick-commerce`.
 Merged repo: **`food-quick/`** — `main` = quick-commerce trunk, with both
 histories available as remotes `qc` and `fb` for blame and cherry-picks.
 
-> **Status: phases 0–4 done. Phase 5 machinery built and rehearsed; the cutover is
-> yours to run.** See §11.
+> **Status: phases 0–4 and 6 done. Phase 5 machinery built and rehearsed; the
+> cutover is yours to run.** See §11.
 
 ---
 
@@ -813,3 +813,55 @@ a restore of production before pointing it at production.
 - `mongodb-memory-server` is installed with `--no-save` on purpose — a
   migration-time tool, not a dependency of the app. `npm run test:merge` needs
   it; `npm test` does not.
+### Phase 6 — the harvest: **done**, and it found the plugin was broken
+
+One commit, `ae717b3`. 37 unit tests, 21 integration tests, routes unchanged at
+917, 23 scoped models.
+
+### Two real bugs, both found only by running against a real mongod
+
+1. **Lazy settings creation had been throwing since phase 3.** The plugin
+   stamped `vertical` in `pre('save')`, but mongoose runs validation *ahead of*
+   any `pre('save')` a plugin adds — and the field is `required`. So
+   `FoodLandingSettings.create({})` and `FoodBusinessSettings.create({...})`
+   failed with `ValidationError` before the hook that fills the field ever ran.
+   Those are the paths a fresh deployment takes on its **first request**.
+   The phase 3 entry above claimed settings auto-create through this hook —
+   **that was wrong**. Moved to `pre('validate')`.
+
+2. **Dispatch could double-assign a rider.** `getBusyDeliveryPartnerIds()` reads
+   the order collection, which phase 2 made vertical-scoped — so a grocery
+   dispatch could not see a rider already out with a dinner order. Now
+   explicitly cross-vertical.
+
+Neither is visible in a diff. Phase 2 tested the pure pipeline function and the
+AsyncLocalStorage propagation, but never the mongoose hooks themselves; that gap
+is what hid both.
+
+### What shipped
+
+- **Shared fleet.** Rider routes run under a `CROSS_VERTICAL` scope instead of
+  the mount prefix. The delivery module makes sixteen reads against the order
+  collection; setting the scope once on the route group beats sixteen chances to
+  forget an escape hatch. Both prefixes still resolve — no rider app changes.
+- **`FoodDeliveryCashLimit` un-scoped**, correcting a phase 3 call. It caps a
+  rider's `cashInHand`, which is one shared balance: 4,000 from food plus 3,000
+  from grocery is 7,000 against one limit. Commission rules stay scoped — read
+  per order, and a grocery run may pay differently.
+- **`GET /orders?allVerticals=true`** — one customer history across both
+  catalogues, on the deliberately vertical-less `{ userId, createdAt }` index
+  kept in phase 2 for this. Opt-in, so existing apps are unchanged.
+- **The shared wallet needed no code**, as predicted in §9.2 — `FoodUserWallet`
+  was never scoped.
+
+**Not built: cross-vertical coupons.** An offer belongs to one catalogue with one
+budget and nobody has asked for one spanning both. `verticals: [String]` is the
+shape if that changes.
+
+### One trap worth knowing
+
+A mongoose query is lazy. Build it inside a scope and `await` it outside, and it
+is filtered by whatever scope is in force when it **runs** — not where it was
+written. Express is safe (`withVertical` wraps `next()`, so the whole handler
+chain including its awaits is inside the scope); background jobs and any helper
+returning an unawaited query are not. Pinned by a test.
