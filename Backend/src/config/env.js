@@ -17,6 +17,20 @@ export const config = {
     nodeEnv: process.env.NODE_ENV || 'development',
 
     /**
+     * Which vertical this process serves: 'food' or 'quick'.
+     *
+     * Used as the fallback scope for callers with no ambient one -- the BullMQ
+     * workers, the socket server and the scheduled-job runner -- and as the
+     * default for requests that arrive on neither /v1/food nor /v1/quick.
+     *
+     * Defaults to 'food' so an existing deployment that sets nothing keeps
+     * behaving exactly as it did. A quick-commerce deployment MUST set
+     * VERTICAL=quick; validateVertical() below refuses to boot on a typo rather
+     * than letting it silently serve the wrong catalogue.
+     */
+    defaultVertical: String(process.env.VERTICAL || 'food').trim().toLowerCase(),
+
+    /**
      * Public web app origin, used to build shareable links (e.g. rider referral invites).
      * REFERRAL_LINK_BASE_URL wins so links can point at a marketing/deep-link host that
      * differs from the app origin. Trailing slashes are stripped.
@@ -134,3 +148,18 @@ export const config = {
     emailPass: process.env.EMAIL_PASS ? String(process.env.EMAIL_PASS).replace(/\s/g, '') : '',
     emailFrom: process.env.EMAIL_FROM || process.env.EMAIL_USER || 'noreply@example.com'
 };
+
+/**
+ * Refuse to start on an unrecognised VERTICAL.
+ *
+ * Deliberately fatal. A typo -- VERTICAL=Quick, VERTICAL=grocery -- would
+ * otherwise fall through to scoping every query to a vertical no document
+ * carries, and the symptom is an API that returns empty lists and 404s with
+ * nothing in the logs to explain it.
+ */
+if (!['food', 'quick'].includes(config.defaultVertical)) {
+    throw new Error(
+        `VERTICAL must be "food" or "quick", got "${process.env.VERTICAL}". ` +
+        'Leave it unset to default to "food".'
+    );
+}
