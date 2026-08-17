@@ -24,12 +24,27 @@ const sendSmsViaIndiaHub = async (phone, otp) => {
 
         // Must match the DLT template registered for `smsDltTemplateId`, word
         // for word, or the gateway returns ErrorCode 006 and nothing is
-        // delivered. Configured alongside the id so the two cannot drift; the
-        // literal below is the older Switcheats-branded template, kept only as
-        // a fallback for deployments that have not set the env var yet.
-        const message = config.smsMessageTemplate
-            ? config.smsMessageTemplate.replaceAll('{otp}', otp)
-            : `Welcome to the Switcheats powered by Appzeto.Your OTP for registration is ${otp}.BGADEC.`;
+        // delivered. The deployment's env is the only source, so the body and
+        // the id it is registered against cannot drift apart.
+        //
+        // There is deliberately no hardcoded fallback. The one that used to sit
+        // here was a different, older template: sending it against the
+        // configured id could only ever be rejected, so it turned a missing
+        // setting into a silent delivery failure that looked like a working
+        // send. Refusing loudly is the honest failure.
+        if (!config.smsMessageTemplate) {
+            logger.error(
+                '[SMS] SMSINDIAHUB_MESSAGE_TEMPLATE is not set. Refusing to send an '
+                + 'unregistered message body, which the gateway would reject with '
+                + 'ErrorCode 006. Set it to the DLT-registered template for '
+                + `template id ${config.smsDltTemplateId || '(also unset)'}.`,
+            );
+            // Bare return: this function reports through the logger and its
+            // caller ignores any value, so returning a boolean here would imply
+            // a contract none of the other exit paths honour.
+            return;
+        }
+        const message = config.smsMessageTemplate.replaceAll('{otp}', otp);
 
         // SMS India Hub HTTP GET API — query param names are case-sensitive per SOP
         const url = new URL('http://cloud.smsindiahub.in/vendorsms/pushsms.aspx');
