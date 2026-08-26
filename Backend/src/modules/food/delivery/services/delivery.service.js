@@ -940,14 +940,74 @@ export const getActiveEarningAddonsForPartner = async (deliveryPartnerId) => {
 
             const currentEarnings = Number(earningsAgg?.[0]?.total) || 0;
 
+            /**
+             * What the rider has actually been awarded on this offer.
+             *
+             * Without it the app can only draw a progress bar. The two questions
+             * riders actually ask -- "did I get it?" and "where is the money?" --
+             * are answered by status: a `credited` row is in their wallet, a
+             * `pending` one is waiting on an admin. Showing progress alone is
+             * what makes an incentive feel broken once the bar hits full.
+             */
+            const awardRows = await FoodEarningAddonHistory.find({
+                offerId: addon._id,
+                deliveryPartnerId: partnerId
+            })
+                .select('cycle earningAmount totalEarning status completedAt creditedAt')
+                .sort({ cycle: 1 })
+                .lean();
+
+            const awards = (awardRows || []).map((a) => ({
+                cycle: Number(a.cycle) || 0,
+                amount: Number(a.totalEarning ?? a.earningAmount) || 0,
+                status: a.status || 'pending',
+                completedAt: a.completedAt || null,
+                creditedAt: a.creditedAt || null
+            }));
+
+            // Cancelled awards still consumed their cycle, so they count here --
+            // the rider does not get another attempt at one an admin rejected.
+            const cyclesEarned = awards.length;
+
+            const targetOrders = Number(addon.requiredOrders) || 0;
+            const repeatable = Boolean(addon.repeatable);
+
+            /**
+             * The bar the rider is working towards *now*.
+             *
+             * A one-shot offer keeps pointing at its single target even once
+             * cleared. A repeatable one moves to the next multiple, so the app
+             * can say "next Rs.100 at 15 deliveries" instead of showing a bar
+             * that sits full forever.
+             */
+            const nextTargetOrders = repeatable && targetOrders > 0
+                ? (Math.floor(Number(currentOrders) / targetOrders) + 1) * targetOrders
+                : targetOrders;
+
+            const maxRedemptions = Number(addon.maxRedemptions);
+            const remainingRedemptions = Number.isFinite(maxRedemptions) && maxRedemptions > 0
+                ? Math.max(0, maxRedemptions - (Number(addon.currentRedemptions) || 0))
+                : null;
+
             return {
                 id: addon._id,
                 title: addon.title || 'Earnings Guarantee',
                 description: addon.description || '',
                 targetAmount: Number(addon.earningAmount) || 0,
-                targetOrders: Number(addon.requiredOrders) || 0,
+                targetOrders,
                 currentOrders: Number(currentOrders) || 0,
                 currentEarnings,
+                repeatable,
+                cyclesEarned,
+                nextTargetOrders,
+                remainingRedemptions,
+                awards,
+                totalAwarded: awards
+                    .filter((a) => a.status === 'credited')
+                    .reduce((sum, a) => sum + a.amount, 0),
+                pendingAmount: awards
+                    .filter((a) => a.status === 'pending')
+                    .reduce((sum, a) => sum + a.amount, 0),
                 startDate,
                 endDate,
                 validTill: endDate ? endDate.toISOString() : null,
