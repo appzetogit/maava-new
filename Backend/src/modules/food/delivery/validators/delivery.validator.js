@@ -30,6 +30,7 @@ const deliveryRegisterSchema = z.object({
         .optional()
         .or(z.literal('')),
     ref: z.string().trim().max(64).optional().or(z.literal('')),
+    serviceType: z.enum(['food', 'quick', 'both', 'none']).optional(),
     panNumber: z
         .string()
         .regex(panRegex, 'Invalid PAN format')
@@ -69,6 +70,7 @@ const deliveryProfileUpdateSchema = z.object({
         .regex(drivingLicenseRegex, 'Invalid driving license format')
         .optional()
         .or(z.literal('')),
+    serviceType: z.enum(['food', 'quick', 'both', 'none']).optional(),
     fcmToken: z.string().optional().nullable(),
     platform: z.preprocess(
         (value) => normalizePlatform(value, { allowUndefined: true }),

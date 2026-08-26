@@ -583,6 +583,39 @@ export const adminAPI = {
   /** Categories (admin) */
   getCategories: (params = {}) =>
     apiClient.get("/food/admin/categories", { params, contextModule: "admin" }),
+
+  /**
+   * Mart category screen themes.
+   *
+   * One campaign per header category carries that category's screen colours;
+   * the campaign with no categoryId is the default the app shows under "All".
+   * `contextModule: "admin"` is what puts these on the /quick/ mount when the
+   * panel's vertical selector is set to Quick Commerce — campaigns are
+   * vertical-scoped, so one written under Food is invisible to the Mart app.
+   */
+  getMartCampaigns: () =>
+    apiClient.get("/food/mart-sale-campaigns", { contextModule: "admin" }),
+  createMartCampaign: (body) =>
+    apiClient.post("/food/mart-sale-campaigns", body ?? {}, {
+      contextModule: "admin",
+    }),
+  updateMartCampaign: (id, body) =>
+    apiClient.patch(`/food/mart-sale-campaigns/${String(id)}`, body ?? {}, {
+      contextModule: "admin",
+    }),
+  deleteMartCampaign: (id) =>
+    apiClient.delete(`/food/mart-sale-campaigns/${String(id)}`, {
+      contextModule: "admin",
+    }),
+  /** The same flat category list the Mart app reads, so the rows match 1:1. */
+  getMartCategories: () =>
+    apiClient.get("/food/search/categories/admin", { contextModule: "admin" }),
+  /** Catalogue search, for picking the products the deal card rotates through. */
+  searchMartProducts: (search = "") =>
+    apiClient.get("/food/search/products", {
+      params: { search, limit: 20 },
+      contextModule: "admin",
+    }),
   /** Dining categories (admin) */
   getDiningCategories: (params = {}) =>
     apiClient.get("/food/admin/dining/categories", {
@@ -749,6 +782,13 @@ export const adminAPI = {
     apiClient.patch(
       `/food/admin/customers/${String(id)}/status`,
       { isActive: isActive !== false },
+      { contextModule: "admin" },
+    ),
+  /** Per-customer Cash on Delivery switch (Admin -> COD Access). */
+  updateCustomerCodAccess: (id, codEnabled) =>
+    apiClient.patch(
+      `/food/admin/customers/${String(id)}/cod`,
+      { codEnabled: codEnabled === true },
       { contextModule: "admin" },
     ),
   /** Orders (admin) – list, get by id, assign delivery partner */

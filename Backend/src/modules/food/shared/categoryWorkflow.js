@@ -18,8 +18,24 @@ export const normalizeCategoryFoodTypeScope = (value, fallback = 'Both') => {
 };
 
 export const normalizeFoodTypeForCategory = (value) => {
-    const normalized = String(value || '').trim();
-    if (normalized === 'Veg') return 'Veg';
+    /*
+     * Case-insensitive on purpose.
+     *
+     * This used to compare against the exact string 'Veg', so anything a seller
+     * actually typed -- 'veg', 'VEG', 'Vegetarian' -- fell through to
+     * 'Non-Veg'. The bulk-upload template's own sample row uses lowercase
+     * 'veg', so uploads were silently mislabelled at scale and Veg Mode had
+     * almost nothing to show.
+     *
+     * Unrecognised input still resolves to 'Non-Veg': claiming a dish is
+     * vegetarian when we are not sure is the one error that actually harms a
+     * customer, so the fallback stays conservative.
+     */
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (normalized === 'veg' || normalized === 'vegetarian' ||
+        normalized === 'pure veg' || normalized === 'pure-veg') {
+        return 'Veg';
+    }
     return 'Non-Veg';
 };
 

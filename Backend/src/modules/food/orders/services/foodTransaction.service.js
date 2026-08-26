@@ -109,8 +109,16 @@ export async function createInitialTransaction(order) {
     const deliveryFeeGst = Number(order.pricing?.deliveryFeeGst) || 0;
     const tax = Number(order.pricing?.tax) || 0;
 
+    // The tip is pure pass-through: the customer paid it and the rider gets
+    // it, so it belongs on both sides of the profit line. riderShare already
+    // contains it (order.riderEarning is base + tip), so without the matching
+    // term on the revenue side every tipped order would book a loss exactly
+    // the size of the tip.
+    const deliveryTip = Number(order.pricing?.deliveryTip) || 0;
+
     let restaurantNet = subtotal + packagingFee - restaurantCommission;
-    let platformNetProfit = platformFee + deliveryFee + deliveryFeeGst + restaurantCommission - riderShare;
+    let platformNetProfit =
+        platformFee + deliveryFee + deliveryFeeGst + restaurantCommission + deliveryTip - riderShare;
     let adminDiscountShare = 0;
     let restaurantDiscountShare = 0;
     let discountAdminBearPercentage = 0;
@@ -166,6 +174,7 @@ export async function createInitialTransaction(order) {
             platformFee: platformFee,
             restaurantCommission: restaurantCommission,
             discount: discount,
+            deliveryTip: deliveryTip,
             couponCode: couponCode ? String(couponCode).toUpperCase() : null,
             total: totalCustomerPaid,
             currency: String(order.pricing?.currency || order.currency || 'INR'),

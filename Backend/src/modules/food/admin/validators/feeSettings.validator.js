@@ -13,6 +13,8 @@ const feeSettingsUpsertSchema = z.object({
     deliveryFee: z.number().min(0).nullable().optional(),
     deliveryFeeRanges: z.array(rangeSchema).optional(),
     platformFee: z.number().min(0).nullable().optional(),
+    freeDeliveryThreshold: z.number().min(0).nullable().optional(),
+    tipPresets: z.array(z.number().min(0).max(1000)).max(6).optional(),
     quickDeliveryFee: z.number().min(0).nullable().optional(),
     gstRate: z.number().min(0).max(100).nullable().optional(),
     isActive: z.boolean().optional()
@@ -45,6 +47,26 @@ export const validateFeeSettingsUpsertDto = (body) => {
                     : undefined,
         gstRate:
             body?.gstRate === null ? null : body?.gstRate !== undefined ? Number(body.gstRate) : undefined,
+        // Normalised like every sibling: the schema alone is not enough, this
+        // object is built key by key and anything missing here is dropped
+        // before the parse ever sees it.
+        freeDeliveryThreshold:
+            body?.freeDeliveryThreshold === null
+                ? null
+                : body?.freeDeliveryThreshold !== undefined
+                    ? Number(body.freeDeliveryThreshold)
+                    : undefined,
+        // Sorted and de-duplicated so the card's chips read low -> high whatever
+        // order they were typed in; non-numeric and negative entries are dropped
+        // rather than becoming NaN chips. Capped to match MAX_DELIVERY_TIP, or
+        // the panel could offer an amount the order endpoint then rejects.
+        tipPresets: Array.isArray(body?.tipPresets)
+            ? [...new Set(
+                body.tipPresets
+                    .map((v) => Number(v))
+                    .filter((v) => Number.isFinite(v) && v > 0),
+            )].sort((a, b) => a - b)
+            : undefined,
         isActive: body?.isActive !== undefined ? Boolean(body.isActive) : undefined
     };
 

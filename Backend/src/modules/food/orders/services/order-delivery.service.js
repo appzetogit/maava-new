@@ -4,6 +4,10 @@ import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodTransaction } from '../models/foodTransaction.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
 import { FoodDeliveryWallet } from '../../delivery/models/deliveryWallet.model.js';
+import {
+  assertWalletMinimumAllows,
+  enforceWalletMinimumOffline,
+} from '../../delivery/services/deliveryFinance.service.js';
 import { FoodDeliveryCashLimit } from '../../admin/models/deliveryCashLimit.model.js';
 import {
   ValidationError,
@@ -36,6 +40,7 @@ import {
 } from './order.helpers.js';
 const DELIVERY_ORDER_BASE_SELECT = [
   '_id',
+  'vertical',
   'order_id',
   'orderId',
   'userId',
@@ -235,6 +240,36 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
   const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
   const hasActiveDelivery = await partnerHasActiveDelivery(deliveryPartnerId);
 
+  const partner = await FoodDeliveryPartner.findById(partnerId)
+    .select('serviceType lastLat lastLng lastLocationAt')
+    .lean();
+
+  // Riders only see unassigned offers from the vertical(s) they signed up to
+  // serve. Applies to the open-offers branch alone: an order already assigned
+  // to this rider must always be visible, whatever their current selection.
+  // 'none' (both toggles off) matches no vertical at all — the impossible
+  // value keeps the query shape identical instead of forking the $or.
+  const serviceType = partner?.serviceType;
+  const verticalFilter =
+    serviceType === 'food' || serviceType === 'quick'
+      ? { vertical: serviceType }
+      : serviceType === 'none'
+        ? { vertical: '__none__' }
+        : {};
+
+  // A rider below the wallet floor sees no open offers — the same impossible
+  // vertical trick, so the query shape stays identical. Applied to the
+  // unassigned branch ONLY: an order they already hold must keep showing up,
+  // balance or no balance, or a live trip would vanish mid-delivery.
+  //
+  // Skipped entirely for a rider already on a trip: this list is polled every
+  // 15s by every online rider, and the open-offer branch is not even built in
+  // that case, so the balance lookup would be pure load.
+  const walletBlocked = hasActiveDelivery
+    ? false
+    : (await enforceWalletMinimumOffline(deliveryPartnerId)).blocked;
+  const openOfferFilter = walletBlocked ? { vertical: '__none__' } : verticalFilter;
+
   const filter = hasActiveDelivery
     ? {
         'dispatch.deliveryPartnerId': partnerId,
@@ -244,6 +279,7 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
     : {
         $or: [
           {
+            ...openOfferFilter,
             'dispatch.status': 'unassigned',
             'dispatch.offeredTo': {
               $not: {
@@ -290,10 +326,6 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
   );
 
   if (!hasActiveDelivery) {
-    const partner = await FoodDeliveryPartner.findById(partnerId)
-      .select('lastLat lastLng lastLocationAt')
-      .lean();
-
     const MAX_OFFER_KM = 20; // slightly wider than dispatch radius (15km)
     const partnerLat = partner?.lastLat;
     const partnerLng = partner?.lastLng;
@@ -463,6 +495,11 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
       .lean();
     if (pending) await assertCashLimitAllows(partnerId, pending);
   }
+
+  // Same reasoning for the wallet floor: an offer that was already on the
+  // rider's phone when their balance dropped must not turn into a trip, and a
+  // client-side block is not a block at all.
+  await assertWalletMinimumAllows(partnerId);
 
   const order = await FoodOrder.findOneAndUpdate(
     {
@@ -1133,6 +1170,58 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
     { _id: deliveryPartnerId },
     { $inc: { totalDeliveries: 1 } }
   ).catch((e) => logger.warn(`totalDeliveries increment failed: ${e?.message || e}`));
+
+  // COD: the cash the rider just took from the customer comes out of their
+  // wallet ledger.
+  //
+  // Written HERE, synchronously, rather than in the delivery_completed queue
+  // job: production runs with BullMQ disabled, so a queued deduction would
+  // simply never happen. Runs only on a successful completion — this line is
+  // past every OTP/pickup guard and the isStatusAdvance check above, so a
+  // cancelled or failed order never reaches it and an already-delivered order
+  // cannot double-deduct.
+  //
+  // The rider's earning is untouched: it is credited separately and in full.
+  // Both verticals go through this same function, so Food and Mart behave alike.
+  if (payMethod === 'cash') {
+    const codAmount = Number(order?.pricing?.total) || 0;
+    if (codAmount > 0) {
+      try {
+        // balance ONLY — deliberately not `cashInHand`.
+        //
+        // cashInHand is derived (delivered cash orders minus deposits) and read
+        // as max(derived, ledger); nothing decrements the ledger copy when a
+        // rider deposits, so incrementing it here would latch their cash-in-hand
+        // at an ever-growing number and their deposits would stop restoring the
+        // balance.
+        await FoodDeliveryWallet.findOneAndUpdate(
+          { deliveryPartnerId },
+          { $inc: { balance: -codAmount } },
+          { upsert: true },
+        );
+        logger.info(
+          `[DeliveryComplete] COD Rs.${codAmount} deducted from wallet of partner ${deliveryPartnerId} for order ${order._id}`,
+        );
+      } catch (e) {
+        // The rider-facing balance is recomputed from delivered orders minus
+        // deposits on every read, so it stays correct even if this ledger row
+        // fails to write. Losing the trip over it would be worse.
+        logger.warn(`[DeliveryComplete] COD wallet deduction failed: ${e?.message || e}`);
+      }
+    }
+  }
+
+  // A COD deduction is the usual way a rider falls under the wallet floor, so
+  // re-check it here rather than waiting for their next poll — that is the
+  // difference between "stops getting orders now" and "gets one more offer
+  // they should never have seen". Safe at this point: the delivery is already
+  // recorded, so taking them offline cannot affect this trip or any other one
+  // in progress.
+  try {
+    await enforceWalletMinimumOffline(deliveryPartnerId);
+  } catch (e) {
+    logger.warn(`[DeliveryComplete] wallet-floor check failed: ${e?.message || e}`);
+  }
 
   // Referral reward: pays the rider who referred THIS rider, once they complete their
   // first delivery. Idempotent (unique index on referral log), never throws.

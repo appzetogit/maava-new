@@ -44,6 +44,15 @@ const foodCategorySchema = new mongoose.Schema(
          * real tree, and grocery apps do not use one.
          */
         parentId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodCategory', index: true, default: undefined },
+        /**
+         * Whether this category appears in the app's core header strip.
+         *
+         * The header shows a short, curated set — not every top-level category.
+         * Making it a flag keeps that choice with the admin instead of hardcoding
+         * a name list in the app, which is exactly how the strip previously ended
+         * up advertising categories ('Wedding', 'Winter') that did not exist.
+         */
+        showInHeader: { type: Boolean, default: false, index: true },
         isActive: { type: Boolean, default: true, index: true },
         sortOrder: { type: Number, default: 0, index: true }
     },

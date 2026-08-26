@@ -293,6 +293,10 @@ router.delete('/addons/:id', authMiddleware, requireRestaurant, deleteAddonContr
 
 // Orders (restaurant dashboard)
 router.get('/orders', authMiddleware, requireRestaurant, orderController.listOrdersRestaurantController);
+// Literal path first: /orders/:orderId matches 'rejection-reasons' as an order
+// id and answers 404 "Order not found", because Express takes the first route
+// that matches and not the most specific one.
+router.get('/orders/rejection-reasons', authMiddleware, requireRestaurant, orderController.listRejectionReasonsController);
 router.get('/orders/:orderId', authMiddleware, requireRestaurant, orderController.getOrderByIdRestaurantController);
 router.patch('/orders/:orderId/status', authMiddleware, requireRestaurant, orderController.updateOrderStatusRestaurantController);
 router.post('/orders/:orderId/resend-notification', authMiddleware, requireRestaurant, orderController.resendDeliveryNotificationRestaurantController);

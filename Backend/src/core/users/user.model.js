@@ -108,7 +108,10 @@ const userSchema = new mongoose.Schema(
             default: ''
         },
         referralCode: {
-            type: String
+            type: String,
+            // Looked up on every signup that carries a `ref`, and the field a
+            // referrer is resolved by.
+            index: true
         },
         referredBy: {
             type: mongoose.Schema.Types.ObjectId,
@@ -133,6 +136,20 @@ const userSchema = new mongoose.Schema(
         role: {
             type: String,
             default: 'USER'
+        },
+        /**
+         * Whether this customer may pay Cash on Delivery.
+         *
+         * Per-account switch flipped from Admin → CUSTOMER MANAGEMENT → COD
+         * Access, so a customer who keeps refusing COD parcels can be moved to
+         * prepaid-only without turning COD off for everybody. Default true —
+         * existing accounts keep COD. `food_users` is shared by both verticals,
+         * so one flag governs Food and Mart alike.
+         */
+        codEnabled: {
+            type: Boolean,
+            default: true,
+            index: true
         },
         addresses: {
             type: [userAddressSchema],

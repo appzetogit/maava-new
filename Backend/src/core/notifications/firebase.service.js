@@ -34,11 +34,13 @@ const MAX_TOKENS_PER_PLATFORM = 3;
  * never arriving, which is why these defaults are taken from the apps' own source
  * rather than from what anyone assumed the ids were.
  *
- * Delivery app (quickcommerce_delivery, com.quickcommerce.delivery):
- *   'new_orders_v2' — Importance.max, full-screen incoming order alerts, and
- *   the sound is set on the channel (raw/neworder.mp3). From Android 8 the
+ * Delivery app (maava_delivery, com.maava.delivery):
+ *   'new_orders_v3' — Importance.max, full-screen incoming order alerts, and
+ *   the sound is set on the channel (raw/neworder_ring.mp4). From Android 8 the
  *   channel owns the sound, so the per-message `sound` below only affects
- *   older devices.
+ *   older devices — and a channel's sound is frozen at creation, so swapping
+ *   the ringtone means a new id here AND in the app's NewOrderNotifier
+ *   .CHANNEL_ID / fcm_service._newOrdersChannelId, which must all match.
  *   The app also still registers the previous 'incoming_orders_channel_v3', so
  *   this id can change on either side independently; that legacy channel is
  *   due for removal from the app once this is deployed.
@@ -61,7 +63,7 @@ const MAX_TOKENS_PER_PLATFORM = 3;
  */
 const NEW_ORDER_TTL_SECONDS = Number(process.env.FCM_NEW_ORDER_TTL_SECONDS) || 60;
 
-const NEW_ORDER_CHANNEL_ID = process.env.FCM_NEW_ORDER_CHANNEL_ID || 'new_orders_v2';
+const NEW_ORDER_CHANNEL_ID = process.env.FCM_NEW_ORDER_CHANNEL_ID || 'new_orders_v3';
 const DEFAULT_CHANNEL_ID = process.env.FCM_DEFAULT_CHANNEL_ID || 'high_importance_channel';
 
 let cachedAccessToken = null;

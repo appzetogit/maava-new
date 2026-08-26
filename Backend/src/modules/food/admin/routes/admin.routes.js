@@ -118,6 +118,7 @@ router.use('/addons', requireAdminPermission('food_management', 'view'));
 router.use('/foods', requireAdminPermission('food_management', 'view'));
 router.use('/offers', requireAdminPermission('promotions_management', 'view'));
 router.use('/delivery', requireAdminPermission('delivery_management', 'view'));
+router.use('/delivery-cash-limit', requireAdminPermission('delivery_management', 'view'));
 router.use('/withdrawals', requireAdminPermission('transaction_management', 'view'));
 router.use('/reports', requireAdminPermission('report_management', 'view'));
 router.use('/feature-settings', requireAdminPermission('system_settings', 'view'));
@@ -152,6 +153,7 @@ router.get(
 );
 router.get('/customers/:id', adminController.getCustomerById);
 router.patch('/customers/:id/status', adminController.updateCustomerStatus);
+router.patch('/customers/:id/cod', adminController.updateCustomerCodAccess);
 
 // ----- Safety / Emergency Reports -----
 router.get('/safety-emergency-reports', adminController.getSafetyEmergencyReports);

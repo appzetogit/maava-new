@@ -18,6 +18,17 @@ const feeSettingsSchema = new mongoose.Schema(
         deliveryFee: { type: Number, min: 0 },
         deliveryFeeRanges: { type: [deliveryFeeRangeSchema], default: [] },
         platformFee: { type: Number, min: 0 },
+        /** Order value at or above which delivery is free. Null means the
+         *  shop does not run the offer, and the app hides the progress bar
+         *  rather than inventing a target. The fee table itself is
+         *  distance-banded, so this is a separate, order-value rule. */
+        freeDeliveryThreshold: { type: Number, min: 0, default: null },
+        /**
+         * Tip amounts offered on the cart's "Tip your delivery partner" card,
+         * in display order. Empty means the app falls back to its own defaults,
+         * so an unconfigured store still shows a working tip card.
+         */
+        tipPresets: { type: [Number], default: [] },
         quickDeliveryFee: { type: Number, min: 0 },
         gstRate: { type: Number, min: 0, max: 100 },
         /**

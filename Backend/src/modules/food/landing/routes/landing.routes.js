@@ -70,6 +70,13 @@ import {
 } from '../controllers/top10GourmetAdmin.controller.js';
 import { getPublicPageController } from '../../admin/controllers/pageContent.controller.js';
 import { getPublicReferralSettingsController } from '../controllers/publicReferralSettings.controller.js';
+import {
+    getPublicMartSaleCampaignController,
+    listMartSaleCampaignsController,
+    createMartSaleCampaignController,
+    updateMartSaleCampaignController,
+    deleteMartSaleCampaignController
+} from '../controllers/martSaleCampaign.controller.js';
 
 const router = express.Router();
 
@@ -89,7 +96,14 @@ const router = express.Router();
  * actually owns, and fall straight through for everything else, or it locks the whole
  * customer app out with 403.
  */
-const LANDING_MANAGED_PREFIXES = [/^\/hero-banners/, /^\/top-banners/];
+/**
+ * `mart-sale-campaigns` is PLURAL on purpose: it matches only the admin CRUD
+ * routes, while the app's read sits at the singular `/mart-sale-campaign/public`
+ * and stays open. Without this entry the create/update/delete routes were
+ * reachable with no token at all, so anyone could repaint or delete the Mart
+ * category themes.
+ */
+const LANDING_MANAGED_PREFIXES = [/^\/hero-banners/, /^\/top-banners/, /^\/mart-sale-campaigns/];
 
 const requireAdminForLandingWrites = (req, res, next) => {
     if (req.method === 'OPTIONS') return next();
@@ -193,6 +207,16 @@ router.patch('/hero-banners/gourmet/:id/order', updateGourmetOrderAdmin);
 router.patch('/hero-banners/gourmet/:id/status', toggleGourmetStatusAdmin);
 
 // Public landing endpoints (Food user app)
+// Mart promotional campaign ("Housefull Sale"). The /public suffix is what the
+// allowlist above keys on, so this read needs no admin token.
+router.get('/mart-sale-campaign/public', getPublicMartSaleCampaignController);
+
+// Admin CRUD for the same campaigns.
+router.get('/mart-sale-campaigns', listMartSaleCampaignsController);
+router.post('/mart-sale-campaigns', createMartSaleCampaignController);
+router.patch('/mart-sale-campaigns/:id', updateMartSaleCampaignController);
+router.delete('/mart-sale-campaigns/:id', deleteMartSaleCampaignController);
+
 router.get('/hero-banners/public', getPublicHeroBannersController);
 router.get('/top-banners/public', getPublicTopBannersController);
 router.get('/hero-banners/under-250/public', getPublicUnder250BannersController);

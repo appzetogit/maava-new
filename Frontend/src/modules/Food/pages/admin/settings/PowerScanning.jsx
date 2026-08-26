@@ -8,6 +8,7 @@ const MODULES = [
   { key: "user", label: "User Module", fallbackColor: "#FA0272" },
   { key: "restaurant", label: "Restaurant Module", fallbackColor: "#2563EB" },
   { key: "delivery", label: "Delivery Module", fallbackColor: "#00B761" },
+  { key: "mart", label: "Mart Module (Quick Commerce)", fallbackColor: "#068483" },
 ];
 
 const FONT_OPTIONS = [
@@ -274,7 +275,7 @@ export default function PowerScanning() {
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Power Scanning</h1>
-        <p className="text-sm text-gray-500 mt-1">Set module-wise theme color and font for User, Restaurant, and Delivery apps.</p>
+        <p className="text-sm text-gray-500 mt-1">Set module-wise theme color and font for the User, Restaurant, Delivery and Mart apps.</p>
       </div>
 
       {MODULES.map((module) => {

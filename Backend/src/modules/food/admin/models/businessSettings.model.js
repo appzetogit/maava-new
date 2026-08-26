@@ -3,8 +3,8 @@ import { verticalPlugin } from '../../../../core/vertical/verticalScope.js';
 
 const businessSettingsSchema = new mongoose.Schema(
     {
-        companyName: { type: String, required: true, default: 'Maava' },
-        email: { type: String, required: true, default: 'admin@maava.in' },
+        companyName: { type: String, required: true, default: 'Switcheats' },
+        email: { type: String, required: true, default: 'admin@switcheats.com' },
         phone: {
             countryCode: { type: String, default: '+91' },
             number: { type: String, default: '' }
@@ -49,9 +49,33 @@ const businessSettingsSchema = new mongoose.Schema(
             delivery: {
                 themeColor: { type: String, default: '#00B761' },
                 fontFamily: { type: String, default: 'Poppins' }
+            },
+            /** Mart (quick-commerce) section of the customer app. */
+            mart: {
+                themeColor: { type: String, default: '#068483' },
+                fontFamily: { type: String, default: 'Poppins' }
             }
         },
         orderAcceptanceTimeMinutes: { type: Number, default: 4, min: 1, max: 20 },
+        /**
+         * Reasons a seller may pick from when rejecting an order.
+         *
+         * Editable here rather than built into the apps so the list can change
+         * without a release. Vertical-scoped like the rest of this document, so
+         * Food and Mart keep separate lists. An empty array is respected -- the
+         * apps fall back to a free-text reason -- but the seller is always
+         * offered "Other reason" regardless of what is stored here.
+         */
+        restaurantRejectionReasons: {
+            type: [String],
+            default: [
+                'Restaurant is too busy',
+                'Item not available',
+                'Outside delivery area',
+                'Kitchen closing soon',
+                'Technical issue',
+            ],
+        },
         /**
          * Google Maps browser key, set once here instead of baked into each
          * build's environment.

@@ -299,7 +299,14 @@ export const searchProducts = async (query = {}) => {
         productFilter.$or = [{ name: { $regex: regex } }, { brand: { $regex: regex } }];
     }
     if (categoryId && mongoose.Types.ObjectId.isValid(categoryId)) {
-        productFilter.categoryId = new mongoose.Types.ObjectId(categoryId);
+        // A category means the whole branch, not just its own row.
+        //
+        // Products are assigned to whichever level the admin picked, so a
+        // parent that has been subdivided held nothing of its own and its
+        // screen came back empty. This matches `itemCount`, which already rolls
+        // children up - the badge said "11 products" while the listing showed
+        // none, which is the pair of behaviours disagreeing.
+        productFilter.categoryId = { $in: await categoryBranchIds(categoryId) };
     }
     if (isVeg === 'true' || isVeg === true) {
         productFilter.foodType = 'Veg';
@@ -402,6 +409,17 @@ export const searchProducts = async (query = {}) => {
 /**
  * Fetch Admin-only categories
  */
+/**
+ * A category id plus every category beneath it, for filtering products by a
+ * whole branch. One level of children is all the tree has today; the query is
+ * written so a deeper tree would need only a loop here, not new call sites.
+ */
+const categoryBranchIds = async (categoryId) => {
+    const root = new mongoose.Types.ObjectId(categoryId);
+    const children = await FoodCategory.find({ parentId: root }).select('_id').lean();
+    return [root, ...children.map((c) => c._id)];
+};
+
 export const getAdminCategories = async (query = {}) => {
     const filter = {
         isActive: true,
@@ -422,5 +440,66 @@ export const getAdminCategories = async (query = {}) => {
     }
 
     const categories = await FoodCategory.find(filter).sort({ sortOrder: 1, name: 1 }).lean();
-    return categories;
+    return attachItemCounts(categories, query.zoneId);
+};
+
+/**
+ * Stamp each category with how many sellable products it actually holds.
+ *
+ * The apps want to show "+N more" on a category tile. Without a real number the
+ * only options are inventing one or dropping the badge, so the count comes from
+ * the catalogue itself.
+ *
+ * A parent's count INCLUDES its children's: products are assigned to whichever
+ * level the admin picked, and a shopper reading "Vegetables & Fruits" means the
+ * whole branch. Counting only direct hits made freshly-subdivided categories
+ * read as empty.
+ *
+ * One aggregation for every category rather than a query each — this endpoint
+ * returns ~160 rows, and it is cached for 30 minutes on top.
+ */
+const attachItemCounts = async (categories, zoneId) => {
+    if (!categories.length) return categories;
+
+    // Exactly what the product listing can show: approved items belonging to an
+    // approved seller. Counting every FoodItem regardless of its seller made
+    // the badge claim more than the category could ever display -- 'Fruits &
+    // Vegetables' advertised 11 while the listing had 5.
+    // Same seller set the product listing uses, INCLUDING its zone filter --
+    // a shopper in Hyderabad must not see an Indore category's stock counted.
+    const sellerFilter = { status: 'approved' };
+    if (zoneId && mongoose.Types.ObjectId.isValid(zoneId)) {
+        sellerFilter.zoneId = new mongoose.Types.ObjectId(zoneId);
+    }
+    const sellers = await FoodRestaurant.find(sellerFilter).select('_id').lean();
+    if (!sellers.length) return categories.map((c) => ({ ...c, itemCount: 0 }));
+
+    const rows = await FoodItem.aggregate([
+        {
+            $match: {
+                categoryId: { $in: categories.map((c) => c._id) },
+                restaurantId: { $in: sellers.map((s) => s._id) },
+                approvalStatus: 'approved'
+            }
+        },
+        { $group: { _id: '$categoryId', count: { $sum: 1 } } }
+    ]);
+
+    const direct = new Map(rows.map((r) => [String(r._id), r.count]));
+    const childrenOf = new Map();
+    for (const cat of categories) {
+        if (!cat.parentId) continue;
+        const key = String(cat.parentId);
+        childrenOf.set(key, [...(childrenOf.get(key) || []), String(cat._id)]);
+    }
+
+    return categories.map((cat) => {
+        const id = String(cat._id);
+        const own = direct.get(id) || 0;
+        const fromChildren = (childrenOf.get(id) || []).reduce(
+            (sum, childId) => sum + (direct.get(childId) || 0),
+            0
+        );
+        return { ...cat, itemCount: own + fromChildren };
+    });
 };

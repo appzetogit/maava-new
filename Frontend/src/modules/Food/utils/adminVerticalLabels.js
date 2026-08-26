@@ -50,6 +50,33 @@ export const verticalLabel = (label, vertical) => {
 };
 
 /**
+ * Page-body vocabulary, for headings and counts inside a page.
+ *
+ * Separate from `verticalLabel` because it maps the other way. The sidebar menu
+ * is authored in quick-commerce wording and renamed for food; the pages were
+ * written for the food app and say "Restaurants List" everywhere, so they need
+ * renaming for quick instead. Feeding page strings through the sidebar map
+ * would leave them untouched, which is exactly the mismatch this fixes: the
+ * sidebar said "Sellers" while the page it opened said "Restaurants List".
+ *
+ * Nouns rather than whole sentences, so a page composes its own wording and one
+ * entry serves every heading, empty state and count that mentions the thing.
+ */
+const NOUNS = {
+    food: {
+        One: 'Restaurant', Many: 'Restaurants', one: 'restaurant', many: 'restaurants',
+        ItemOne: 'Food', ItemMany: 'Foods', itemOne: 'food', itemMany: 'foods',
+    },
+    quick: {
+        One: 'Seller', Many: 'Sellers', one: 'seller', many: 'sellers',
+        ItemOne: 'Product', ItemMany: 'Products', itemOne: 'product', itemMany: 'products',
+    },
+};
+
+/** Falls back to food wording, matching config.defaultVertical on the server. */
+export const verticalNouns = (vertical) => NOUNS[vertical] || NOUNS.food;
+
+/**
  * Sections that exist for one vertical only.
  *
  * Dining is a restaurant concept -- a grocery store has no tables. Anything not

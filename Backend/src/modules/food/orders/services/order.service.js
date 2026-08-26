@@ -74,6 +74,41 @@ let commissionRulesCache = null;
 let commissionRulesLoadedAt = 0;
 const ORDER_ACCEPTANCE_WINDOW_SECONDS = 240;
 
+/**
+ * How long after placing an order the customer may still cancel it themselves.
+ * The apps mirror this value to draw their countdown; this constant is the one
+ * that actually decides, so change it here.
+ */
+export const CANCELLATION_WINDOW_MS = 60_000;
+
+/**
+ * Whether an order placed at [createdAt] may still be cancelled at [now].
+ *
+ * An order with no createdAt is allowed through rather than blocked: the status
+ * check upstream is what actually guards it, and refusing on a missing
+ * timestamp would strand legacy rows nobody can cancel.
+ */
+export const isWithinCancellationWindow = (createdAt, now = Date.now()) => {
+    const placedAtMs = createdAt?.getTime?.() ?? Date.parse(createdAt ?? '');
+    if (!Number.isFinite(placedAtMs)) return true;
+    return now - placedAtMs <= CANCELLATION_WINDOW_MS;
+};
+
+/**
+ * Seconds win over minutes when set.
+ *
+ * The minutes field rounds to whole minutes, so a window like 100s could not be
+ * configured at all. Operators who only have the minutes value keep working
+ * exactly as before.
+ */
+function normalizeAcceptanceWindowFromSettings(settings) {
+  const seconds = Number(settings?.orderAcceptanceTimeSeconds);
+  if (Number.isFinite(seconds) && seconds >= 10 && seconds <= 1200) {
+    return Math.round(seconds);
+  }
+  return normalizeAcceptanceWindowSeconds(settings?.orderAcceptanceTimeMinutes);
+}
+
 function normalizeAcceptanceWindowSeconds(minutes) {
   const numeric = Number(minutes);
   if (!Number.isFinite(numeric)) return ORDER_ACCEPTANCE_WINDOW_SECONDS;
@@ -85,9 +120,9 @@ function normalizeAcceptanceWindowSeconds(minutes) {
 async function getOrderAcceptanceWindowSeconds() {
   try {
     const settings = await FoodBusinessSettings.findOne()
-      .select('orderAcceptanceTimeMinutes')
+      .select('orderAcceptanceTimeMinutes orderAcceptanceTimeSeconds')
       .lean();
-    return normalizeAcceptanceWindowSeconds(settings?.orderAcceptanceTimeMinutes);
+    return normalizeAcceptanceWindowFromSettings(settings);
   } catch (err) {
     logger.warn(`Failed to load order acceptance setting: ${err?.message || err}`);
     return ORDER_ACCEPTANCE_WINDOW_SECONDS;
@@ -512,6 +547,19 @@ export async function createOrder(userId, dto) {
       throw new ValidationError("Cash on Delivery is no longer available. Please pay online.");
     }
     const isCash = paymentMethod === "cash";
+    // Per-account COD switch (Admin -> COD Access). Checked server-side because
+    // the app only HIDES the option: an older build, or a crafted request, can
+    // still ask for cash. Read fresh rather than trusting the JWT, so revoking
+    // COD takes effect on the customer's very next order instead of after they
+    // sign in again.
+    if (isCash) {
+      const buyer = await FoodUser.findById(userId).select("codEnabled").lean();
+      if (buyer && buyer.codEnabled === false) {
+        throw new ValidationError(
+          "Cash on Delivery is not available on your account. Please pay online.",
+        );
+      }
+    }
     const isWallet = paymentMethod === "wallet";
 
     const pricingResult = await calculateOrderPricing(
@@ -522,6 +570,10 @@ export async function createOrder(userId, dto) {
         deliveryAddress,
         couponCode: dto.pricing?.couponCode || undefined,
         deliveryMode: dto.deliveryMode || "basic",
+        // Without this the tip is validated, stored on the DTO, and then
+        // silently dropped: the bill is recomputed here, so a tip missing
+        // from this object is a tip missing from total and rider payout.
+        deliveryTip: dto.deliveryTip,
       },
       { at: orderAt, restaurant, skipAvailabilityCheck: true },
     );
@@ -540,6 +592,11 @@ export async function createOrder(userId, dto) {
           ? "quick"
           : "basic",
       discount: Number(pricingResult.pricing?.discount) || 0,
+      // Taken from the priced result, never from the raw dto: the client sends
+      // a tip but the service is what clamps it, and reading dto here would
+      // put an unclamped number on the order while the total used the clamped
+      // one.
+      deliveryTip: Number(pricingResult.pricing?.deliveryTip) || 0,
       couponCode: pricingResult.pricing?.couponCode
         ? String(pricingResult.pricing.couponCode).trim().toUpperCase()
         : null,
@@ -588,7 +645,12 @@ export async function createOrder(userId, dto) {
     }
 
     const feeSettings = await loadActiveFeeSettings();
-    const riderEarning = calculateRiderEarning(feeSettings, distanceKm) || 0;
+    // The tip is folded into riderEarning rather than tracked beside it, so
+    // every existing consumer -- the wallet credit, the earnings totals, the
+    // trip history, the admin rider reports -- pays it out without knowing
+    // tips exist. pricing.deliveryTip keeps it separately auditable.
+    const riderEarning =
+      (calculateRiderEarning(feeSettings, distanceKm) || 0) + normalizedPricing.deliveryTip;
     
     // Calculate restaurant commission from subtotal
     let restaurantCommission = 0;
@@ -603,6 +665,18 @@ export async function createOrder(userId, dto) {
     }
 
     normalizedPricing.restaurantCommission = restaurantCommission;
+    // The same arithmetic foodTransaction.service.js settles on, recorded on the
+    // order itself so every reader agrees. Tip-free by construction: the tip is
+    // the rider's and never passes through the restaurant's side of the ledger.
+    normalizedPricing.restaurantPayable = Math.max(
+      0,
+      Math.round(
+        ((Number(normalizedPricing.subtotal) || 0) +
+          (Number(normalizedPricing.packagingFee) || 0) -
+          restaurantCommission) *
+          100,
+      ) / 100,
+    );
 
     // Provisional value; synced to the transaction's platformNetProfit (which also
     // accounts for the admin discount share) once the initial transaction is created.
@@ -1410,6 +1484,17 @@ export async function cancelOrder(orderId, userId, reason) {
   if (!allowed.includes(order.orderStatus))
     throw new ValidationError("Order cannot be cancelled");
 
+  // Authoritative cancellation window. The apps render a countdown from the same
+  // createdAt, but that is only a courtesy -- the window is decided here, off the
+  // server's own clock, so a direct API call or a device with a wrong time
+  // cannot cancel late. Slow networks fail closed for the same reason: a request
+  // that leaves in time but lands after the window is refused.
+  if (!isWithinCancellationWindow(order.createdAt)) {
+    throw new ValidationError(
+      "The 1-minute cancellation window for this order has passed",
+    );
+  }
+
   const from = order.orderStatus;
   order.orderStatus = "cancelled_by_user";
   pushStatusHistory(order, {
@@ -1772,6 +1857,7 @@ export async function updateOrderStatusRestaurant(
   restaurantId,
   orderStatus,
   note = "",
+  packingMinutes = undefined,
 ) {
   await expireUnacceptedOrders({
     restaurantId: new mongoose.Types.ObjectId(restaurantId),
@@ -1805,6 +1891,19 @@ export async function updateOrderStatusRestaurant(
     throw new ValidationError(
       `Current order status '${from}' is further ahead than '${orderStatus}'. Order cannot be moved backwards.`
     );
+  }
+
+  // The kitchen's own estimate, chosen on the order card as it accepts.
+  // Recorded on the order so the customer's ETA reflects what the restaurant
+  // actually committed to rather than the global default. Only on acceptance:
+  // re-quoting prep time while marking an order delivered is meaningless.
+  if (
+    Number.isFinite(Number(packingMinutes)) &&
+    (targetStatus === "confirmed" || targetStatus === "preparing")
+  ) {
+    order.pricing = order.pricing || {};
+    order.pricing.packingMinutes = Number(packingMinutes);
+    order.markModified("pricing");
   }
 
   order.orderStatus = orderStatus;

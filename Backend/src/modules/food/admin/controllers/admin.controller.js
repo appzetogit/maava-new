@@ -57,6 +57,28 @@ export async function updateCustomerStatus(req, res, next) {
     }
 }
 
+export async function updateCustomerCodAccess(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid customer id' });
+        }
+        const codEnabled = req.body?.codEnabled;
+        if (typeof codEnabled !== 'boolean') {
+            return res.status(400).json({ success: false, message: 'codEnabled must be true or false' });
+        }
+        const updated = await adminService.updateCustomerCodAccess(id, codEnabled);
+        if (!updated) return res.status(404).json({ success: false, message: 'Customer not found' });
+        res.status(200).json({
+            success: true,
+            message: codEnabled ? 'Cash on Delivery enabled for this customer' : 'Cash on Delivery disabled for this customer',
+            data: { user: updated, customer: updated },
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
 // ----- Safety / Emergency Reports -----
 export async function getSafetyEmergencyReports(req, res, next) {
     try {

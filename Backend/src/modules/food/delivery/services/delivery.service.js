@@ -7,6 +7,7 @@ import { FoodOrder } from '../../orders/models/order.model.js';
 import { uploadImageBuffer } from '../../../../services/cloudinary.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { getDeliveryCashLimitSettings } from '../../admin/services/admin.service.js';
+import { checkWalletMinimum } from './deliveryFinance.service.js';
 import { upsertFirebaseDeviceToken } from '../../../../core/notifications/firebase.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { collectDynamicRegistration } from './driverRegistrationField.service.js';
@@ -26,10 +27,10 @@ const savePartnerFcmToken = async (partnerId, fcmToken, platform) => {
 };
 
 export const registerDeliveryPartner = async (payload, files, rawBody = {}) => {
-    const { 
-        name, phone, email, countryCode, address, city, state, 
+    const {
+        name, phone, email, countryCode, address, city, state,
         vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
-        fcmToken, platform 
+        serviceType, fcmToken, platform
     } = payload;
     const refRaw = typeof payload?.ref === 'string' ? String(payload.ref).trim() : '';
 
@@ -144,6 +145,7 @@ export const registerDeliveryPartner = async (payload, files, rawBody = {}) => {
         drivingLicenseNumber,
         panNumber,
         aadharNumber,
+        serviceType: serviceType || 'both',
         status: 'pending',
         ...images,
         ...(Object.keys(customFields).length ? { customFields } : {}),
@@ -198,8 +200,10 @@ export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
     const {
         name, countryCode, address, city, state,
         vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
-        fcmToken, platform
+        serviceType, fcmToken, platform
     } = payload;
+
+    if (serviceType !== undefined) partner.serviceType = serviceType;
 
     if (name) partner.name = name;
     if (countryCode !== undefined) partner.countryCode = countryCode;
@@ -420,7 +424,23 @@ export const updateDeliveryAvailability = async (userId, payload) => {
     if (rawStatus === 'online' || rawStatus === true || rawStatus === 'true') validStatus = 'online';
     else if (rawStatus === 'offline' || rawStatus === false || rawStatus === 'false') validStatus = 'offline';
 
+    // The admin's minimum wallet balance is enforced here too, not just in
+    // dispatch: without this a rider under the floor can flip themselves online
+    // and sit in the candidate pool looking available. The threshold comes from
+    // the admin setting (0 = rule off) — never from the app.
+    let walletGate = null;
+    if (validStatus === 'online') {
+        const gate = await checkWalletMinimum(userId);
+        if (gate.blocked) {
+            validStatus = 'offline';
+            walletGate = gate;
+        }
+    }
+
     partner.availabilityStatus = validStatus;
+    // Location is still recorded on a refused request. The rider is offline,
+    // not gone, and a stale last-fix would keep them out of dispatch for a
+    // while even after they top up.
     if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
         partner.lastLocation = {
             type: 'Point',
@@ -431,7 +451,18 @@ export const updateDeliveryAvailability = async (userId, payload) => {
         partner.lastLocationAt = new Date();
     }
     await partner.save();
-    return { availabilityStatus: partner.availabilityStatus };
+    if (!walletGate) return { availabilityStatus: partner.availabilityStatus };
+
+    return {
+        availabilityStatus: partner.availabilityStatus,
+        walletBlocked: true,
+        minWalletBalanceForOrders: walletGate.minimum,
+        walletBalance: walletGate.balance,
+        message:
+            `Your wallet balance is Rs.${Math.floor(walletGate.balance || 0)}. ` +
+            `You need at least Rs.${walletGate.minimum} to go online and receive new orders. ` +
+            'Top up your wallet to continue.'
+    };
 };
 
 // ----- Delivery partner wallet (Pocket / requests page) -----
@@ -563,6 +594,32 @@ export const getDeliveryPartnerWallet = async (deliveryPartnerId) => {
 };
 
 // ----- Delivery partner earnings summary (Pocket / requests page) -----
+/**
+ * Folds the per-vertical aggregation rows into Food/Mart buckets plus totals.
+ *
+ * Anything that is not explicitly 'quick' counts as Food -- including the null
+ * bucket for pre-merge orders -- so a stray vertical value can never silently
+ * vanish from the totals. The totals are derived from the buckets rather than
+ * summed separately, which is what guarantees total === food + mart for every
+ * input the rider app can ever be shown.
+ */
+export const summarizeEarningsByVertical = (rows = []) => {
+    const byVertical = {
+        food: { earnings: 0, orders: 0 },
+        quick: { earnings: 0, orders: 0 }
+    };
+    for (const row of rows || []) {
+        const bucket = row?._id === 'quick' ? byVertical.quick : byVertical.food;
+        bucket.earnings += Number(row?.earnings) || 0;
+        bucket.orders += Number(row?.orders) || 0;
+    }
+    return {
+        byVertical,
+        totalEarnings: byVertical.food.earnings + byVertical.quick.earnings,
+        totalOrders: byVertical.food.orders + byVertical.quick.orders
+    };
+};
+
 export const getDeliveryPartnerEarnings = async (deliveryPartnerId, query = {}) => {
     if (!deliveryPartnerId || !mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
         throw new ValidationError('Delivery partner not found');
@@ -596,25 +653,39 @@ export const getDeliveryPartnerEarnings = async (deliveryPartnerId, query = {}) 
         match['deliveryState.deliveredAt'] = { $gte: range.start, $lte: range.end };
     }
 
-    const [totalOrders, agg] = await Promise.all([
-        FoodOrder.countDocuments(match),
-        FoodOrder.aggregate([
-            { $match: match },
-            {
-                $group: {
-                    _id: null,
-                    totalEarnings: { $sum: { $ifNull: ['$riderEarning', 0] } }
-                }
+    // Grouped by vertical so the rider app can show Food and Mart separately.
+    // The counts come from the same pipeline rather than a second
+    // countDocuments, which is what keeps the split and the total consistent by
+    // construction: the total is literally food + quick, never an independently
+    // computed number that could disagree with its own parts.
+    //
+    // Delivery routes run CROSS_VERTICAL and the vertical plugin does not touch
+    // aggregations, so both verticals are present here.
+    const agg = await FoodOrder.aggregate([
+        { $match: match },
+        {
+            $group: {
+                // Orders predating the vertical field are Food -- that is the
+                // same assumption orderSourceTitle() makes for their push title.
+                _id: { $ifNull: ['$vertical', 'food'] },
+                earnings: { $sum: { $ifNull: ['$riderEarning', 0] } },
+                orders: { $sum: 1 }
             }
-        ])
+        }
     ]);
 
-    const totalEarnings = Number(agg?.[0]?.totalEarnings) || 0;
+    const { byVertical, totalEarnings, totalOrders } = summarizeEarningsByVertical(agg);
 
-    // Frontend only strongly relies on totalEarnings + totalOrders.
+    // totalEarnings/totalOrders keep their existing meaning and position so
+    // older app builds are unaffected; byVertical is additive.
     const summary = {
         totalEarnings,
         totalOrders,
+        foodEarnings: byVertical.food.earnings,
+        martEarnings: byVertical.quick.earnings,
+        foodOrders: byVertical.food.orders,
+        martOrders: byVertical.quick.orders,
+        byVertical,
         totalHours: 0,
         totalMinutes: 0,
         orderEarning: totalEarnings,
@@ -722,6 +793,9 @@ const toTripDto = (order) => {
         id: order?._id,
         _id: order?._id,
         orderId: order?.orderId || order?._id,
+        // Lets each row in trip history and the wallet ledger say which brand it
+        // came from. Absent on pre-merge orders, which were all Food.
+        vertical: order?.vertical === 'quick' ? 'quick' : 'food',
         status,
         restaurantName,
         restaurant: restaurantName,

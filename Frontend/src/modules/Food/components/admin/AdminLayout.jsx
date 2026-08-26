@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react"
 import { Outlet, useLocation } from "react-router-dom"
 import AdminSidebar from "./AdminSidebar"
 import AdminNavbar from "./AdminNavbar"
+import AdminPageErrorBoundary from "./AdminPageErrorBoundary"
 import { API_BASE_URL } from "@food/api/config"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -91,7 +92,11 @@ export default function AdminLayout() {
           ref={mainContentRef}
           className="flex-1 min-h-0 w-full max-w-full overflow-x-hidden overflow-y-auto bg-neutral-100"
         >
-          <Outlet />
+          {/* Keyed on the path so navigating away from a crashed page clears
+              the error instead of leaving the fallback stuck on screen. */}
+          <AdminPageErrorBoundary key={location.pathname}>
+            <Outlet />
+          </AdminPageErrorBoundary>
         </main>
       </div>
     </div>

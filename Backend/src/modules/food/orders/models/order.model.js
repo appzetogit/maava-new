@@ -91,6 +91,23 @@ const pricingSchema = new mongoose.Schema(
         platformFee: { type: Number, default: 0, min: 0 },
         /** Extra surcharge when user selects Quick Mode (also included in platformFee). */
         quickDeliveryFee: { type: Number, default: 0, min: 0 },
+        /**
+         * Rider tip, carried over from the legacy maava orders.
+         *
+         * Storage only -- nothing in this codebase charges, collects or pays
+         * out a tip. It exists so migrated orders keep a `total` its own parts
+         * add up to; 18 legacy orders carry ₹530 between them. Wiring up
+         * tipping (checkout, rider payout, refund on cancellation) is a
+         * separate piece of work.
+         */
+        deliveryTip: { type: Number, default: 0, min: 0 },
+        /**
+         * What the restaurant actually earns on this order: their goods and
+         * packaging, less commission. Deliberately excludes delivery fee, tax,
+         * platform fee and the delivery tip — none of that is theirs. Stored so
+         * the seller app has a figure to show instead of the customer total.
+         */
+        restaurantPayable: { type: Number, default: 0, min: 0 },
         deliveryMode: { type: String, enum: ['basic', 'quick'], default: 'basic' },
         restaurantCommission: { type: Number, default: 0, min: 0 },
         discount: { type: Number, default: 0, min: 0 },
@@ -339,6 +356,14 @@ const orderSchema = new mongoose.Schema(
             ],
             default: 'created'
         },
+        /**
+          * Why the order was cancelled, in the words of whoever cancelled it.
+          *
+          * Denormalised from statusHistory deliberately: it is read on every
+          * order view and by three different apps, and re-scanning the history
+          * in each of them is how it ended up missing from most of them.
+          */
+        cancellationReason: { type: String, default: '', trim: true },
         dispatch: {
             type: dispatchSchema,
             default: () => ({})

@@ -94,8 +94,13 @@ router.use('/v1/quick', withVertical('quick'), verticalScopedRoutes);
 router.use('/v1/auth', authRoutes);
 router.use('/v1/uploads', uploadRoutes);
 router.use('/v1/payments/webhook', webhookRoutes); // ✅ NEW: Public Webhook
-router.use('/v1/fcm-tokens', fcmRoutes);
-router.use('/fcm-tokens', fcmRoutes);
+// withAllVerticals: authMiddleware resolves a RESTAURANT token through the
+// vertical-scoped FoodRestaurant model. Mounted bare, these run in the default
+// vertical (food), so a quick seller is invisible and every token save 401s —
+// leaving the backend pushing to a token that no longer exists while FCM still
+// reports success. The id is globally unique, so scoping buys nothing here.
+router.use('/v1/fcm-tokens', withAllVerticals(), fcmRoutes);
+router.use('/fcm-tokens', withAllVerticals(), fcmRoutes);
 
 router.get('/v1/admin/queues', authMiddleware, requireRoles('ADMIN'), getQueuesController);
 

@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { FoodOrder } from '../models/order.model.js';
+import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { logger } from '../../../../utils/logger.js';
 import { haversineKm as geoHaversineKm, parseGeoPoint } from '../../shared/geo.utils.js';
 import {
@@ -177,6 +178,16 @@ export function pushStatusHistory(order, { byRole, byId, from, to, note = "" }) 
     to,
     note,
   });
+
+  // A cancellation's note IS its reason, and it is the one thing about a
+  // cancelled order that has to be answerable afterwards -- by the customer,
+  // the admin panel and the seller's own history. Lifted onto the order here,
+  // at the single point every status change passes through, so no read path
+  // has to go digging through statusHistory to find it.
+  const reason = String(note || "").trim();
+  if (reason && String(to || "").toLowerCase().includes("cancel")) {
+    order.cancellationReason = reason;
+  }
 }
 
 export function normalizeOrderForClient(orderDoc) {
@@ -262,7 +273,13 @@ export const DEFAULT_PACKING_MINUTES = Number(process.env.PACKING_MINUTES) || 3;
  * price and gstRate are already snapshotted on the line items.
  */
 export const packingMinutesForOrder = (order) => {
-  const quoted = Number(order?.pricing?.packingMinutes);
+  const raw = order?.pricing?.packingMinutes;
+  // null/undefined/'' must reach the fallback. Number(null) is 0 and
+  // Number('') is 0, both of which pass a plain isFinite check -- so testing
+  // the number alone quotes zero packing time for every order that never had
+  // one set, which is most of them.
+  if (raw === null || raw === undefined || raw === '') return DEFAULT_PACKING_MINUTES;
+  const quoted = Number(raw);
   return Number.isFinite(quoted) && quoted >= 0 ? quoted : DEFAULT_PACKING_MINUTES;
 };
 
@@ -444,6 +461,8 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
     orderMongoId:
       orderDoc?._id?.toString?.() || order?._id?.toString?.() || order?._id,
     orderId: order?.order_id || order?._id?.toString?.(),
+    // 'food' | 'quick' — lets the rider app label the job Food vs Mart.
+    vertical: order?.vertical,
     status: orderDoc?.orderStatus || order?.orderStatus,
     items: order?.items || [],
     pricing: order?.pricing,
@@ -514,6 +533,15 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
     deliveryInstructions: order?.deliveryInstructions || "",
     riderEarning: order?.riderEarning || 0,
     earnings: order?.riderEarning || order?.pricing?.deliveryFee || 0,
+    // riderEarning is base + tip, which is what the rider is owed but not what
+    // they can make sense of. Broken out so the app can show "Delivery Tip"
+    // as its own line rather than folding it invisibly into the total.
+    deliveryTip: Number(order?.pricing?.deliveryTip) || 0,
+    riderBaseEarning: Math.max(
+      0,
+      (Number(order?.riderEarning) || 0) -
+        (Number(order?.pricing?.deliveryTip) || 0),
+    ),
     deliveryFee: order?.pricing?.deliveryFee || 0,
     deliveryFleet: order?.deliveryFleet,
     dispatch: order?.dispatch,
@@ -581,6 +609,23 @@ export async function notifyRestaurantNewOrder(orderDoc) {
           .join(", ")
       : "";
     const total = orderDoc.pricing?.total ?? 0;
+
+    // Coordinates for the card's route tile. parseGeoPoint already normalises
+    // the several shapes a location arrives in, so this does not care which one
+    // the document happens to use.
+    let restaurantPoint = parseGeoPoint(orderDoc.restaurantId);
+    if (!restaurantPoint && orderDoc.restaurantId) {
+      // Not populated on this path: fetch the pin rather than lose the map.
+      try {
+        const store = await FoodRestaurant.findById(orderDoc.restaurantId)
+          .select('location')
+          .lean();
+        restaurantPoint = parseGeoPoint(store);
+      } catch (err) {
+        logger.warn(`Could not resolve store point for the order card: ${err?.message || err}`);
+      }
+    }
+    const customerPoint = parseGeoPoint(orderDoc.deliveryAddress);
     
     // Construct rich body for the custom notification layout in Flutter
     let bodyText = `Order #${orderDoc.order_id || orderDoc._id} is waiting for review.`;
@@ -622,6 +667,21 @@ export async function notifyRestaurantNewOrder(orderDoc) {
           address: str(addressStr),
           total: str(total),
           paymentMethod: str(orderDoc.payment?.method),
+          // Both already live on the order; the popup had nothing to show for
+          // preparation time or distance because neither was ever sent.
+          prepMinutes: str(packingMinutesForOrder(orderDoc)),
+          // Store and customer coordinates, for the route tile on the card.
+          // Omitted rather than zeroed when either end is unknown — a
+          // restaurant with no pin set would otherwise map the Gulf of Guinea.
+          storeLat: str(restaurantPoint?.lat ?? ''),
+          storeLng: str(restaurantPoint?.lng ?? ''),
+          customerLat: str(customerPoint?.lat ?? ''),
+          customerLng: str(customerPoint?.lng ?? ''),
+          distanceKm: str(
+            orderDoc.pricing?.roadDistanceKm ??
+              orderDoc.pricing?.distanceKm ??
+              '',
+          ),
           acceptanceDeadlineAt: str(orderDoc.acceptanceDeadlineAt?.toISOString?.() || ""),
         },
       },

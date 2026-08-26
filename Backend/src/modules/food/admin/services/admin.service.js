@@ -27,6 +27,7 @@ import { FeedbackExperience } from '../models/feedbackExperience.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodRefreshToken } from '../../../../core/refreshTokens/refreshToken.model.js';
 import { FoodDeliveryCashLimit } from '../models/deliveryCashLimit.model.js';
+import { computePocketBalance } from '../../delivery/services/walletMath.js';
 import { FoodDeliveryEmergencyHelp } from '../models/deliveryEmergencyHelp.model.js';
 import { FoodReferralSettings } from '../models/referralSettings.model.js';
 import { FoodReferralLog } from '../models/referralLog.model.js';
@@ -1554,7 +1555,7 @@ export async function getCustomers(query = {}) {
                 .sort(sort)
                 .skip(skip)
                 .limit(limit)
-                .select('name email phone countryCode isVerified isActive createdAt profileImage')
+                .select('name email phone countryCode isVerified isActive codEnabled createdAt profileImage')
                 .lean(),
             FoodUser.countDocuments(filter),
         ]);
@@ -1613,6 +1614,9 @@ export async function getCustomers(query = {}) {
         status: u.isActive !== false,
         isActive: u.isActive !== false,
         isVerified: u.isVerified === true,
+        // Missing means allowed: the field was added after these rows existed,
+        // so only an explicit false blocks Cash on Delivery.
+        codEnabled: u.codEnabled !== false,
         totalOrder: stats.totalOrder,
         totalOrderAmount: stats.totalOrderAmount,
         joiningDate: u.createdAt,
@@ -1687,6 +1691,22 @@ export async function updateCustomerStatus(id, isActive) {
         await FoodRefreshToken.deleteMany({ userId: updated._id });
     }
     return updated;
+}
+
+/**
+ * Turn Cash on Delivery on or off for one customer.
+ *
+ * Unlike [updateCustomerStatus] this does not touch refresh tokens -- the
+ * customer stays signed in, they simply lose the cash option at checkout.
+ */
+export async function updateCustomerCodAccess(id, codEnabled) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const updatedDoc = await FoodUser.findByIdAndUpdate(
+        id,
+        { $set: { codEnabled: Boolean(codEnabled) } },
+        { new: true }
+    ).select('name email phone countryCode isVerified isActive codEnabled createdAt profileImage');
+    return updatedDoc ? updatedDoc.toObject() : null;
 }
 
 export async function getSupportTickets(query = {}) {
@@ -2241,6 +2261,14 @@ export async function upsertFeeSettings(body) {
         if (body.gstRate === null) $unset.gstRate = 1;
         else if (body.gstRate !== undefined) $set.gstRate = body.gstRate;
 
+        // Order value at which delivery becomes free. Null clears the offer.
+        if (body.freeDeliveryThreshold === null) $unset.freeDeliveryThreshold = 1;
+        else if (body.freeDeliveryThreshold !== undefined) {
+            $set.freeDeliveryThreshold = body.freeDeliveryThreshold;
+        }
+
+        if (body.tipPresets !== undefined) $set.tipPresets = body.tipPresets;
+
         if (body.isActive !== undefined) $set.isActive = body.isActive;
 
         const update = {};
@@ -2258,8 +2286,12 @@ export async function upsertFeeSettings(body) {
     };
     if (body.deliveryFee !== undefined && body.deliveryFee !== null) payload.deliveryFee = body.deliveryFee;
     if (body.platformFee !== undefined && body.platformFee !== null) payload.platformFee = body.platformFee;
+    if (body.freeDeliveryThreshold !== undefined && body.freeDeliveryThreshold !== null) {
+        payload.freeDeliveryThreshold = body.freeDeliveryThreshold;
+    }
     if (body.quickDeliveryFee !== undefined && body.quickDeliveryFee !== null) payload.quickDeliveryFee = body.quickDeliveryFee;
     if (body.gstRate !== undefined && body.gstRate !== null) payload.gstRate = body.gstRate;
+    if (body.tipPresets !== undefined) payload.tipPresets = body.tipPresets;
 
     console.log('[DEBUG] Creating NEW settings with payload:', JSON.stringify(payload, null, 2));
     const created = await FoodFeeSettings.create(payload);
@@ -2441,10 +2473,11 @@ export async function getContactMessages(query = {}) {
 // ----- Delivery Cash Limit (admin) -----
 export async function getDeliveryCashLimitSettings() {
     const doc = await FoodDeliveryCashLimit.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
-    const settings = doc || { deliveryCashLimit: 0, deliveryWithdrawalLimit: 100, isActive: true };
+    const settings = doc || { deliveryCashLimit: 0, deliveryWithdrawalLimit: 100, minWalletBalanceForOrders: 0, isActive: true };
     return {
         deliveryCashLimit: Number(settings.deliveryCashLimit) || 0,
-        deliveryWithdrawalLimit: Number(settings.deliveryWithdrawalLimit) || 100
+        deliveryWithdrawalLimit: Number(settings.deliveryWithdrawalLimit) || 100,
+        minWalletBalanceForOrders: Number(settings.minWalletBalanceForOrders) || 0
     };
 }
 
@@ -2452,26 +2485,31 @@ export async function upsertDeliveryCashLimitSettings(body = {}) {
     const existing = await FoodDeliveryCashLimit.findOne({ isActive: true }).sort({ createdAt: -1 });
     const nextCashLimit = body.deliveryCashLimit;
     const nextWithdrawalLimit = body.deliveryWithdrawalLimit;
+    const nextMinWalletBalance = body.minWalletBalanceForOrders;
 
     if (existing) {
         if (nextCashLimit !== undefined) existing.deliveryCashLimit = Math.max(0, Number(nextCashLimit) || 0);
         if (nextWithdrawalLimit !== undefined) existing.deliveryWithdrawalLimit = Math.max(0, Number(nextWithdrawalLimit) || 0);
+        if (nextMinWalletBalance !== undefined) existing.minWalletBalanceForOrders = Math.max(0, Number(nextMinWalletBalance) || 0);
         await existing.save();
         return {
             deliveryCashLimit: existing.deliveryCashLimit,
-            deliveryWithdrawalLimit: existing.deliveryWithdrawalLimit
+            deliveryWithdrawalLimit: existing.deliveryWithdrawalLimit,
+            minWalletBalanceForOrders: existing.minWalletBalanceForOrders || 0
         };
     }
 
     const created = await FoodDeliveryCashLimit.create({
         deliveryCashLimit: nextCashLimit !== undefined ? Math.max(0, Number(nextCashLimit) || 0) : 0,
         deliveryWithdrawalLimit: nextWithdrawalLimit !== undefined ? Math.max(0, Number(nextWithdrawalLimit) || 0) : 100,
+        minWalletBalanceForOrders: nextMinWalletBalance !== undefined ? Math.max(0, Number(nextMinWalletBalance) || 0) : 0,
         isActive: true
     });
 
     return {
         deliveryCashLimit: created.deliveryCashLimit,
-        deliveryWithdrawalLimit: created.deliveryWithdrawalLimit
+        deliveryWithdrawalLimit: created.deliveryWithdrawalLimit,
+        minWalletBalanceForOrders: created.minWalletBalanceForOrders || 0
     };
 }
 
@@ -3042,6 +3080,23 @@ export async function updateRestaurantById(id, body = {}) {
         const name = toStr(body.name !== undefined ? body.name : body.restaurantName);
         if (!name) throw new ValidationError('Restaurant name cannot be empty');
         doc.restaurantName = name;
+    }
+
+    // Zone assignment. The admin could SEE a store's zone but never change it:
+    // this function populated `zoneId` on the way out and ignored it on the way
+    // in, so a store was stuck in whatever zone it was created with.
+    if (body.zoneId !== undefined) {
+        const nextZoneId = toStr(body.zoneId);
+        if (!nextZoneId) {
+            doc.zoneId = undefined;
+        } else {
+            if (!mongoose.Types.ObjectId.isValid(nextZoneId)) {
+                throw new ValidationError('Invalid zone id');
+            }
+            const zone = await FoodZone.findById(nextZoneId).select('_id').lean();
+            if (!zone) throw new ValidationError('Zone not found');
+            doc.zoneId = zone._id;
+        }
     }
 
     if (body.ownerName !== undefined) doc.ownerName = toStr(body.ownerName);
@@ -4032,6 +4087,20 @@ export async function updateFood(id, body) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const doc = await FoodItem.findById(id);
     if (!doc) return null;
+
+    // Move an item between stores. Applied BEFORE the restaurant is loaded so
+    // every check below -- the pure-veg policy in particular -- is made against
+    // the store the item is moving TO, not the one it is leaving.
+    if (body.restaurantId !== undefined) {
+        const nextStoreId = String(body.restaurantId || '').trim();
+        if (!mongoose.Types.ObjectId.isValid(nextStoreId)) {
+            throw new ValidationError('Invalid restaurant id');
+        }
+        const target = await FoodRestaurant.findById(nextStoreId).select('_id').lean();
+        if (!target) throw new ValidationError('Restaurant not found');
+        doc.restaurantId = target._id;
+    }
+
     const restaurant = await FoodRestaurant.findById(doc.restaurantId)
         .select('pureVegRestaurant')
         .lean();
@@ -4839,7 +4908,7 @@ export const getAdminRestaurantSubscriptionHistory = async (query = {}) => {
 /**
  * Private helper to get financial stats for multiple delivery partners in bulk.
  */
-async function getBulkDeliveryPartnerStats(partnerIds) {
+export async function getBulkDeliveryPartnerStats(partnerIds) {
     if (!partnerIds || partnerIds.length === 0) return new Map();
 
     const [earnings, cash, deposits, bonuses, withdrawals, ordersCount] = await Promise.all([
@@ -4857,10 +4926,17 @@ async function getBulkDeliveryPartnerStats(partnerIds) {
             } },
             { $group: { _id: '$dispatch.deliveryPartnerId', total: { $sum: { $ifNull: ['$pricing.total', 0] } } } }
         ]),
-        // Cash Deposits
+        // Money paid in, split by why: COD deposits clear cash-in-hand, wallet
+        // top-ups are the rider's own money and add to the balance. Rows with
+        // no `type` predate top-ups and are COD deposits.
         FoodDeliveryCashDeposit.aggregate([
             { $match: { deliveryPartnerId: { $in: partnerIds }, status: 'Completed' } },
-            { $group: { _id: '$deliveryPartnerId', total: { $sum: '$amount' } } }
+            {
+                $group: {
+                    _id: { partner: '$deliveryPartnerId', type: { $ifNull: ['$type', 'cod_deposit'] } },
+                    total: { $sum: '$amount' }
+                }
+            }
         ]),
         // Bonuses
         DeliveryBonusTransaction.aggregate([
@@ -4890,6 +4966,7 @@ async function getBulkDeliveryPartnerStats(partnerIds) {
             totalEarning: 0,
             cashCollected: 0,
             totalDeposited: 0,
+            topUps: 0,
             bonus: 0,
             totalWithdrawn: 0,
             pendingWithdrawal: 0,
@@ -4899,7 +4976,13 @@ async function getBulkDeliveryPartnerStats(partnerIds) {
 
     earnings.forEach(row => { if (row._id) statsMap.get(row._id.toString()).totalEarning = row.total; });
     cash.forEach(row => { if (row._id) statsMap.get(row._id.toString()).cashCollected = row.total; });
-    deposits.forEach(row => { if (row._id) statsMap.get(row._id.toString()).totalDeposited = row.total; });
+    deposits.forEach(row => {
+        const partnerKey = row?._id?.partner?.toString();
+        const stats = partnerKey && statsMap.get(partnerKey);
+        if (!stats) return;
+        if (row._id.type === 'wallet_topup') stats.topUps = row.total;
+        else stats.totalDeposited = row.total;
+    });
     bonuses.forEach(row => { if (row._id) statsMap.get(row._id.toString()).bonus = row.total; });
     withdrawals.forEach(row => { 
         if (row._id) {
@@ -4911,8 +4994,20 @@ async function getBulkDeliveryPartnerStats(partnerIds) {
 
     // Calculate final pocket balance and other fields
     for (const [id, stats] of statsMap) {
-        stats.pocketBalance = stats.totalEarning + stats.bonus - stats.totalWithdrawn - stats.pendingWithdrawal;
         stats.cashInHand = stats.cashCollected - stats.totalDeposited;
+        // Undeposited COD is the company's cash sitting in the rider's pocket,
+        // so it is held OUT of the wallet balance until they deposit it. Same
+        // formula as the rider-facing pocket balance in
+        // deliveryFinance.getDeliveryPartnerWalletEnhanced — the two must agree,
+        // because this one also decides who is below the new-order wallet floor.
+        stats.pocketBalance = computePocketBalance({
+            totalEarned: stats.totalEarning,
+            totalBonus: stats.bonus,
+            topUps: stats.topUps,
+            totalWithdrawn: stats.totalWithdrawn,
+            pendingWithdrawals: stats.pendingWithdrawal,
+            cashInHand: stats.cashInHand,
+        });
     }
 
     return statsMap;
@@ -6196,7 +6291,10 @@ export async function getCashLimitSettlements(query = {}) {
     const page = parseInt(query.page, 10) || 1;
     const skip = (page - 1) * limit;
 
-    const filter = {};
+    // COD settlements only. Wallet top-ups share this collection but are the
+    // rider's own money going in, not cash they owed the company — listing
+    // them here would overstate how much COD has been settled.
+    const filter = { type: { $ne: 'wallet_topup' } };
     if (query.search) {
         // Search by razorpay ID or find partner IDs to search by partner
         if (query.search.startsWith('pay_')) {

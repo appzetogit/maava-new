@@ -17,6 +17,7 @@ import { logger } from "../../utils/logger.js";
 import { sendAdminResetOtpEmail } from "../../utils/email.js";
 import mongoose from "mongoose";
 import { creditReferralReward } from "../../modules/food/user/services/userWallet.service.js";
+import { findReferrerByRef, generateUniqueReferralCode } from "./referralCode.js";
 import { ADMIN_FULL_PERMISSIONS, sanitizeAdminPermissions } from '../../constants/permissions.js';
 import { isMobilePlatform } from "../../utils/platform.js";
 import {
@@ -187,8 +188,13 @@ export const verifyUserOtpAndLogin = async (
   }
 
   // Ensure referralCode exists (used for share links on older accounts).
-  if (!userDoc.referralCode) {
-    userDoc.referralCode = String(userDoc._id);
+  //
+  // A short code, not the raw ObjectId this used to fall back to: the code is
+  // read aloud, typed into a signup form and pasted into WhatsApp, and nobody
+  // does any of that with a 24-character hex string. Old accounts still carry
+  // their ObjectId code and keep working — the lookup below accepts both.
+  if (!userDoc.referralCode || mongoose.Types.ObjectId.isValid(userDoc.referralCode)) {
+    userDoc.referralCode = await generateUniqueReferralCode();
     await userDoc.save();
   }
 
@@ -196,8 +202,13 @@ export const verifyUserOtpAndLogin = async (
   const refRaw = typeof ref === "string" ? String(ref).trim() : "";
   if (isNewUser && refRaw) {
     try {
-      if (mongoose.Types.ObjectId.isValid(refRaw)) {
-        const referrerId = new mongoose.Types.ObjectId(refRaw);
+      // Resolved by referralCode first, then by _id. It only accepted an
+      // ObjectId before, so every human code a friend actually typed was
+      // dropped on the floor — silently, since referral errors never fail
+      // login. The _id branch stays for links shared before short codes.
+      const referrerDoc = await findReferrerByRef(refRaw);
+      if (referrerDoc) {
+        const referrerId = referrerDoc._id;
         if (String(referrerId) !== String(userDoc._id)) {
           const [referrer, settingsDoc] = await Promise.all([
             FoodUser.findById(referrerId).select("_id referralCount").lean(),
@@ -260,6 +271,11 @@ export const verifyUserOtpAndLogin = async (
             }
           }
         }
+      } else {
+        logger?.warn?.(
+          { ref: refRaw },
+          "Referral code did not match any user",
+        );
       }
     } catch (e) {
       // Never fail login due to referral errors.

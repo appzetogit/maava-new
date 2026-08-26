@@ -6,6 +6,8 @@ import { clearModuleAuth } from "@food/utils/auth"
 import { resolveMediaUrl } from "../../../../../shared/utils/mediaUrl.js"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
+import { getAdminVertical } from "@food/utils/adminVertical"
+import { verticalNouns } from "@food/utils/adminVerticalLabels"
 
 // Import icons from Dashboard-icons
 import locationIcon from "@food/assets/Dashboard-icons/image1.png"
@@ -163,6 +165,10 @@ const getPrimaryRestaurantImage = (restaurant, fallback = "") => {
 
 export default function RestaurantsList() {
   const navigate = useNavigate()
+  // One page serves both verticals, so the wording follows the active one.
+  // Read on render like AdminSidebar does -- switching verticals remounts this
+  // page, so there is nothing to subscribe to.
+  const noun = verticalNouns(getAdminVertical())
   const [searchQuery, setSearchQuery] = useState("")
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("")
   const [restaurants, setRestaurants] = useState([])
@@ -1225,7 +1231,7 @@ export default function RestaurantsList() {
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-slate-900">Restaurants List</h1>
+              <h1 className="text-2xl font-bold text-slate-900">{noun.Many} List</h1>
             </div>
 
           </div>
@@ -1237,7 +1243,7 @@ export default function RestaurantsList() {
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Total restaurants</p>
+                <p className="text-sm font-medium text-slate-600 mb-1">Total {noun.many}</p>
                 <p className="text-2xl font-bold text-slate-900">{restaurantStats.total || totalRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
@@ -1250,7 +1256,7 @@ export default function RestaurantsList() {
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Active restaurants</p>
+                <p className="text-sm font-medium text-slate-600 mb-1">Active {noun.many}</p>
                 <p className="text-2xl font-bold text-slate-900">{activeRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
@@ -1263,7 +1269,7 @@ export default function RestaurantsList() {
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Inactive restaurants</p>
+                <p className="text-sm font-medium text-slate-600 mb-1">Inactive {noun.many}</p>
                 <p className="text-2xl font-bold text-slate-900">{inactiveRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-red-100 flex items-center justify-center">
@@ -1277,7 +1283,7 @@ export default function RestaurantsList() {
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold text-slate-900">Restaurants List</h2>
+              <h2 className="text-xl font-bold text-slate-900">{noun.Many} List</h2>
               <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
                 {totalRestaurants}
               </span>
@@ -1289,12 +1295,12 @@ export default function RestaurantsList() {
                 className="px-4 py-2.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2 transition-all"
               >
                 <Plus className="w-4 h-4" />
-                <span>Add Restaurant</span>
+                <span>Add {noun.One}</span>
               </button>
               <div className="relative flex-1 sm:flex-initial min-w-[250px]">
                 <input
                   type="text"
-                  placeholder="Ex: search by Restaurant name, owner, or phone"
+                  placeholder={`Ex: search by ${noun.One} name, owner, or phone`}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -1337,7 +1343,7 @@ export default function RestaurantsList() {
           <div className="text-sm text-slate-600 mb-4">
             {loading
               ? "Loading..."
-              : `Showing ${showingFrom}-${showingTo} of ${totalRestaurants} restaurants`}
+              : `Showing ${showingFrom}-${showingTo} of ${totalRestaurants} ${noun.many}`}
           </div>
 
           {/* Table */}
@@ -1377,7 +1383,7 @@ export default function RestaurantsList() {
                       onClick={() => handleSort('name')}
                     >
                       <div className="flex items-center gap-1">
-                        <span>Restaurant Info</span>
+                        <span>{noun.One} Info</span>
                         <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === 'name' ? 'text-blue-600' : 'text-slate-400'}`} />
                       </div>
                     </th>

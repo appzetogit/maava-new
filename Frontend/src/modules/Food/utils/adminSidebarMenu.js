@@ -126,6 +126,12 @@ export const adminSidebarMenu = [
       },
       {
         type: "link",
+        label: "COD Access",
+        path: "/admin/store/cod-access",
+        icon: "Wallet",
+      },
+      {
+        type: "link",
         label: "Support Tickets (User & Seller)",
         path: "/admin/store/support-tickets",
         icon: "MessageSquare",
@@ -139,6 +145,8 @@ export const adminSidebarMenu = [
       { type: "link", label: "Delivery & Platform Fee", path: "/admin/store/fee-settings", icon: "DollarSign" },
       { type: "link", label: "Delivery Withdrawal", path: "/admin/store/delivery-withdrawal", icon: "Wallet" },
       { type: "link", label: "Delivery boy Wallet", path: "/admin/store/delivery-boy-wallet", icon: "PiggyBank" },
+      { type: "link", label: "Delivery Cash Limit", path: "/admin/store/delivery-cash-limit", icon: "IndianRupee" },
+      { type: "link", label: "Cash Limit Settlement", path: "/admin/store/cash-limit-settlement", icon: "Receipt" },
       { type: "link", label: "Delivery Emergency Help", path: "/admin/store/delivery-emergency-help", icon: "Phone" },
       { type: "link", label: "Delivery Support Tickets", path: "/admin/store/delivery-support-tickets", icon: "MessageSquare" },
       { type: "link", label: "Order Reassignment Requests", path: "/admin/store/delivery-order-reassignment-requests", icon: "AlertTriangle" },
@@ -201,6 +209,7 @@ export const adminSidebarMenu = [
     items: [
       { type: "link", label: "Landing Page Management", path: "/admin/store/hero-banner-management", icon: "Image" },
       { type: "link", label: "Promotional Banners", path: "/admin/store/promotional-banner", icon: "Megaphone" },
+      { type: "link", label: "Housefull Sale (Mart)", path: "/admin/store/mart-category-themes", icon: "Palette" },
 // { type: "link", label: "General Banners", path: "/admin/store/banners", icon: "Image" },
     ],
   },

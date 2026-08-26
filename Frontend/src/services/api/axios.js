@@ -49,6 +49,7 @@ const ADMIN_PERMISSION_PATH_MAP = [
   { prefix: "/food/admin/reports", section: "report_management" },
   { prefix: "/food/admin/feedback-experiences", section: "report_management" },
   { prefix: "/food/hero-banners", section: "banner_management" },
+  { prefix: "/food/mart-sale-campaigns", section: "banner_management" },
   { prefix: "/food/admin/contact-messages", section: "support_management" },
   { prefix: "/food/admin/safety-emergency-reports", section: "support_management" },
   { prefix: "/food/admin/feature-settings", section: "system_settings" },
@@ -243,8 +244,13 @@ apiClient.interceptors.request.use(
       const path = normalizePath(config?.url);
       const normalizedPath = String(path || "").toLowerCase();
       const isPublicAdminEndpoint =
-        normalizedPath.startsWith("/food/admin/") &&
-        normalizedPath.endsWith("/public");
+        (normalizedPath.startsWith("/food/admin/") &&
+          normalizedPath.endsWith("/public")) ||
+        // The catalogue reads the customer apps use. They need no permission,
+        // but admin pages still call them through here so the vertical rewrite
+        // below points them at the same catalogue the app is showing.
+        normalizedPath === "/food/search/categories/admin" ||
+        normalizedPath === "/food/search/products";
       const isAuthEndpoint =
         path.includes("/food/auth/admin/login") ||
         path.includes("/food/auth/me") ||

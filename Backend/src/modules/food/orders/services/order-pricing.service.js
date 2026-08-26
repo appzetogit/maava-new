@@ -23,6 +23,28 @@ const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
 /** Fixed 18% GST on delivery fee (separate from item GST in fee settings). */
 export const DELIVERY_FEE_GST_RATE = 0.18;
 
+/**
+ * Ceiling on a rider tip, in rupees.
+ *
+ * The tip arrives from the client and is paid straight through to the rider,
+ * so an unbounded value is a way to mint a payout. ₹1000 is far above any
+ * real tip on a food order and still low enough to be worth nothing to abuse.
+ */
+export const MAX_DELIVERY_TIP = 1000;
+
+/**
+ * A tip the pricing math can trust: a finite, non-negative, 2dp number no
+ * larger than the cap. Anything else -- a string, NaN, Infinity, a negative
+ * meant to shrink the bill -- becomes 0 rather than throwing, because the
+ * validator has already rejected genuinely malformed requests and a quote
+ * should not die over a junk optional field.
+ */
+export function normalizeDeliveryTip(value) {
+  const tip = Number(value);
+  if (!Number.isFinite(tip) || tip <= 0) return 0;
+  return round2(Math.min(tip, MAX_DELIVERY_TIP));
+}
+
 export function computeDeliveryFeeGst(deliveryFee) {
   const base = Math.max(0, Number(deliveryFee) || 0);
   if (base <= 0) return 0;
@@ -202,7 +224,12 @@ export function estimateDeliveryPromiseMinutes(distanceKm, packingMinutes = DEFA
  * resolve it differently.
  */
 export function resolvePackingMinutes(feeSettings = {}) {
-  const configured = Number(feeSettings.packingMinutes);
+  const raw = feeSettings?.packingMinutes;
+  // The field defaults to null. Number(null) is 0 and passes isFinite, so an
+  // unconfigured vertical was quoting zero packing time and stamping that zero
+  // onto every order it priced.
+  if (raw === null || raw === undefined || raw === '') return DEFAULT_PACKING_MINUTES;
+  const configured = Number(raw);
   return Number.isFinite(configured) && configured >= 0 ? configured : DEFAULT_PACKING_MINUTES;
 }
 
@@ -510,11 +537,16 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
 
   const deliveryFeeGst = computeDeliveryFeeGst(deliveryFee);
 
+  // Added after the discount, never before it: a tip is money for the rider,
+  // not part of the order value, so a coupon must not discount it and a
+  // percentage-off must not be computed against it.
+  const deliveryTip = normalizeDeliveryTip(dto.deliveryTip);
+
   const total = round2(
     Math.max(
       0,
       subtotal + packagingFee + deliveryFee + deliveryFeeGst + platformFee + tax - discount,
-    ),
+    ) + deliveryTip,
   );
 
   const basePricing = {
@@ -525,6 +557,7 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
     deliveryFeeGst,
     platformFee,
     discount,
+    deliveryTip,
     total,
     currency: "INR",
     couponCode: appliedCoupon?.code || codeRaw || null,
