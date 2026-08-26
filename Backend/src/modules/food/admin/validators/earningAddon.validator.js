@@ -8,7 +8,9 @@ const addonUpsertSchema = z.object({
     earningAmount: z.number().positive('Earning amount must be greater than 0'),
     startDate: z.string().min(1, 'Start date is required'),
     endDate: z.string().min(1, 'End date is required'),
-    maxRedemptions: z.number().int().min(1).nullable().optional()
+    maxRedemptions: z.number().int().min(1).nullable().optional(),
+    repeatable: z.boolean(),
+    autoCredit: z.boolean()
 });
 
 export const validateEarningAddonUpsertDto = (body) => {
@@ -21,7 +23,12 @@ export const validateEarningAddonUpsertDto = (body) => {
         maxRedemptions:
             body?.maxRedemptions === null || body?.maxRedemptions === undefined || body?.maxRedemptions === ''
                 ? null
-                : Number(body.maxRedemptions)
+                : Number(body.maxRedemptions),
+        // Absent means off for both, so an older admin build that does not send
+        // these fields keeps today's behaviour: pay once, and only after an
+        // admin approves it.
+        repeatable: Boolean(body?.repeatable),
+        autoCredit: Boolean(body?.autoCredit)
     };
 
     const result = addonUpsertSchema.safeParse(normalized);
@@ -44,7 +51,9 @@ export const validateEarningAddonUpsertDto = (body) => {
         earningAmount: result.data.earningAmount,
         startDate,
         endDate,
-        maxRedemptions: result.data.maxRedemptions ?? null
+        maxRedemptions: result.data.maxRedemptions ?? null,
+        repeatable: result.data.repeatable,
+        autoCredit: result.data.autoCredit
     };
 };
 

@@ -3,6 +3,7 @@ import { FoodDeliveryPartner } from '../models/deliveryPartner.model.js';
 import { DeliverySupportTicket } from '../models/supportTicket.model.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
 import { FoodEarningAddon } from '../../admin/models/earningAddon.model.js';
+import { FoodEarningAddonHistory } from '../../admin/models/earningAddonHistory.model.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
 import { uploadImageBuffer } from '../../../../services/cloudinary.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
@@ -596,7 +597,17 @@ export const getDeliveryPartnerEarnings = async (deliveryPartnerId, query = {}) 
         match['deliveryState.deliveredAt'] = { $gte: range.start, $lte: range.end };
     }
 
-    const [totalOrders, agg] = await Promise.all([
+    // Incentives are credited against the period they were RELEASED in, which is
+    // the only date the rider can reconcile against their wallet.
+    //
+    // Delivery routes run CROSS_VERTICAL, so this spans both verticals without
+    // naming one -- the same scope the order totals above are computed in.
+    const incentiveMatch = { deliveryPartnerId: partnerId, status: 'credited' };
+    if (range) {
+        incentiveMatch.creditedAt = { $gte: range.start, $lte: range.end };
+    }
+
+    const [totalOrders, agg, incentiveAgg] = await Promise.all([
         FoodOrder.countDocuments(match),
         FoodOrder.aggregate([
             { $match: match },
@@ -606,19 +617,26 @@ export const getDeliveryPartnerEarnings = async (deliveryPartnerId, query = {}) 
                     totalEarnings: { $sum: { $ifNull: ['$riderEarning', 0] } }
                 }
             }
+        ]),
+        FoodEarningAddonHistory.aggregate([
+            { $match: incentiveMatch },
+            { $group: { _id: null, total: { $sum: { $ifNull: ['$totalEarning', 0] } } } }
         ])
     ]);
 
-    const totalEarnings = Number(agg?.[0]?.totalEarnings) || 0;
+    const orderEarning = Number(agg?.[0]?.totalEarnings) || 0;
+    // Was hardcoded to 0, so incentives never showed in the rider's breakdown
+    // even once the money had reached their wallet.
+    const incentive = Number(incentiveAgg?.[0]?.total) || 0;
 
     // Frontend only strongly relies on totalEarnings + totalOrders.
     const summary = {
-        totalEarnings,
+        totalEarnings: orderEarning + incentive,
         totalOrders,
         totalHours: 0,
         totalMinutes: 0,
-        orderEarning: totalEarnings,
-        incentive: 0,
+        orderEarning,
+        incentive,
         otherEarnings: 0
     };
 

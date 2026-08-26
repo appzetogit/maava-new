@@ -20,6 +20,7 @@ import { FoodOfferUsage } from '../models/offerUsage.model.js';
 import { DeliveryBonusTransaction } from '../models/deliveryBonusTransaction.model.js';
 import { FoodEarningAddon } from '../models/earningAddon.model.js';
 import { FoodEarningAddonHistory } from '../models/earningAddonHistory.model.js';
+import { currentVertical } from '../../../../core/vertical/verticalScope.js';
 import { FoodRestaurantCommission } from '../models/restaurantCommission.model.js';
 import { FoodDeliveryCommissionRule } from '../models/deliveryCommissionRule.model.js';
 import { FoodFeeSettings } from '../models/feeSettings.model.js';
@@ -5333,6 +5334,8 @@ export async function createEarningAddon(body) {
         startDate: body.startDate,
         endDate: body.endDate,
         maxRedemptions: body.maxRedemptions ?? null,
+        repeatable: Boolean(body.repeatable),
+        autoCredit: Boolean(body.autoCredit),
         status: 'active'
     });
     return created.toObject();
@@ -5348,6 +5351,8 @@ export async function updateEarningAddon(id, body) {
     doc.startDate = body.startDate;
     doc.endDate = body.endDate;
     doc.maxRedemptions = body.maxRedemptions ?? null;
+    doc.repeatable = Boolean(body.repeatable);
+    doc.autoCredit = Boolean(body.autoCredit);
     await doc.save();
     return doc.toObject();
 }
@@ -5503,6 +5508,17 @@ export async function cancelEarningAddonHistory(historyId, reason) {
     doc.cancelReason = typeof reason === 'string' ? reason.trim() : '';
     await doc.save();
 
+    // Hand the redemption slot back to the offer. Awarding reserves one against
+    // `maxRedemptions` up front, so a rejected payout that never returned it
+    // burned a slot permanently: an offer capped at 100 would stop paying after
+    // 100 awards regardless of how many the admin actually approved.
+    if (doc.offerId?._id) {
+        await FoodEarningAddon.updateOne(
+            { _id: doc.offerId._id, currentRedemptions: { $gt: 0 } },
+            { $inc: { currentRedemptions: -1 } }
+        ).catch((e) => console.error('Failed to release redemption slot:', e));
+    }
+
     try {
         const { notifyOwnerSafely } = await import('../../../../core/notifications/firebase.service.js');
         await notifyOwnerSafely(
@@ -5525,70 +5541,31 @@ export async function cancelEarningAddonHistory(historyId, reason) {
     return doc.toObject();
 }
 
+/**
+ * Admin "check completions" button.
+ *
+ * Now a thin backfill over the same award path the delivery hook uses. It used
+ * to be the ONLY thing that awarded incentives, and it carried its own copy of
+ * the eligibility rules -- which is how it ended up counting orders by the wrong
+ * date and never enforcing maxRedemptions while the rider-facing list did.
+ * One implementation, in deliveryIncentive.service.js, so the two cannot drift.
+ */
 export async function checkEarningAddonCompletions(deliveryPartnerId, _force = false) {
-    const now = new Date();
-    
-    // Only search for active offers that are currently running.
-    const activeOffers = await FoodEarningAddon.find({
-        status: 'active',
-        startDate: { $lte: now },
-        endDate: { $gte: now }
-    }).lean();
+    const { evaluateIncentivesForPartner, evaluateIncentivesForAllPartners } = await import(
+        '../../delivery/services/deliveryIncentive.service.js'
+    );
 
-    if (activeOffers.length === 0) return { completionsFound: 0 };
+    // The admin panel is mounted per vertical, so the ambient scope is the right
+    // one here -- unlike the rider hook, which has to read it off the order.
+    const vertical = currentVertical();
 
-    let partnerIds = [];
     if (deliveryPartnerId === 'all') {
-        const partners = await FoodDeliveryPartner.find({ status: 'approved' }).select('_id').lean();
-        partnerIds = partners.map(p => p._id);
-    } else if (deliveryPartnerId && mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
-        partnerIds = [deliveryPartnerId];
+        const result = await evaluateIncentivesForAllPartners({ vertical });
+        return { completionsFound: result.awarded, partnersScanned: result.partnersScanned };
     }
 
-    if (partnerIds.length === 0) return { completionsFound: 0 };
-
-    let globalCompletions = 0;
-
-    for (const pId of partnerIds) {
-        for (const offer of activeOffers) {
-            // Find existing history so we don't grant it twice for the same offer.
-            const existing = await FoodEarningAddonHistory.findOne({
-                deliveryPartnerId: pId,
-                offerId: offer._id,
-                status: { $in: ['pending', 'credited'] }
-            }).lean();
-
-            if (existing) continue;
-
-            // Count orders delivered by this partner during the offer period.
-            const orderCount = await FoodOrder.countDocuments({
-                'dispatch.deliveryPartnerId': pId,
-                orderStatus: 'delivered',
-                createdAt: { $gte: offer.startDate, $lte: offer.endDate }
-            });
-
-            if (orderCount >= (offer.requiredOrders || 1)) {
-                // Requirement met!
-                await FoodEarningAddonHistory.create({
-                    offerId: offer._id,
-                    deliveryPartnerId: pId,
-                    ordersCompleted: orderCount,
-                    ordersRequired: offer.requiredOrders,
-                    earningAmount: offer.earningAmount,
-                    totalEarning: offer.earningAmount,
-                    status: 'pending',
-                    completedAt: now
-                });
-                
-                // Update current redemptions in addon
-                await FoodEarningAddon.findByIdAndUpdate(offer._id, { $inc: { currentRedemptions: 1 } });
-                
-                globalCompletions++;
-            }
-        }
-    }
-
-    return { completionsFound: globalCompletions };
+    const result = await evaluateIncentivesForPartner(deliveryPartnerId, { vertical });
+    return { completionsFound: result.awarded };
 }
 
 export async function getDeliveryPartnerById(id) {

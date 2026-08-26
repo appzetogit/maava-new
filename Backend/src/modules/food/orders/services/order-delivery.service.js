@@ -1147,6 +1147,16 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
     .then(({ awardOrderCashback }) => awardOrderCashback(String(order._id)))
     .catch((e) => logger.warn(`cashback award hook failed: ${e?.message || e}`));
 
+  // Delivery incentives ("5 deliveries -> Rs.100"). Idempotent per offer cycle,
+  // never throws. The vertical comes from the ORDER, not the ambient scope:
+  // rider routes run cross-vertical, so inheriting it here would let a food
+  // handover award a grocery incentive.
+  import('../../delivery/services/deliveryIncentive.service.js')
+    .then(({ evaluateIncentivesForPartner }) =>
+      evaluateIncentivesForPartner(String(deliveryPartnerId), { vertical: order.vertical }),
+    )
+    .catch((e) => logger.warn(`incentive award hook failed: ${e?.message || e}`));
+
   const ledgerKind =
     payMethod === 'cash' && prevPayStatus === 'cod_pending'
       ? 'cod_marked_paid_on_delivery'
