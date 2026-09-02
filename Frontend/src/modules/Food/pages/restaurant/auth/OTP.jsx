@@ -16,12 +16,24 @@ import quickSpicyLogo from "@food/assets/appzetologo.png"
 
 const THEME = "#FA0272"
 
+/**
+ * Digits the server issues.
+ *
+ * Was hardcoded as `4` in nine separate places -- the state array, the paste
+ * handler, the auto-submit check, the validator and the on-screen copy. The
+ * backend moved to six (the registered DLT template expects six; four-digit
+ * codes were accepted by the gateway and then dropped by the operator), and
+ * this screen was left rendering four boxes, so a seller physically could not
+ * enter the code they had been sent.
+ */
+const OTP_LENGTH = 6
+
 export default function RestaurantOTP() {
   const companyName = useCompanyName()
   const navigate = useNavigate()
   const prefersReducedMotion = useReducedMotion()
   const [logoUrl, setLogoUrl] = useState(() => getModuleLogoUrl("restaurant") || quickSpicyLogo)
-  const [otp, setOtp] = useState(["", "", "", ""])
+  const [otp, setOtp] = useState(() => Array(OTP_LENGTH).fill(""))
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
   const [resendTimer, setResendTimer] = useState(0)
@@ -120,7 +132,7 @@ export default function RestaurantOTP() {
 
     if (value && index < 3) inputRefs.current[index + 1]?.focus()
 
-    if (newOtp.every((digit) => digit !== "") && newOtp.length === 4) {
+    if (newOtp.every((digit) => digit !== "") && newOtp.length === OTP_LENGTH) {
       if (!hasSubmittedRef.current) {
         hasSubmittedRef.current = true
         handleVerify(newOtp.join(""))
@@ -146,21 +158,21 @@ export default function RestaurantOTP() {
   const handlePaste = (index, e) => {
     e.preventDefault()
     const pastedData = e.clipboardData.getData("text")
-    const digits = pastedData.replace(/\D/g, "").slice(0, 4).split("")
+    const digits = pastedData.replace(/\D/g, "").slice(0, OTP_LENGTH).split("")
     const newOtp = [...otp]
     digits.forEach((digit, i) => {
-      if (i < 4) newOtp[i] = digit
+      if (i < OTP_LENGTH) newOtp[i] = digit
     })
     setOtp(newOtp)
-    if (digits.length === 4) handleVerify(newOtp.join(""))
+    if (digits.length === OTP_LENGTH) handleVerify(newOtp.join(""))
     else inputRefs.current[digits.length]?.focus()
   }
 
   const handleVerify = async (otpValue = null) => {
     const code = otpValue || otp.join("")
     if (hasSubmittedRef.current && !otpValue) return
-    if (code.length !== 4) {
-      setError("Please enter the complete 4-digit code")
+    if (code.length !== OTP_LENGTH) {
+      setError(`Please enter the complete ${OTP_LENGTH}-digit code`)
       hasSubmittedRef.current = false
       return
     }
@@ -227,7 +239,7 @@ export default function RestaurantOTP() {
         return
       }
       setError(message)
-      setOtp(["", "", "", ""])
+      setOtp(Array(OTP_LENGTH).fill(""))
       hasSubmittedRef.current = false
       inputRefs.current[0]?.focus()
     } finally {
@@ -250,7 +262,7 @@ export default function RestaurantOTP() {
       setError("Failed to resend OTP.")
     }
     setIsLoading(false)
-    setOtp(["", "", "", ""])
+    setOtp(Array(OTP_LENGTH).fill(""))
     inputRefs.current[0]?.focus()
   }
 
@@ -326,7 +338,7 @@ export default function RestaurantOTP() {
               </div>
               <h2 className="text-2xl font-bold tracking-tight text-gray-900">Verify OTP</h2>
               <p className="mt-1 text-sm text-gray-500">
-                Enter the 4-digit code sent to{" "}
+                Enter the {OTP_LENGTH}-digit code sent to{" "}
                 <span className="font-semibold" style={{ color: THEME }}>
                   {contactInfo}
                 </span>
