@@ -6,10 +6,20 @@ import { logger } from '../../utils/logger.js';
 import { RateLimitError } from '../auth/errors.js';
 import { evaluateOtpRateWindow } from './otp.rateWindow.js';
 
-const generateOtpCode = () => {
-    const code = crypto.randomInt(1000, 9999);
-    return String(code);
-};
+/**
+ * Six digits, because that is what the DLT template is registered against.
+ *
+ * This used to return four. The gateway accepted those happily -- ErrorCode
+ * 000, "Done", a JobId and everything -- and the operator then dropped them,
+ * so every log line said the OTP was sent and no customer ever received one.
+ * The legacy maava backend sent six digits against this same template id, and
+ * those arrived.
+ *
+ * randomInt's max is exclusive, so this is 100000-999999 inclusive: always six
+ * digits, never seven. (The old four-digit call was randomInt(1000, 9999),
+ * which could never return 9999 -- harmless, but wrong for the same reason.)
+ */
+const generateOtpCode = () => String(crypto.randomInt(100000, 1000000));
 
 /**
  * Sends SMS via SMS India Hub API
@@ -134,7 +144,7 @@ export const createOrUpdateOtp = async (phone) => {
 
     let otp;
     if (config.useDefaultOtp) {
-        otp = '1234';
+        otp = '123456';
         logger.info(`Default OTP mode enabled – OTP is ${otp} for phone ${phone}`);
     } else {
         otp = generateOtpCode();
