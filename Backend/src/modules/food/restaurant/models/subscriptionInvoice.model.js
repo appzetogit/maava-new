@@ -7,6 +7,14 @@ export const SUBSCRIPTION_INVOICE_STATUSES = [
   "waived",
 ];
 
+/**
+ * The tiers this system shipped with, plus the carry-forward marker.
+ *
+ * No longer an allow-list for `planName`: the plan catalog is admin-managed
+ * and can hold any number of tiers with any keys, so validating against a
+ * fixed list would reject an invoice for a plan an operator legitimately
+ * created. Kept for reporting code that still groups by the original three.
+ */
 export const SUBSCRIPTION_PLAN_NAMES = ["starter", "growth", "premium", "legacy"];
 
 /**
@@ -29,10 +37,14 @@ const subscriptionInvoiceSchema = new mongoose.Schema(
 
     gmv: { type: Number, default: 0, min: 0 },
     orderCount: { type: Number, default: 0, min: 0 },
+    // Free-form, not an enum: an admin can add a tier at any time and its
+    // invoices have to be writable. The value is a snapshot of the plan key
+    // at generation, so a tier later renamed or retired leaves history intact.
     planName: {
       type: String,
-      enum: SUBSCRIPTION_PLAN_NAMES,
       required: true,
+      trim: true,
+      lowercase: true,
     },
     planAmount: { type: Number, required: true, min: 0 },
     gstAmount: { type: Number, default: 0, min: 0 },
