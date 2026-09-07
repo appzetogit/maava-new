@@ -9,7 +9,8 @@ import { toast } from 'sonner';
 const FEATURE_KEYS = {
     RESTAURANT_SUBSCRIPTION: 'restaurant_subscription',
     ADMIN_ACCESS_SECTION: 'admin_access_section',
-    ROOT_LANDING_AND_UNREGISTERED_CONTROL: 'root_landing_and_unregistered_control'
+    ROOT_LANDING_AND_UNREGISTERED_CONTROL: 'root_landing_and_unregistered_control',
+    QUICK_COMMERCE: 'quick_commerce'
 };
 
 export default function FeatureSettings() {
@@ -24,6 +25,11 @@ export default function FeatureSettings() {
 
     const adminAccessSection = useMemo(
         () => features.find((item) => item.key === FEATURE_KEYS.ADMIN_ACCESS_SECTION) || null,
+        [features]
+    );
+
+    const quickCommerce = useMemo(
+        () => features.find((item) => item.key === FEATURE_KEYS.QUICK_COMMERCE) || null,
         [features]
     );
 
@@ -57,7 +63,14 @@ export default function FeatureSettings() {
     };
 
     const handleSave = async () => {
-        const updates = [restaurantSubscription, adminAccessSection, rootLandingAndUnregisteredControl].filter(Boolean);
+        // Every toggle rendered below must appear here or Save silently skips it:
+        // the switch flips, the toast says success, and nothing is written.
+        const updates = [
+            restaurantSubscription,
+            adminAccessSection,
+            quickCommerce,
+            rootLandingAndUnregisteredControl,
+        ].filter(Boolean);
         if (updates.length === 0) return;
         try {
             setSaving(true);
@@ -135,6 +148,28 @@ export default function FeatureSettings() {
                     <Switch
                         checked={Boolean(adminAccessSection?.isEnabled)}
                         onCheckedChange={(checked) => setToggle(FEATURE_KEYS.ADMIN_ACCESS_SECTION, checked)}
+                    />
+                </CardContent>
+            </Card>
+
+            <Card className="border-slate-200">
+                <CardHeader>
+                    <CardTitle className="text-lg">Mart (Quick Commerce)</CardTitle>
+                    <CardDescription>
+                        Controls the Mart section in the customer app. OFF hides the Food-to-Mart
+                        switch and makes Mart screens unreachable. Orders already placed are not
+                        affected, and riders still see Mart jobs already assigned to them.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="flex items-center justify-between gap-4">
+                    <div className="text-sm text-gray-700">
+                        {quickCommerce?.isEnabled
+                            ? 'Enabled: customers can switch to Mart'
+                            : 'Disabled: Mart is hidden from the customer app'}
+                    </div>
+                    <Switch
+                        checked={Boolean(quickCommerce?.isEnabled)}
+                        onCheckedChange={(checked) => setToggle(FEATURE_KEYS.QUICK_COMMERCE, checked)}
                     />
                 </CardContent>
             </Card>

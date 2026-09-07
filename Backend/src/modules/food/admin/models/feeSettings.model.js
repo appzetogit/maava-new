@@ -32,6 +32,14 @@ const feeSettingsSchema = new mongoose.Schema(
         quickDeliveryFee: { type: Number, min: 0 },
         gstRate: { type: Number, min: 0, max: 100 },
         /**
+         * GST charged specifically on the delivery fee (a distinct supply of
+         * service from the food itself, commonly taxed at the standard rate
+         * regardless of what slab the items are in). Was a fixed 18% constant
+         * in code with no admin control at all; null falls back to that same
+         * 18% default so an unconfigured store's total does not change.
+         */
+        deliveryFeeGstRate: { type: Number, min: 0, max: 100 },
+        /**
          * Minutes the seller spends picking and packing before a rider can
          * leave, used in the delivery promise.
          *

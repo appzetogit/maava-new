@@ -113,13 +113,20 @@ export async function getRestaurantFinance(restaurantId, query = {}) {
             ? computeRestaurantOrderShare(order, tx, relevantOffers, rid)
             : 0;
 
+        // The delivery fee and rider tip are the rider's money, not the
+        // restaurant's — same split the incoming-order popup already shows.
+        // pricing.total includes both, so both come back out here too.
+        const deliveryFee = Number(pricing.deliveryFee) || 0;
+        const deliveryTip = Number(pricing.deliveryTip) || 0;
+        const billTotal = Math.max(0, (Number(pricing.total) || 0) - deliveryFee - deliveryTip);
+
         return {
             orderId: order.orderId || order.order_id || `FOD-${order._id.toString().slice(-6).toUpperCase()}`,
             createdAt: order.createdAt,
             items,
             foodNames,
-            orderTotal: Math.max(0, (Number(pricing.total) || 0) - (Number(pricing.tax) || 0)),
-            totalAmount: Number(pricing.total) || 0,
+            orderTotal: Math.max(0, billTotal - (Number(pricing.tax) || 0)),
+            totalAmount: billTotal,
             payout: Math.max(0, payout),
             commission: commission,
             discount,
