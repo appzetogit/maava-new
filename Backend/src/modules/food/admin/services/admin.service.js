@@ -2261,6 +2261,9 @@ export async function upsertFeeSettings(body) {
         if (body.gstRate === null) $unset.gstRate = 1;
         else if (body.gstRate !== undefined) $set.gstRate = body.gstRate;
 
+        if (body.deliveryFeeGstRate === null) $unset.deliveryFeeGstRate = 1;
+        else if (body.deliveryFeeGstRate !== undefined) $set.deliveryFeeGstRate = body.deliveryFeeGstRate;
+
         // Order value at which delivery becomes free. Null clears the offer.
         if (body.freeDeliveryThreshold === null) $unset.freeDeliveryThreshold = 1;
         else if (body.freeDeliveryThreshold !== undefined) {
@@ -2291,6 +2294,9 @@ export async function upsertFeeSettings(body) {
     }
     if (body.quickDeliveryFee !== undefined && body.quickDeliveryFee !== null) payload.quickDeliveryFee = body.quickDeliveryFee;
     if (body.gstRate !== undefined && body.gstRate !== null) payload.gstRate = body.gstRate;
+    if (body.deliveryFeeGstRate !== undefined && body.deliveryFeeGstRate !== null) {
+        payload.deliveryFeeGstRate = body.deliveryFeeGstRate;
+    }
     if (body.tipPresets !== undefined) payload.tipPresets = body.tipPresets;
 
     console.log('[DEBUG] Creating NEW settings with payload:', JSON.stringify(payload, null, 2));
