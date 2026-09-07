@@ -17,6 +17,7 @@ const feeSettingsUpsertSchema = z.object({
     tipPresets: z.array(z.number().min(0).max(1000)).max(6).optional(),
     quickDeliveryFee: z.number().min(0).nullable().optional(),
     gstRate: z.number().min(0).max(100).nullable().optional(),
+    deliveryFeeGstRate: z.number().min(0).max(100).nullable().optional(),
     isActive: z.boolean().optional()
 });
 
@@ -47,6 +48,12 @@ export const validateFeeSettingsUpsertDto = (body) => {
                     : undefined,
         gstRate:
             body?.gstRate === null ? null : body?.gstRate !== undefined ? Number(body.gstRate) : undefined,
+        deliveryFeeGstRate:
+            body?.deliveryFeeGstRate === null
+                ? null
+                : body?.deliveryFeeGstRate !== undefined
+                    ? Number(body.deliveryFeeGstRate)
+                    : undefined,
         // Normalised like every sibling: the schema alone is not enough, this
         // object is built key by key and anything missing here is dropped
         // before the parse ever sees it.
