@@ -459,13 +459,13 @@ async function getActiveCommissionRules() {
   return commissionRulesCache;
 }
 
-// 🗑️ Moved to foodTransaction.service.js to centralize finance logic.
+// ð️ Moved to foodTransaction.service.js to centralize finance logic.
 
 
 // Rider earnings use deliveryBoyBasePay / deliveryBoyPerKm from admin fee ranges (see order-pricing.service.js).
 
 /** Append-only food_order_payments row; never blocks main flow on failure */
-// 🗑️ Deprecated in favor of FoodTransaction system.
+// ð️ Deprecated in favor of FoodTransaction system.
 
 // ----- Settings -----
 export async function getDispatchSettings() {
@@ -582,9 +582,11 @@ export async function createOrder(userId, dto) {
     const normalizedPricing = {
       subtotal: Number(pricingResult.pricing?.subtotal) || 0,
       tax: Number(pricingResult.pricing?.tax) || 0,
+      gstRate: Number(pricingResult.pricing?.gstRate) || 0,
       packagingFee: Number(pricingResult.pricing?.packagingFee) || 0,
       deliveryFee: Number(pricingResult.pricing?.deliveryFee) || 0,
       deliveryFeeGst: Number(pricingResult.pricing?.deliveryFeeGst) || 0,
+      deliveryFeeGstRate: Number(pricingResult.pricing?.deliveryFeeGstRate) || 0,
       platformFee: Number(pricingResult.pricing?.platformFee) || 0,
       quickDeliveryFee: Number(pricingResult.pricing?.quickDeliveryFee) || 0,
       deliveryMode:
@@ -844,7 +846,7 @@ export async function createOrder(userId, dto) {
       // looking at does not already say.
       if (!isAwaitingOnlinePayment) {
         await notifyOwnersSafely([{ ownerType: "USER", ownerId: userId }], {
-          title: "Order Confirmed! 🍔",
+          title: "Order Confirmed! ð",
           body: `Your order #${order.order_id || order._id} from ${restaurant.restaurantName || "the restaurant"} has been placed successfully.`,
           image: "https://res.cloudinary.com/drbbc0l3a/image/upload/v1770098888/appzeto/business/logo/g0mvyt8uug5rtfiqcdeh.png",
           data: {
@@ -1956,13 +1958,13 @@ export async function updateOrderStatusRestaurant(
   let body = `Status changed to ${String(orderStatus).replace(/_/g, " ")}`;
 
   if (orderStatus === "confirmed") {
-    title = "Order Accepted! 🧑‍🍳";
+    title = "Order Accepted! ð§‍ð³";
     body = "The restaurant has accepted your order and is starting to prepare it.";
   } else if (orderStatus === "preparing") {
-    title = "Food is being prepared! 🍳";
+    title = "Food is being prepared! ð³";
     body = "Your food is currently being prepared by the restaurant.";
   } else if (orderStatus === "ready_for_pickup") {
-    title = "Food is ready! 🛍️";
+    title = "Food is ready! ð️";
     body = "Your order is ready and waiting to be picked up.";
   } else if (String(orderStatus).includes("cancel")) {
     const isOnlinePaid = order.payment.method === "razorpay" && (order.payment.status === "paid" || order.payment.status === "refunded");
@@ -2699,17 +2701,17 @@ export async function updateOrderStatusAdmin(orderId, orderStatus, note = "", ad
         notifyList.push({ ownerType: "DELIVERY_PARTNER", ownerId: order.dispatch.deliveryPartnerId });
     }
 
-    let title = `Order Status Updated 📋`;
+    let title = `Order Status Updated ð`;
     let body = `Order #${order.order_id || order._id} status changed to ${String(orderStatus).replace(/_/g, " ")} by support.`;
 
     if (orderStatus === "confirmed") {
-        title = "Order Accepted! 🧑‍🍳";
+        title = "Order Accepted! ð§‍ð³";
         body = "The order has been accepted and is starting to be prepared.";
     } else if (orderStatus === "preparing") {
-        title = "Food is being prepared! 🍳";
+        title = "Food is being prepared! ð³";
         body = "Your food is currently being prepared by the restaurant.";
     } else if (orderStatus === "ready_for_pickup") {
-        title = "Food is ready! 🛍️";
+        title = "Food is ready! ð️";
         body = "Your order is ready and waiting to be picked up.";
     } else if (String(orderStatus).includes("cancel")) {
         title = "Order Cancelled ❌";
@@ -2833,7 +2835,7 @@ export async function markOrderDeliveredAdmin(orderId, adminId, note = "") {
     }
 
     await notifyOwnersSafely(notifyList, {
-        title: "Order Delivered! 🎉",
+        title: "Order Delivered! ð",
         body: `Order #${orderLabel} has been marked as delivered by support.`,
         data: {
             type: "order_status_update",
@@ -2851,7 +2853,7 @@ export async function markOrderDeliveredAdmin(orderId, adminId, note = "") {
                 orderStatus: "delivered",
                 deliveryState: order.deliveryState,
                 message: `Order #${orderLabel} marked as delivered by admin.`,
-                title: "Order Delivered! 🎉",
+                title: "Order Delivered! ð",
             };
             io.to(rooms.user(order.userId)).emit("order_status_update", payload);
             io.to(rooms.restaurant(order.restaurantId)).emit("order_status_update", payload);
