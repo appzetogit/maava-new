@@ -392,19 +392,25 @@ async function assertCashLimitAllows(deliveryPartnerId, order) {
   const method = String(order?.payment?.method || order?.paymentMethod || '').toLowerCase();
   if (method !== 'cash' && method !== 'razorpay_qr') return;
 
-  const [settings, wallet] = await Promise.all([
-    FoodDeliveryCashLimit.findOne({ isActive: true }).select('deliveryCashLimit').lean(),
-    FoodDeliveryWallet.findOne({ deliveryPartnerId }).select('cashInHand').lean(),
-  ]);
+  const { getCashInHandForPartner, getCashLimit, isOverCashLimit } = await import(
+    '../../delivery/services/cashInHand.service.js'
+  );
 
-  const limit = Number(settings?.deliveryCashLimit) || 0;
+  const [limit, inHand] = await Promise.all([
+    getCashLimit(),
+    getCashInHandForPartner(deliveryPartnerId),
+  ]);
   if (limit <= 0) return;
 
-  const inHand = Number(wallet?.cashInHand) || 0;
-  if (inHand >= limit) {
+  // Was reading FoodDeliveryWallet.cashInHand, a ledger field nothing
+  // increments on delivery -- so this compared 0 against the limit and never
+  // fired. Riders were carrying several times the limit and still being offered
+  // cash orders. cashInHand.service.js derives the real figure the same way the
+  // rider's own screen does.
+  if (isOverCashLimit(inHand, limit)) {
     throw new ValidationError(
-      `You are holding Rs.${inHand} in cash, which is at your Rs.${limit} limit. ` +
-        'Deposit your cash to keep accepting cash orders.',
+      `You are holding Rs.${Math.round(inHand)} in cash, which is at your Rs.${limit} limit. ` +
+        'Deposit your cash in the app to keep accepting cash orders.',
     );
   }
 }

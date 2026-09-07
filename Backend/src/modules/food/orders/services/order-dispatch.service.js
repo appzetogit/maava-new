@@ -233,20 +233,24 @@ function buildPushItems(items) {
 async function getCashBlockedPartnerIds(partnerIds) {
   if (!partnerIds.length) return new Set();
 
-  const settings = await FoodDeliveryCashLimit.findOne({ isActive: true })
-    .select('deliveryCashLimit')
-    .lean();
-  const limit = Number(settings?.deliveryCashLimit) || 0;
+  const { getCashInHandFor, getCashLimit, isOverCashLimit } = await import(
+    '../../delivery/services/cashInHand.service.js'
+  );
+
+  const limit = await getCashLimit();
   if (limit <= 0) return new Set();
 
-  const wallets = await FoodDeliveryWallet.find({
-    deliveryPartnerId: { $in: partnerIds },
-    cashInHand: { $gte: limit },
-  })
-    .select('deliveryPartnerId cashInHand')
-    .lean();
+  // Was querying FoodDeliveryWallet.cashInHand, which nothing increments on
+  // delivery -- so this matched no one and every rider stayed eligible however
+  // much cash they were carrying. The derived figure is the one the rider is
+  // shown, and the one that actually reflects their float.
+  const cashByPartner = await getCashInHandFor(partnerIds);
 
-  return new Set(wallets.map((w) => String(w.deliveryPartnerId)));
+  const blocked = new Set();
+  for (const [id, cash] of cashByPartner) {
+    if (isOverCashLimit(cash, limit)) blocked.add(id);
+  }
+  return blocked;
 }
 
 /** Cash the rider has to physically collect, so it counts against their float. */
