@@ -20,7 +20,12 @@ import { AVG_SPEED_KMPH, DEFAULT_PACKING_MINUTES } from './order.helpers.js';
 
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
-/** Fixed 18% GST on delivery fee (separate from item GST in fee settings). */
+/**
+ * Default GST on delivery fee (a distinct supply of service from the food
+ * itself) when the admin has not configured `feeSettings.deliveryFeeGstRate`.
+ * Kept as the fallback rather than removed so an unconfigured store's total
+ * does not change.
+ */
 export const DELIVERY_FEE_GST_RATE = 0.18;
 
 /**
@@ -45,10 +50,19 @@ export function normalizeDeliveryTip(value) {
   return round2(Math.min(tip, MAX_DELIVERY_TIP));
 }
 
-export function computeDeliveryFeeGst(deliveryFee) {
+/** `rate` is a fraction (0.18), not a percentage — callers with a
+ * percentage from fee settings must divide by 100 first. */
+export function computeDeliveryFeeGst(deliveryFee, rate = DELIVERY_FEE_GST_RATE) {
   const base = Math.max(0, Number(deliveryFee) || 0);
   if (base <= 0) return 0;
-  return round2(base * DELIVERY_FEE_GST_RATE);
+  return round2(base * (Number(rate) || 0));
+}
+
+/** Admin-configured delivery-fee GST %, or the fallback default. Kept in one
+ * place so every caller agrees on what "unconfigured" means. */
+export function resolveDeliveryFeeGstRatePercent(feeSettings = {}) {
+  const configured = Number(feeSettings.deliveryFeeGstRate);
+  return configured > 0 ? configured : DELIVERY_FEE_GST_RATE * 100;
 }
 
 const applyDeliveryModePricing = (pricing, deliveryMode, quickSurcharge = 0) => {
@@ -71,6 +85,7 @@ const applyDeliveryModePricing = (pricing, deliveryMode, quickSurcharge = 0) => 
     quickDeliveryFee: surcharge,
   };
 };
+
 
 export async function loadRestaurantForOrdering(restaurantId) {
   if (!restaurantId || !mongoose.Types.ObjectId.isValid(String(restaurantId))) {
@@ -529,13 +544,15 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
   }
 
   // GST is charged on the post-discount item value (discount is already clamped to <= subtotal).
+  const gstRate = Number(feeSettings.gstRate || 0);
   const tax = computeItemsTax(items, {
     subtotal,
     discount,
-    fallbackRate: Number(feeSettings.gstRate || 0),
+    fallbackRate: gstRate,
   });
 
-  const deliveryFeeGst = computeDeliveryFeeGst(deliveryFee);
+  const deliveryFeeGstRate = resolveDeliveryFeeGstRatePercent(feeSettings);
+  const deliveryFeeGst = computeDeliveryFeeGst(deliveryFee, deliveryFeeGstRate / 100);
 
   // Added after the discount, never before it: a tip is money for the rider,
   // not part of the order value, so a coupon must not discount it and a
@@ -552,9 +569,14 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
   const basePricing = {
     subtotal,
     tax,
+    // The rate `tax`/`deliveryFeeGst` were actually charged at, so the client
+    // can label the amount instead of guessing — see the comment on
+    // pricingSchema.gstRate for why this was missing before.
+    gstRate,
     packagingFee,
     deliveryFee,
     deliveryFeeGst,
+    deliveryFeeGstRate,
     platformFee,
     discount,
     deliveryTip,

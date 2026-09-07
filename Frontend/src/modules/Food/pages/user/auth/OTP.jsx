@@ -12,9 +12,18 @@ import loginBanner from "@food/assets/loginbanner.png"
 
 const FULL_NAME_REGEX = /^[A-Za-z ]+$/
 
+/**
+ * Digits the server issues.
+ *
+ * This screen rendered four boxes and truncated everything to four -- see the
+ * `code4` slice below -- while the backend sends six. A customer could not
+ * physically enter the code they were sent.
+ */
+const OTP_LENGTH = 6
+
 export default function OTP() {
   const navigate = useNavigate()
-  const [otp, setOtp] = useState(["", "", "", ""]) // exactly 4 digits
+  const [otp, setOtp] = useState(() => Array(OTP_LENGTH).fill(""))
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
@@ -105,8 +114,8 @@ export default function OTP() {
       inputRefs.current[index + 1]?.focus()
     }
 
-    if (!showNameInput && newOtp.slice(0, 4).every((digit) => digit !== "")) {
-      handleVerify(newOtp.slice(0, 4).join(""))
+    if (!showNameInput && newOtp.slice(0, OTP_LENGTH).every((digit) => digit !== "")) {
+      handleVerify(newOtp.slice(0, OTP_LENGTH).join(""))
     }
   }
 
@@ -128,14 +137,14 @@ export default function OTP() {
   const handlePaste = (e) => {
     e.preventDefault()
     const pastedData = e.clipboardData.getData("text")
-    const digits = pastedData.replace(/\D/g, "").slice(0, 4).split("")
+    const digits = pastedData.replace(/\D/g, "").slice(0, OTP_LENGTH).split("")
     const newOtp = [...otp]
     digits.forEach((digit, i) => {
-      if (i < 4) newOtp[i] = digit
+      if (i < OTP_LENGTH) newOtp[i] = digit
     })
     setOtp(newOtp)
-    if (!showNameInput && digits.length === 4) {
-      handleVerify(newOtp.slice(0, 4).join(""))
+    if (!showNameInput && digits.length === OTP_LENGTH) {
+      handleVerify(newOtp.slice(0, OTP_LENGTH).join(""))
     } else {
       inputRefs.current[Math.min(digits.length, 3)]?.focus()
     }
@@ -146,8 +155,8 @@ export default function OTP() {
     if (submittingRef.current) return
 
     const code = (otpValue || otp.join("")).replace(/\D/g, "")
-    const code4 = code.slice(0, 4)
-    if (code4.length !== 4) {
+    const code4 = code.slice(0, OTP_LENGTH)
+    if (code4.length !== OTP_LENGTH) {
       setError("OTP must be exactly 4 digits")
       return
     }
@@ -280,7 +289,7 @@ export default function OTP() {
     } finally {
       setIsLoading(false)
     }
-    setOtp(["", "", "", ""])
+    setOtp(Array(OTP_LENGTH).fill(""))
   }
 
   if (!authData) return null
@@ -454,7 +463,7 @@ export default function OTP() {
 
           <footer className="mt-auto pt-10 text-center">
             <p className="text-[9px] text-zinc-300 dark:text-zinc-700 font-black uppercase tracking-[0.4em]">
-              Maava Secure Network
+              SwitchEats Secure Network
             </p>
           </footer>
         </div>
