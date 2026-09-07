@@ -85,9 +85,21 @@ const pricingSchema = new mongoose.Schema(
     {
         subtotal: { type: Number, required: true, min: 0 },
         tax: { type: Number, default: 0, min: 0 },
+        /**
+         * Rate `tax` was actually charged at (the admin's configured fallback
+         * GST %, since items can carry their own slab and there is no single
+         * rate that always describes a mixed cart). Snapshotted so the bill
+         * can label the amount instead of guessing — before this field
+         * existed the client had no rate to display and fell back to a
+         * hardcoded guess of its own, which never moved when the admin
+         * changed the real one.
+         */
+        gstRate: { type: Number, default: 0, min: 0, max: 100 },
         packagingFee: { type: Number, default: 0, min: 0 },
         deliveryFee: { type: Number, default: 0, min: 0 },
         deliveryFeeGst: { type: Number, default: 0, min: 0 },
+        /** Rate `deliveryFeeGst` was actually charged at — same reasoning as [gstRate]. */
+        deliveryFeeGstRate: { type: Number, default: 0, min: 0, max: 100 },
         platformFee: { type: Number, default: 0, min: 0 },
         /** Extra surcharge when user selects Quick Mode (also included in platformFee). */
         quickDeliveryFee: { type: Number, default: 0, min: 0 },

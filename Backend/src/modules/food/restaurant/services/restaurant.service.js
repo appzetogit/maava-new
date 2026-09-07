@@ -12,6 +12,7 @@ import { FoodOrder } from '../../orders/models/order.model.js';
 import { FoodRestaurantOutletTimings } from '../models/outletTimings.model.js';
 import { attachOutletTimingsToRestaurants } from './outletTimings.service.js';
 import { getRestaurantOperationalStatus } from '../helpers/restaurantAvailability.helper.js';
+import { shouldRetryUnscoped } from '../../shared/zoneServiceability.js';
 import {
     calculateDistanceKm,
     normalizeRestaurantLocation,
@@ -1914,6 +1915,15 @@ export const uploadRestaurantMenuImages = async (restaurantId, files = []) => {
 };
 
 export const listApprovedRestaurants = async (query = {}) => {
+    const result = await listApprovedRestaurantsScoped(query);
+    if (shouldRetryUnscoped({ total: result.total, zoneIdRaw: query.zoneId, isZoneFallback: query._zoneFallback })) {
+        const fallback = await listApprovedRestaurantsScoped({ ...query, zoneId: undefined, _zoneFallback: true });
+        if (fallback.total > 0) return { ...fallback, wasFallback: true };
+    }
+    return result;
+};
+
+const listApprovedRestaurantsScoped = async (query = {}) => {
     const limit = Math.min(Math.max(parseInt(query.limit, 10) || 100, 1), 1000);
     const page = Math.max(parseInt(query.page, 10) || 1, 1);
     const skip = (page - 1) * limit;
