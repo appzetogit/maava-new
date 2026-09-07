@@ -424,19 +424,25 @@ async function assertCashLimitAllows(deliveryPartnerId, order) {
   const method = String(order?.payment?.method || order?.paymentMethod || '').toLowerCase();
   if (method !== 'cash' && method !== 'razorpay_qr') return;
 
-  const [settings, wallet] = await Promise.all([
-    FoodDeliveryCashLimit.findOne({ isActive: true }).select('deliveryCashLimit').lean(),
-    FoodDeliveryWallet.findOne({ deliveryPartnerId }).select('cashInHand').lean(),
-  ]);
+  const { getCashInHandForPartner, getCashLimit, isOverCashLimit } = await import(
+    '../../delivery/services/cashInHand.service.js'
+  );
 
-  const limit = Number(settings?.deliveryCashLimit) || 0;
+  const [limit, inHand] = await Promise.all([
+    getCashLimit(),
+    getCashInHandForPartner(deliveryPartnerId),
+  ]);
   if (limit <= 0) return;
 
-  const inHand = Number(wallet?.cashInHand) || 0;
-  if (inHand >= limit) {
+  // Was reading FoodDeliveryWallet.cashInHand, a ledger field nothing
+  // increments on delivery -- so this compared 0 against the limit and never
+  // fired. Riders were carrying several times the limit and still being offered
+  // cash orders. cashInHand.service.js derives the real figure the same way the
+  // rider's own screen does.
+  if (isOverCashLimit(inHand, limit)) {
     throw new ValidationError(
-      `You are holding Rs.${inHand} in cash, which is at your Rs.${limit} limit. ` +
-        'Deposit your cash to keep accepting cash orders.',
+      `You are holding Rs.${Math.round(inHand)} in cash, which is at your Rs.${limit} limit. ` +
+        'Deposit your cash in the app to keep accepting cash orders.',
     );
   }
 }
@@ -1235,6 +1241,16 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
   import('../../user/services/cashback.service.js')
     .then(({ awardOrderCashback }) => awardOrderCashback(String(order._id)))
     .catch((e) => logger.warn(`cashback award hook failed: ${e?.message || e}`));
+
+  // Delivery incentives ("5 deliveries -> Rs.100"). Idempotent per offer cycle,
+  // never throws. The vertical comes from the ORDER, not the ambient scope:
+  // rider routes run cross-vertical, so inheriting it here would let a food
+  // handover award a grocery incentive.
+  import('../../delivery/services/deliveryIncentive.service.js')
+    .then(({ evaluateIncentivesForPartner }) =>
+      evaluateIncentivesForPartner(String(deliveryPartnerId), { vertical: order.vertical }),
+    )
+    .catch((e) => logger.warn(`incentive award hook failed: ${e?.message || e}`));
 
   const ledgerKind =
     payMethod === 'cash' && prevPayStatus === 'cod_pending'

@@ -3,6 +3,7 @@ import { FoodOrder } from '../../orders/models/order.model.js';
 import { FoodTransaction } from '../../orders/models/foodTransaction.model.js';
 import { FoodDeliveryWithdrawal } from '../models/foodDeliveryWithdrawal.model.js';
 import { FoodDeliveryCashDeposit } from '../models/foodDeliveryCashDeposit.model.js';
+import { computeCashInHand } from './cashInHand.service.js';
 import { FoodDeliveryPartner } from '../models/deliveryPartner.model.js';
 import { FoodDeliveryWallet } from '../models/deliveryWallet.model.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
@@ -100,7 +101,9 @@ export const getDeliveryPartnerWalletEnhanced = async (deliveryPartnerId) => {
     );
     const totalDepositedCash = depositTotalsByType.get('cod_deposit') || 0;
     const totalTopUps = depositTotalsByType.get('wallet_topup') || 0;
-    const computedCashInHand = Math.max(0, grossCashCollected - totalDepositedCash);
+    // Shared with cash-limit enforcement so the figure shown to a rider and
+    // the figure that blocks them are the same arithmetic, not two copies.
+    const computedCashInHand = computeCashInHand(grossCashCollected, totalDepositedCash);
     const aggTotalBonus = Number(bonusAgg?.[0]?.total) || 0;
     const aggTotalWithdrawn = Number(withdrawalAgg?.[0]?.totalWithdrawn) || 0;
     const pendingWithdrawals = Number(withdrawalAgg?.[0]?.pendingWithdrawals) || 0;

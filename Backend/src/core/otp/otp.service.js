@@ -216,4 +216,3 @@ export const verifyOtp = async (phone, otp) => {
     await record.deleteOne();
     return { valid: true };
 };
-

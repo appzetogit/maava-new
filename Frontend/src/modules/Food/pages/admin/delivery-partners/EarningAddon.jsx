@@ -36,6 +36,8 @@ export default function EarningAddon() {
     startDate: "",
     endDate: "",
     maxRedemptions: "",
+    repeatable: false,
+    autoCredit: false,
   })
 
   useEffect(() => {
@@ -99,6 +101,8 @@ export default function EarningAddon() {
         startDate: addon.startDate ? new Date(addon.startDate).toISOString().split('T')[0] : "",
         endDate: addon.endDate ? new Date(addon.endDate).toISOString().split('T')[0] : "",
         maxRedemptions: addon.maxRedemptions?.toString() || "",
+        repeatable: Boolean(addon.repeatable),
+        autoCredit: Boolean(addon.autoCredit),
       })
     } else {
       setSelectedAddon(null)
@@ -110,6 +114,8 @@ export default function EarningAddon() {
         startDate: "",
         endDate: "",
         maxRedemptions: "",
+    repeatable: false,
+    autoCredit: false,
       })
     }
     setIsDialogOpen(true)
@@ -126,6 +132,8 @@ export default function EarningAddon() {
       startDate: "",
       endDate: "",
       maxRedemptions: "",
+    repeatable: false,
+    autoCredit: false,
     })
   }
 
@@ -169,6 +177,8 @@ export default function EarningAddon() {
         startDate: formData.startDate,
         endDate: formData.endDate,
         maxRedemptions: formData.maxRedemptions && formData.maxRedemptions.trim() ? parseInt(formData.maxRedemptions) : null,
+        repeatable: Boolean(formData.repeatable),
+        autoCredit: Boolean(formData.autoCredit),
       }
 
       debugLog('Submitting earning addon:', { isEditMode, payload })
@@ -602,6 +612,39 @@ export default function EarningAddon() {
                 placeholder="Leave empty for unlimited"
               />
               <p className="text-xs text-slate-500">Leave empty for unlimited redemptions</p>
+            </div>
+
+            {/* Payout behaviour */}
+            <div className="space-y-3 rounded-lg border-2 border-slate-200 p-3">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.repeatable}
+                  onChange={(e) => setFormData({ ...formData, repeatable: e.target.checked })}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-slate-700">Repeatable</span>
+                  <span className="block text-xs text-slate-500">
+                    Pay again on every further {formData.requiredOrders || "N"} deliveries. Off means once per rider.
+                  </span>
+                </span>
+              </label>
+
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.autoCredit}
+                  onChange={(e) => setFormData({ ...formData, autoCredit: e.target.checked })}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-slate-700">Auto-credit to wallet</span>
+                  <span className="block text-xs text-slate-500">
+                    Pay the moment the rider qualifies. Off means the award waits in History for your approval.
+                  </span>
+                </span>
+              </label>
             </div>
 
             {/* Footer Buttons */}

@@ -3,6 +3,7 @@ import { FoodDeliveryPartner } from '../models/deliveryPartner.model.js';
 import { DeliverySupportTicket } from '../models/supportTicket.model.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
 import { FoodEarningAddon } from '../../admin/models/earningAddon.model.js';
+import { FoodEarningAddonHistory } from '../../admin/models/earningAddonHistory.model.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
 import { uploadImageBuffer } from '../../../../services/cloudinary.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
@@ -534,26 +535,44 @@ export const getDeliveryPartnerEarnings = async (deliveryPartnerId, query = {}) 
     // computed number that could disagree with its own parts.
     //
     // Delivery routes run CROSS_VERTICAL and the vertical plugin does not touch
-    // aggregations, so both verticals are present here.
-    const agg = await FoodOrder.aggregate([
-        { $match: match },
-        {
-            $group: {
-                // Orders predating the vertical field are Food -- that is the
-                // same assumption orderSourceTitle() makes for their push title.
-                _id: { $ifNull: ['$vertical', 'food'] },
-                earnings: { $sum: { $ifNull: ['$riderEarning', 0] } },
-                orders: { $sum: 1 }
+    // aggregations, so both verticals are present here -- which is also why the
+    // incentive total spans both without naming one.
+    //
+    // Incentives are credited against the period they were RELEASED in, which is
+    // the only date the rider can reconcile against their wallet.
+    const incentiveMatch = { deliveryPartnerId: partnerId, status: 'credited' };
+    if (range) {
+        incentiveMatch.creditedAt = { $gte: range.start, $lte: range.end };
+    }
+
+    const [agg, incentiveAgg] = await Promise.all([
+        FoodOrder.aggregate([
+            { $match: match },
+            {
+                $group: {
+                    // Orders predating the vertical field are Food -- that is the
+                    // same assumption orderSourceTitle() makes for their push title.
+                    _id: { $ifNull: ['$vertical', 'food'] },
+                    earnings: { $sum: { $ifNull: ['$riderEarning', 0] } },
+                    orders: { $sum: 1 }
+                }
             }
-        }
+        ]),
+        FoodEarningAddonHistory.aggregate([
+            { $match: incentiveMatch },
+            { $group: { _id: null, total: { $sum: { $ifNull: ['$totalEarning', 0] } } } }
+        ])
     ]);
 
-    const { byVertical, totalEarnings, totalOrders } = summarizeEarningsByVertical(agg);
+    const { byVertical, totalEarnings: orderEarning, totalOrders } = summarizeEarningsByVertical(agg);
+    // Was hardcoded to 0, so incentives never showed in the rider's breakdown
+    // even once the money had reached their wallet.
+    const incentive = Number(incentiveAgg?.[0]?.total) || 0;
 
     // totalEarnings/totalOrders keep their existing meaning and position so
     // older app builds are unaffected; byVertical is additive.
     const summary = {
-        totalEarnings,
+        totalEarnings: orderEarning + incentive,
         totalOrders,
         foodEarnings: byVertical.food.earnings,
         martEarnings: byVertical.quick.earnings,
@@ -562,8 +581,8 @@ export const getDeliveryPartnerEarnings = async (deliveryPartnerId, query = {}) 
         byVertical,
         totalHours: 0,
         totalMinutes: 0,
-        orderEarning: totalEarnings,
-        incentive: 0,
+        orderEarning,
+        incentive,
         otherEarnings: 0
     };
 
@@ -870,14 +889,74 @@ export const getActiveEarningAddonsForPartner = async (deliveryPartnerId) => {
 
             const currentEarnings = Number(earningsAgg?.[0]?.total) || 0;
 
+            /**
+             * What the rider has actually been awarded on this offer.
+             *
+             * Without it the app can only draw a progress bar. The two questions
+             * riders actually ask -- "did I get it?" and "where is the money?" --
+             * are answered by status: a `credited` row is in their wallet, a
+             * `pending` one is waiting on an admin. Showing progress alone is
+             * what makes an incentive feel broken once the bar hits full.
+             */
+            const awardRows = await FoodEarningAddonHistory.find({
+                offerId: addon._id,
+                deliveryPartnerId: partnerId
+            })
+                .select('cycle earningAmount totalEarning status completedAt creditedAt')
+                .sort({ cycle: 1 })
+                .lean();
+
+            const awards = (awardRows || []).map((a) => ({
+                cycle: Number(a.cycle) || 0,
+                amount: Number(a.totalEarning ?? a.earningAmount) || 0,
+                status: a.status || 'pending',
+                completedAt: a.completedAt || null,
+                creditedAt: a.creditedAt || null
+            }));
+
+            // Cancelled awards still consumed their cycle, so they count here --
+            // the rider does not get another attempt at one an admin rejected.
+            const cyclesEarned = awards.length;
+
+            const targetOrders = Number(addon.requiredOrders) || 0;
+            const repeatable = Boolean(addon.repeatable);
+
+            /**
+             * The bar the rider is working towards *now*.
+             *
+             * A one-shot offer keeps pointing at its single target even once
+             * cleared. A repeatable one moves to the next multiple, so the app
+             * can say "next Rs.100 at 15 deliveries" instead of showing a bar
+             * that sits full forever.
+             */
+            const nextTargetOrders = repeatable && targetOrders > 0
+                ? (Math.floor(Number(currentOrders) / targetOrders) + 1) * targetOrders
+                : targetOrders;
+
+            const maxRedemptions = Number(addon.maxRedemptions);
+            const remainingRedemptions = Number.isFinite(maxRedemptions) && maxRedemptions > 0
+                ? Math.max(0, maxRedemptions - (Number(addon.currentRedemptions) || 0))
+                : null;
+
             return {
                 id: addon._id,
                 title: addon.title || 'Earnings Guarantee',
                 description: addon.description || '',
                 targetAmount: Number(addon.earningAmount) || 0,
-                targetOrders: Number(addon.requiredOrders) || 0,
+                targetOrders,
                 currentOrders: Number(currentOrders) || 0,
                 currentEarnings,
+                repeatable,
+                cyclesEarned,
+                nextTargetOrders,
+                remainingRedemptions,
+                awards,
+                totalAwarded: awards
+                    .filter((a) => a.status === 'credited')
+                    .reduce((sum, a) => sum + a.amount, 0),
+                pendingAmount: awards
+                    .filter((a) => a.status === 'pending')
+                    .reduce((sum, a) => sum + a.amount, 0),
                 startDate,
                 endDate,
                 validTill: endDate ? endDate.toISOString() : null,
