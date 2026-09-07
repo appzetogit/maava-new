@@ -33,9 +33,23 @@ async function enrichPayloadWithTripRoadDistance(order, payload) {
   if (Number.isFinite(Number(existingRoadKm))) {
     const km = Number(Number(existingRoadKm).toFixed(2));
     const minsRaw = order?.tripDurationMins ?? order?.pricing?.roadDurationMins;
-    const tripDurationMins = Number.isFinite(Number(minsRaw))
+    const hadPersistedMins = Number.isFinite(Number(minsRaw));
+    const tripDurationMins = hadPersistedMins
       ? Math.ceil(Number(minsRaw))
       : payload.tripDurationMins;
+
+    // The distance branch below persists on every fresh Directions fetch, but
+    // this branch only ever reused an already-persisted distance — so a
+    // fallback duration computed here used to live only on this one payload.
+    // The next reconnect/poll re-read the order from Mongo, found
+    // tripDurationMins still null, and showed distance with a blank "-- MINS".
+    if (!hadPersistedMins && tripDurationMins != null && order?._id) {
+      FoodOrder.updateOne(
+        { _id: order._id },
+        { $set: { tripDurationMins, 'pricing.roadDurationMins': tripDurationMins } },
+      ).catch(() => {});
+    }
+
     return {
       ...payload,
       tripDistanceKm: km,
