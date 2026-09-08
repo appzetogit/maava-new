@@ -5,8 +5,8 @@
   "description": "Switcheats Product Backend",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node api.js && node server.js",
+    "dev": "node api.js && nodemon server.js",
     "worker:otp": "node src/queues/workers/otp.worker.js",
     "worker:notification": "node src/queues/workers/notification.worker.js",
     "worker:order": "node src/queues/workers/order.worker.js",
@@ -20,7 +20,7 @@
     "cleanup:legacy-collections": "node scripts/cleanup-legacy-collections.js",
     "test": "node --test \"src/**/*.test.js\" && npm run test:checks",
     "test:integration": "node --test \"scripts/*.integration.test.js\"",
-    "test:checks": "node scripts/analytics.selfcheck.mjs && node scripts/push-payload.selfcheck.mjs && node scripts/riderpay.selfcheck.mjs && node scripts/incentive.selfcheck.mjs && node scripts/subscription-plans.selfcheck.mjs && node src/modules/food/chat/chat.selfcheck.mjs && node src/modules/food/orders/inventory.selfcheck.mjs && node src/modules/food/orders/pricing.selfcheck.mjs && node src/modules/food/orders/promise.selfcheck.mjs && node src/modules/food/restaurant/services/__addonGroups.check.mjs && node src/modules/food/shared/zoneServiceability.selfcheck.mjs",
+    "test:checks": "node scripts/analytics.selfcheck.mjs && node scripts/push-payload.selfcheck.mjs && node scripts/riderpay.selfcheck.mjs && node scripts/incentive.selfcheck.mjs && node scripts/subscription-plans.selfcheck.mjs && node scripts/notification-text.selfcheck.mjs && node src/modules/food/chat/chat.selfcheck.mjs && node src/modules/food/orders/inventory.selfcheck.mjs && node src/modules/food/orders/pricing.selfcheck.mjs && node src/modules/food/orders/promise.selfcheck.mjs && node src/modules/food/restaurant/services/__addonGroups.check.mjs && node src/modules/food/shared/zoneServiceability.selfcheck.mjs",
     "start:scheduler": "node scripts/run-scheduled-jobs.js",
     "start:socket": "node socket-server.js"
   },
