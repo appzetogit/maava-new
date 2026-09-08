@@ -94,8 +94,18 @@ const normalizeNotificationText = (value) => {
         .replace(/�[A-Za-z0-9{}[\]\\/_.:-]*/g, ' ')
         // Remove remaining control chars and collapse spaces.
         .replace(/[\u0000-\u001F\u007F]/g, ' ')
-        // Force plain text for notifications.
-        .replace(/[^\x20-\x7E]/g, ' ')
+        // Strip only what actually breaks a notification: unpaired surrogates,
+        // and zero-width / bidi controls that render blank or reorder text.
+        //
+        // This was `.replace(/[^\x20-\x7E]/g, ' ')` -- everything outside printable
+        // ASCII. Presumably aimed at mojibake, but it deleted every non-Latin
+        // script and every emoji, so a Telugu broadcast arrived on phones as
+        // "MAAVA ! MAAVA App 3 . MAAVA App !" -- the English words, digits and
+        // punctuation survived and the actual message did not. FCM carries UTF-8
+        // JSON perfectly well; the mojibake repair above is where that problem
+        // belongs, not a blanket ASCII filter.
+        .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
+        .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, '')
         .replace(/\s+/g, ' ')
         .trim();
 };
