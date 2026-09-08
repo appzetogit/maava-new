@@ -7,8 +7,9 @@ import { FoodDeliveryWallet } from '../../delivery/models/deliveryWallet.model.j
 import {
   assertWalletMinimumAllows,
   enforceWalletMinimumOffline,
+  assertCashLimitAllows,
+  enforceCashLimitOffline,
 } from '../../delivery/services/deliveryFinance.service.js';
-import { FoodDeliveryCashLimit } from '../../admin/models/deliveryCashLimit.model.js';
 import {
   ValidationError,
   ForbiddenError,
@@ -257,18 +258,23 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
         ? { vertical: '__none__' }
         : {};
 
-  // A rider below the wallet floor sees no open offers — the same impossible
-  // vertical trick, so the query shape stays identical. Applied to the
-  // unassigned branch ONLY: an order they already hold must keep showing up,
-  // balance or no balance, or a live trip would vanish mid-delivery.
+  // A rider below the wallet floor, or at their cash ceiling, sees no open
+  // offers — the same impossible vertical trick, so the query shape stays
+  // identical. Applied to the unassigned branch ONLY: an order they already
+  // hold must keep showing up regardless, or a live trip would vanish
+  // mid-delivery.
   //
   // Skipped entirely for a rider already on a trip: this list is polled every
   // 15s by every online rider, and the open-offer branch is not even built in
-  // that case, so the balance lookup would be pure load.
-  const walletBlocked = hasActiveDelivery
-    ? false
-    : (await enforceWalletMinimumOffline(deliveryPartnerId)).blocked;
-  const openOfferFilter = walletBlocked ? { vertical: '__none__' } : verticalFilter;
+  // that case, so the balance/cash lookups would be pure load.
+  const [walletBlocked, cashBlocked] = hasActiveDelivery
+    ? [false, false]
+    : await Promise.all([
+        enforceWalletMinimumOffline(deliveryPartnerId).then((r) => r.blocked),
+        enforceCashLimitOffline(deliveryPartnerId).then((r) => r.blocked),
+      ]);
+  const openOfferFilter =
+    walletBlocked || cashBlocked ? { vertical: '__none__' } : verticalFilter;
 
   const filter = hasActiveDelivery
     ? {
@@ -406,39 +412,6 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
     : enriched.slice(skip, skip + limit);
 
   return buildPaginatedResult({ docs: paged, total, page, limit });
-}
-
-/**
- * Rejects an accept when the rider is already at their cash ceiling.
- *
- * Dispatch skips over-limit riders, but an offer sent a moment BEFORE they crossed
- * the line is still sitting on their phone — and a client-side block would be
- * trivially bypassed anyway. This is the authoritative check.
- *
- * Prepaid orders are unaffected: they add nothing to the rider's float.
- *
- * A limit of 0 means no limit, matching the schema default, so installs that never
- * configured this are untouched.
- */
-async function assertCashLimitAllows(deliveryPartnerId, order) {
-  const method = String(order?.payment?.method || order?.paymentMethod || '').toLowerCase();
-  if (method !== 'cash' && method !== 'razorpay_qr') return;
-
-  const [settings, wallet] = await Promise.all([
-    FoodDeliveryCashLimit.findOne({ isActive: true }).select('deliveryCashLimit').lean(),
-    FoodDeliveryWallet.findOne({ deliveryPartnerId }).select('cashInHand').lean(),
-  ]);
-
-  const limit = Number(settings?.deliveryCashLimit) || 0;
-  if (limit <= 0) return;
-
-  const inHand = Number(wallet?.cashInHand) || 0;
-  if (inHand >= limit) {
-    throw new ValidationError(
-      `You are holding Rs.${inHand} in cash, which is at your Rs.${limit} limit. ` +
-        'Deposit your cash to keep accepting cash orders.',
-    );
-  }
 }
 
 export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
@@ -1221,6 +1194,16 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
     await enforceWalletMinimumOffline(deliveryPartnerId);
   } catch (e) {
     logger.warn(`[DeliveryComplete] wallet-floor check failed: ${e?.message || e}`);
+  }
+
+  // A just-delivered COD order is also the usual way a rider reaches their
+  // cash ceiling — same reasoning as the wallet-floor re-check above.
+  if (payMethod === 'cash') {
+    try {
+      await enforceCashLimitOffline(deliveryPartnerId);
+    } catch (e) {
+      logger.warn(`[DeliveryComplete] cash-limit check failed: ${e?.message || e}`);
+    }
   }
 
   // Referral reward: pays the rider who referred THIS rider, once they complete their
