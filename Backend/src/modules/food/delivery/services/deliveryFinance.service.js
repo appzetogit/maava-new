@@ -10,7 +10,7 @@ import { getDeliveryCashLimitSettings, getBulkDeliveryPartnerStats } from '../..
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { createRazorpayOrder, getRazorpayKeyId, isRazorpayConfigured, verifyPaymentSignature, fetchRazorpayPayment } from '../../orders/helpers/razorpay.helper.js';
 import { logger } from '../../../../utils/logger.js';
-import { computePocketBalance, isBelowWalletMinimum } from './walletMath.js';
+import { computePocketBalance, isBelowWalletMinimum, isAtOrAboveCashLimit } from './walletMath.js';
 
 /**
  * Enhanced wallet fetch for delivery partners.
@@ -590,5 +590,137 @@ export async function assertWalletMinimumAllows(deliveryPartnerId) {
     throw new ValidationError(
         `Your wallet balance is Rs.${Math.floor(balance)}. ` +
             `You need at least Rs.${minimum} to take new orders — add money to your wallet to start receiving orders again.`
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Cash-in-hand limit: riders must deposit before taking more cash
+// ---------------------------------------------------------------------------
+//
+// A rider holding at least as much undeposited COD cash as the admin-configured
+// ceiling (FoodDeliveryCashLimit.deliveryCashLimit) stops being offered NEW cash
+// work until they deposit. Same shape as the wallet floor above, and the same
+// "0 means off" contract. Unlike the wallet floor this only ever gates cash
+// (and QR-cash) orders — a rider maxed out on cash can still take a prepaid
+// trip, since that adds nothing to what they are holding.
+//
+// Enforced in the same three places as the wallet floor:
+//   * dispatch          — cash-collecting orders skip over-limit riders,
+//   * accept            — the authoritative check, for the same reason: an
+//                         offer already on a phone cannot be recalled,
+//   * go-online         — a rider at the ceiling cannot flip themselves back
+//                         online and sit in the pool looking available.
+
+/** The configured ceiling, or 0 when the rule is switched off. */
+export async function getCashLimit() {
+    const settings = await getDeliveryCashLimitSettings();
+    return Number(settings?.deliveryCashLimit) || 0;
+}
+
+/**
+ * Rider cash-in-hand, keyed by partner id string.
+ *
+ * Same figure the rider sees as "Cash in Hand" in the app: delivered COD
+ * collected minus deposited, floored by the wallet ledger so a manual admin
+ * adjustment counts. Batched, same as getWalletBalancesFor.
+ */
+export async function getCashInHandFor(partnerIds) {
+    const ids = (partnerIds || [])
+        .filter(Boolean)
+        .map((id) => new mongoose.Types.ObjectId(String(id?._id || id)));
+    if (ids.length === 0) return new Map();
+
+    const [statsMap, wallets] = await Promise.all([
+        getBulkDeliveryPartnerStats(ids),
+        FoodDeliveryWallet.find({ deliveryPartnerId: { $in: ids } })
+            .select('deliveryPartnerId cashInHand')
+            .lean()
+    ]);
+
+    const ledgerById = new Map(
+        (wallets || []).map((w) => [String(w.deliveryPartnerId), Number(w.cashInHand) || 0])
+    );
+
+    const cashInHandById = new Map();
+    for (const id of ids) {
+        const key = String(id);
+        const computed = Math.max(0, Number(statsMap.get(key)?.cashInHand) || 0);
+        cashInHandById.set(key, Math.max(computed, ledgerById.get(key) || 0));
+    }
+    return cashInHandById;
+}
+
+/**
+ * Which of [partnerIds] are at or over the cash ceiling and must not be
+ * offered new cash-collecting work.
+ *
+ * @returns {Promise<Set<string>>} partner id strings to skip — always empty
+ *          when no limit is configured.
+ */
+export async function partnersAtCashLimit(partnerIds) {
+    if (!partnerIds?.length) return new Set();
+
+    const limit = await getCashLimit();
+    if (limit <= 0) return new Set();
+
+    const cashInHandById = await getCashInHandFor(partnerIds);
+    const blocked = new Set();
+    for (const [id, cashInHand] of cashInHandById) {
+        if (isAtOrAboveCashLimit(cashInHand, limit)) blocked.add(id);
+    }
+    return blocked;
+}
+
+/** Is this one rider at or over the ceiling? Also returns the numbers, for messages. */
+export async function checkCashLimit(deliveryPartnerId) {
+    const limit = await getCashLimit();
+    if (limit <= 0) return { blocked: false, limit: 0, cashInHand: null };
+
+    const cashInHand =
+        (await getCashInHandFor([deliveryPartnerId])).get(String(deliveryPartnerId)) ?? 0;
+
+    return { blocked: isAtOrAboveCashLimit(cashInHand, limit), limit, cashInHand };
+}
+
+/**
+ * At the ceiling? Take the rider offline, so dispatch stops considering them
+ * and the app stops telling them they are available.
+ *
+ * Status only, same as enforceWalletMinimumOffline — this never touches an
+ * order, and the `availabilityStatus: 'online'` term keeps it a no-op write
+ * for the common case of an already-offline rider.
+ */
+export async function enforceCashLimitOffline(deliveryPartnerId) {
+    const check = await checkCashLimit(deliveryPartnerId);
+    if (!check.blocked) return { ...check, forcedOffline: false };
+
+    const res = await FoodDeliveryPartner.updateOne(
+        { _id: deliveryPartnerId, availabilityStatus: 'online' },
+        { $set: { availabilityStatus: 'offline' } }
+    );
+    const forcedOffline = (res?.modifiedCount || 0) > 0;
+    if (forcedOffline) {
+        logger.info(
+            `[CASH_LIMIT_GATE] partner ${deliveryPartnerId} forced offline - cash in hand Rs.${Math.floor(check.cashInHand || 0)} >= Rs.${check.limit}`
+        );
+    }
+    return { ...check, forcedOffline };
+}
+
+/**
+ * Refuses an accept of a cash(-collecting) order from a rider already at
+ * their cash ceiling. A no-op for prepaid orders, which add nothing to what
+ * the rider is holding.
+ */
+export async function assertCashLimitAllows(deliveryPartnerId, order) {
+    const method = String(order?.payment?.method || order?.paymentMethod || '').toLowerCase();
+    if (method !== 'cash' && method !== 'razorpay_qr') return;
+
+    const { blocked, limit, cashInHand } = await checkCashLimit(deliveryPartnerId);
+    if (!blocked) return;
+
+    throw new ValidationError(
+        `You are holding Rs.${Math.floor(cashInHand)} in cash, which is at your Rs.${limit} limit. ` +
+            'Deposit your cash to keep accepting cash orders.'
     );
 }
