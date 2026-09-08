@@ -5,7 +5,8 @@ export const FEATURE_KEYS = {
     COD_CONTROL: 'cod_control',
     ADMIN_ACCESS_SECTION: 'admin_access_section',
     ROOT_LANDING_AND_UNREGISTERED_CONTROL: 'root_landing_and_unregistered_control',
-    QUICK_COMMERCE: 'quick_commerce'
+    QUICK_COMMERCE: 'quick_commerce',
+    ACCOUNT_DELETION: 'account_deletion'
 };
 
 const DEFAULT_FEATURES = [
@@ -31,6 +32,12 @@ const DEFAULT_FEATURES = [
         key: FEATURE_KEYS.ROOT_LANDING_AND_UNREGISTERED_CONTROL,
         name: 'Root Landing & Unregistered Restaurants',
         description: 'Controls root URL behavior and Unregistered Restaurants visibility. When disabled, root redirects to /food/user and Unregistered Restaurants is hidden.',
+        isEnabled: true
+    },
+    {
+        key: FEATURE_KEYS.ACCOUNT_DELETION,
+        name: 'Delete Account (customer app)',
+        description: 'Controls the Delete Account option in the customer profile. When disabled the option is hidden and the delete endpoint is refused. Note: app stores generally require an account-deletion route to exist for apps that allow sign-up.',
         isEnabled: true
     },
     {

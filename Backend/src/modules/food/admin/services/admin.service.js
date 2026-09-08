@@ -20,6 +20,7 @@ import { FoodOfferUsage } from '../models/offerUsage.model.js';
 import { DeliveryBonusTransaction } from '../models/deliveryBonusTransaction.model.js';
 import { FoodEarningAddon } from '../models/earningAddon.model.js';
 import { FoodEarningAddonHistory } from '../models/earningAddonHistory.model.js';
+import { currentVertical } from '../../../../core/vertical/verticalScope.js';
 import { FoodRestaurantCommission } from '../models/restaurantCommission.model.js';
 import { FoodDeliveryCommissionRule } from '../models/deliveryCommissionRule.model.js';
 import { FoodFeeSettings } from '../models/feeSettings.model.js';
@@ -4820,59 +4821,42 @@ export async function updateDeliverySupportTicket(id, body = {}) {
 export const getRestaurantSubscriptionSettings = async () => {
     const settings = await FoodRestaurantSubscriptionSettings.findOne();
     const raw = settings ? settings.toObject() : {};
-    const starterPrice = Number(raw?.starterPrice ?? raw?.silverPrice ?? 999) || 999;
-    const growthPrice = Number(raw?.growthPrice ?? raw?.goldPrice ?? 1999) || 1999;
-    const premiumPrice = Number(raw?.premiumPrice ?? 2999) || 2999;
-    const starterMinGmv = Number(raw?.starterMinGmv ?? 0) || 0;
-    const starterMaxGmv = Number(raw?.starterMaxGmv ?? 30000) || 30000;
-    const growthMinGmv = Number(raw?.growthMinGmv ?? (starterMaxGmv + 0.01)) || (starterMaxGmv + 0.01);
-    const growthMaxGmv = Number(raw?.growthMaxGmv ?? 60000) || 60000;
-    const premiumMinGmv = Number(raw?.premiumMinGmv ?? (growthMaxGmv + 0.01)) || (growthMaxGmv + 0.01);
     const onboardingFee = Math.max(0, Number(raw?.onboardingFee ?? 0) || 0);
 
-    let planCatalog = null;
-    try {
-        const { buildPlanCatalog, GST_RATE } = await import('../../restaurant/services/subscriptionPlan.service.js');
-        planCatalog = buildPlanCatalog({
-            starterPrice,
-            growthPrice,
-            premiumPrice,
-            starterMinGmv,
-            starterMaxGmv,
-            growthMinGmv,
-            growthMaxGmv,
-            premiumMinGmv,
-        });
-        return {
-            ...raw,
-            starterPrice,
-            growthPrice,
-            premiumPrice,
-            starterMinGmv,
-            starterMaxGmv,
-            growthMinGmv,
-            growthMaxGmv,
-            premiumMinGmv,
-            onboardingFee,
-            planCatalog,
-            gstRate: GST_RATE,
-        };
-    } catch {
-        return {
-            ...raw,
-            starterPrice,
-            growthPrice,
-            premiumPrice,
-            starterMinGmv,
-            starterMaxGmv,
-            growthMinGmv,
-            growthMaxGmv,
-            premiumMinGmv,
-            onboardingFee,
-        };
-    }
-};
+    const { buildPlanCatalog, validatePlanCatalog, GST_RATE } = await import(
+        '../../restaurant/services/subscriptionPlan.service.js'
+    );
 
+    // One source of truth. The catalog builder falls back to the legacy
+    // columns when `plans` is empty, so a document written before the
+    // migration still returns a usable three-tier catalog here.
+    const planCatalog = buildPlanCatalog(raw);
+
+    // Surfaced from the catalog rather than stored separately, so the rows the
+    // admin edits and the plans actually billed cannot drift apart.
+    const plans = planCatalog.plans.map((p, index) => ({
+        key: p.id,
+        label: p.label,
+        price: p.basePrice,
+        gmvMin: p.gmvMin,
+        gmvMax: p.gmvMax,
+        isActive: true,
+        sortOrder: index,
+    }));
+
+    return {
+        ...raw,
+        plans,
+        planCatalog,
+        // True while this deployment is still serving the hardcoded three
+        // tiers, i.e. the migration has not run. The admin screen uses it to
+        // explain why the rows are not yet editable as saved data.
+        isLegacyPlanCatalog: planCatalog.isLegacy,
+        planIssues: validatePlanCatalog(plans),
+        onboardingFee,
+        gstRate: GST_RATE,
+    };
+};
 
 export const updateRestaurantSubscriptionSettings = async (data) => {
     let settings = await FoodRestaurantSubscriptionSettings.findOne();
@@ -4880,26 +4864,46 @@ export const updateRestaurantSubscriptionSettings = async (data) => {
         settings = new FoodRestaurantSubscriptionSettings();
     }
 
-    if (data.starterPrice !== undefined) settings.starterPrice = Math.max(0, Number(data.starterPrice) || 0);
-    if (data.growthPrice !== undefined) settings.growthPrice = Math.max(0, Number(data.growthPrice) || 0);
-    if (data.premiumPrice !== undefined) settings.premiumPrice = Math.max(0, Number(data.premiumPrice) || 0);
-    if (data.starterMinGmv !== undefined) settings.starterMinGmv = Math.max(0, Number(data.starterMinGmv) || 0);
-    if (data.starterMaxGmv !== undefined) settings.starterMaxGmv = Math.max(0, Number(data.starterMaxGmv) || 0);
-    if (data.growthMinGmv !== undefined) settings.growthMinGmv = Math.max(0, Number(data.growthMinGmv) || 0);
-    if (data.growthMaxGmv !== undefined) settings.growthMaxGmv = Math.max(0, Number(data.growthMaxGmv) || 0);
-    if (data.premiumMinGmv !== undefined) settings.premiumMinGmv = Math.max(0, Number(data.premiumMinGmv) || 0);
-    if (data.onboardingFee !== undefined) settings.onboardingFee = Math.max(0, Number(data.onboardingFee) || 0);
+    if (data.onboardingFee !== undefined) {
+        settings.onboardingFee = Math.max(0, Number(data.onboardingFee) || 0);
+    }
 
-    // Keep ranges monotonic and contiguous by default.
-    settings.starterMinGmv = Math.min(Number(settings.starterMinGmv || 0), Number(settings.starterMaxGmv || 0));
-    if (Number(settings.growthMinGmv || 0) < Number(settings.starterMaxGmv || 0)) {
-        settings.growthMinGmv = Number(settings.starterMaxGmv || 0);
-    }
-    if (Number(settings.growthMaxGmv || 0) < Number(settings.growthMinGmv || 0)) {
-        settings.growthMaxGmv = Number(settings.growthMinGmv || 0);
-    }
-    if (Number(settings.premiumMinGmv || 0) < Number(settings.growthMaxGmv || 0)) {
-        settings.premiumMinGmv = Number(settings.growthMaxGmv || 0);
+    if (Array.isArray(data.plans)) {
+        const { planKeyFromLabel } = await import(
+            '../../restaurant/services/subscriptionPlan.service.js'
+        );
+
+        const seen = new Set();
+        settings.plans = data.plans
+            .filter((p) => p && String(p.label || p.key || '').trim())
+            .map((p, index) => {
+                const label = String(p.label || p.key).trim();
+                // Key falls back to the label only on create; the admin screen
+                // sends the existing key for existing rows, because invoices
+                // and restaurant records store it and renaming a live tier
+                // would orphan its history.
+                const key = String(p.key || planKeyFromLabel(label)).trim().toLowerCase();
+                return {
+                    key,
+                    label,
+                    price: Math.max(0, Number(p.price) || 0),
+                    gmvMin: Math.max(0, Number(p.gmvMin) || 0),
+                    gmvMax:
+                        p.gmvMax === null || p.gmvMax === undefined || p.gmvMax === ''
+                            ? null
+                            : Math.max(0, Number(p.gmvMax) || 0),
+                    isActive: p.isActive !== false,
+                    sortOrder: Number.isFinite(Number(p.sortOrder)) ? Number(p.sortOrder) : index,
+                };
+            })
+            // Last write wins on a duplicated key rather than saving two rows
+            // that would both claim the same invoices.
+            .filter((p) => {
+                if (!p.key || seen.has(p.key)) return false;
+                seen.add(p.key);
+                return true;
+            })
+            .sort((a, b) => a.gmvMin - b.gmvMin);
     }
 
     await settings.save();
@@ -5434,6 +5438,8 @@ export async function createEarningAddon(body) {
         startDate: body.startDate,
         endDate: body.endDate,
         maxRedemptions: body.maxRedemptions ?? null,
+        repeatable: Boolean(body.repeatable),
+        autoCredit: Boolean(body.autoCredit),
         status: 'active'
     });
     return created.toObject();
@@ -5449,6 +5455,8 @@ export async function updateEarningAddon(id, body) {
     doc.startDate = body.startDate;
     doc.endDate = body.endDate;
     doc.maxRedemptions = body.maxRedemptions ?? null;
+    doc.repeatable = Boolean(body.repeatable);
+    doc.autoCredit = Boolean(body.autoCredit);
     await doc.save();
     return doc.toObject();
 }
@@ -5604,6 +5612,17 @@ export async function cancelEarningAddonHistory(historyId, reason) {
     doc.cancelReason = typeof reason === 'string' ? reason.trim() : '';
     await doc.save();
 
+    // Hand the redemption slot back to the offer. Awarding reserves one against
+    // `maxRedemptions` up front, so a rejected payout that never returned it
+    // burned a slot permanently: an offer capped at 100 would stop paying after
+    // 100 awards regardless of how many the admin actually approved.
+    if (doc.offerId?._id) {
+        await FoodEarningAddon.updateOne(
+            { _id: doc.offerId._id, currentRedemptions: { $gt: 0 } },
+            { $inc: { currentRedemptions: -1 } }
+        ).catch((e) => console.error('Failed to release redemption slot:', e));
+    }
+
     try {
         const { notifyOwnerSafely } = await import('../../../../core/notifications/firebase.service.js');
         await notifyOwnerSafely(
@@ -5626,70 +5645,31 @@ export async function cancelEarningAddonHistory(historyId, reason) {
     return doc.toObject();
 }
 
+/**
+ * Admin "check completions" button.
+ *
+ * Now a thin backfill over the same award path the delivery hook uses. It used
+ * to be the ONLY thing that awarded incentives, and it carried its own copy of
+ * the eligibility rules -- which is how it ended up counting orders by the wrong
+ * date and never enforcing maxRedemptions while the rider-facing list did.
+ * One implementation, in deliveryIncentive.service.js, so the two cannot drift.
+ */
 export async function checkEarningAddonCompletions(deliveryPartnerId, _force = false) {
-    const now = new Date();
-    
-    // Only search for active offers that are currently running.
-    const activeOffers = await FoodEarningAddon.find({
-        status: 'active',
-        startDate: { $lte: now },
-        endDate: { $gte: now }
-    }).lean();
+    const { evaluateIncentivesForPartner, evaluateIncentivesForAllPartners } = await import(
+        '../../delivery/services/deliveryIncentive.service.js'
+    );
 
-    if (activeOffers.length === 0) return { completionsFound: 0 };
+    // The admin panel is mounted per vertical, so the ambient scope is the right
+    // one here -- unlike the rider hook, which has to read it off the order.
+    const vertical = currentVertical();
 
-    let partnerIds = [];
     if (deliveryPartnerId === 'all') {
-        const partners = await FoodDeliveryPartner.find({ status: 'approved' }).select('_id').lean();
-        partnerIds = partners.map(p => p._id);
-    } else if (deliveryPartnerId && mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
-        partnerIds = [deliveryPartnerId];
+        const result = await evaluateIncentivesForAllPartners({ vertical });
+        return { completionsFound: result.awarded, partnersScanned: result.partnersScanned };
     }
 
-    if (partnerIds.length === 0) return { completionsFound: 0 };
-
-    let globalCompletions = 0;
-
-    for (const pId of partnerIds) {
-        for (const offer of activeOffers) {
-            // Find existing history so we don't grant it twice for the same offer.
-            const existing = await FoodEarningAddonHistory.findOne({
-                deliveryPartnerId: pId,
-                offerId: offer._id,
-                status: { $in: ['pending', 'credited'] }
-            }).lean();
-
-            if (existing) continue;
-
-            // Count orders delivered by this partner during the offer period.
-            const orderCount = await FoodOrder.countDocuments({
-                'dispatch.deliveryPartnerId': pId,
-                orderStatus: 'delivered',
-                createdAt: { $gte: offer.startDate, $lte: offer.endDate }
-            });
-
-            if (orderCount >= (offer.requiredOrders || 1)) {
-                // Requirement met!
-                await FoodEarningAddonHistory.create({
-                    offerId: offer._id,
-                    deliveryPartnerId: pId,
-                    ordersCompleted: orderCount,
-                    ordersRequired: offer.requiredOrders,
-                    earningAmount: offer.earningAmount,
-                    totalEarning: offer.earningAmount,
-                    status: 'pending',
-                    completedAt: now
-                });
-                
-                // Update current redemptions in addon
-                await FoodEarningAddon.findByIdAndUpdate(offer._id, { $inc: { currentRedemptions: 1 } });
-                
-                globalCompletions++;
-            }
-        }
-    }
-
-    return { completionsFound: globalCompletions };
+    const result = await evaluateIncentivesForPartner(deliveryPartnerId, { vertical });
+    return { completionsFound: result.awarded };
 }
 
 export async function getDeliveryPartnerById(id) {
