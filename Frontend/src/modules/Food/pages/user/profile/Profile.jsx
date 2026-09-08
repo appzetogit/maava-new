@@ -82,6 +82,7 @@ export default function Profile() {
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [referralReward, setReferralReward] = useState(0);
+  const [deleteAccountEnabled, setDeleteAccountEnabled] = useState(true)
   const [walletBalance, setWalletBalance] = useState(0);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
@@ -245,6 +246,19 @@ export default function Profile() {
   const isComplete = profileCompletion === 100;
   useEffect(() => {
     let mounted = true;
+    // Delete Account is admin-switchable. Defaults to shown on any failure:
+    // hiding a legitimate control because a settings call timed out is worse
+    // than briefly showing one an admin has since turned off, and the endpoint
+    // refuses it server-side either way.
+    userAPI
+      .getFeatureSettingsPublic()
+      .then((res) => {
+        const rows = Array.isArray(res?.data?.data) ? res.data.data : [];
+        const row = rows.find((r) => r.key === "account_deletion");
+        if (mounted && row) setDeleteAccountEnabled(Boolean(row.isEnabled));
+      })
+      .catch(() => { });
+
     userAPI
       .getReferralStats()
       .then((res) => {
@@ -882,6 +896,7 @@ export default function Profile() {
               </Card>
             </motion.div>
 
+            {deleteAccountEnabled ? (
             <motion.div
               whileHover={{ x: 4, scale: 1.01 }}
               transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
@@ -908,6 +923,7 @@ export default function Profile() {
                 </CardContent>
               </Card>
             </motion.div>
+            ) : null}
           </div>
         </div>
       </div>
