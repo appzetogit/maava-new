@@ -48,3 +48,16 @@ export function isBelowWalletMinimum(balance, minimum) {
     if (floor <= 0) return false;
     return (Number(balance) || 0) < floor;
 }
+
+/**
+ * The one comparison the cash-in-hand ceiling turns on.
+ *
+ * A limit of 0 (or less) means the rule is off, and cash in hand exactly ON
+ * the limit already blocks — the ceiling is a cap to stay under, not a floor
+ * to clear.
+ */
+export function isAtOrAboveCashLimit(cashInHand, limit) {
+    const ceiling = Number(limit) || 0;
+    if (ceiling <= 0) return false;
+    return (Number(cashInHand) || 0) >= ceiling;
+}
