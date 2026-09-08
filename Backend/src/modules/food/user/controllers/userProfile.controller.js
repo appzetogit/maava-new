@@ -1,4 +1,5 @@
 import { sendResponse } from '../../../../utils/response.js';
+import { ForbiddenError } from '../../../../core/auth/errors.js';
 import { validateUserProfileUpdateDto } from '../../../../dtos/food/userProfileUpdate.dto.js';
 import {
     getCurrentUserProfile,
@@ -40,6 +41,20 @@ export const uploadCurrentUserProfileImageController = async (req, res, next) =>
 
 export const deleteCurrentUserAccountController = async (req, res, next) => {
     try {
+        // Refused server-side as well as hidden in the apps. Hiding the button
+        // only stops the people who use the button; the endpoint is a plain
+        // DELETE that an old build, a stale web tab or anything else still
+        // reaches. Account deletion is irreversible, so the switch has to hold
+        // at the place that does the deleting.
+        const { isFeatureEnabled, FEATURE_KEYS } = await import(
+            '../../admin/services/featureSettings.service.js'
+        );
+        if (!(await isFeatureEnabled(FEATURE_KEYS.ACCOUNT_DELETION, true))) {
+            throw new ForbiddenError(
+                'Account deletion is currently unavailable. Please contact support.'
+            );
+        }
+
         const userId = req.user?.userId;
         const result = await deleteCurrentUserAccount(userId);
         return sendResponse(res, 200, 'Account deleted successfully', result);
