@@ -48,3 +48,27 @@ export function isBelowWalletMinimum(balance, minimum) {
     if (floor <= 0) return false;
     return (Number(balance) || 0) < floor;
 }
+
+/**
+ * The one comparison the cash-in-hand ceiling turns on.
+ *
+ * A limit of 0 (or less) means the rule is off, and cash in hand exactly ON
+ * the limit already blocks — the ceiling is a cap to stay under, not a floor
+ * to clear.
+ */
+export function isAtOrAboveCashLimit(cashInHand, limit) {
+    const ceiling = Number(limit) || 0;
+    if (ceiling <= 0) return false;
+    return (Number(cashInHand) || 0) >= ceiling;
+}
+
+/**
+ * COD cash a rider is still holding: collected minus handed in.
+ *
+ * Floored at zero. A rider who over-deposits, or whose deposits were recorded
+ * ahead of their orders, must read as holding nothing rather than negative,
+ * which would otherwise hand them extra headroom against the ceiling.
+ */
+export function computeCashInHand(grossCashCollected, totalDepositedCash) {
+    return Math.max(0, (Number(grossCashCollected) || 0) - (Number(totalDepositedCash) || 0));
+}

@@ -8,7 +8,7 @@ import { FoodOrder } from '../../orders/models/order.model.js';
 import { uploadImageBuffer } from '../../../../services/cloudinary.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { getDeliveryCashLimitSettings } from '../../admin/services/admin.service.js';
-import { checkWalletMinimum } from './deliveryFinance.service.js';
+import { checkWalletMinimum, checkCashLimit } from './deliveryFinance.service.js';
 import { upsertFirebaseDeviceToken } from '../../../../core/notifications/firebase.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { collectDynamicRegistration } from './driverRegistrationField.service.js';
@@ -427,16 +427,28 @@ export const updateDeliveryAvailability = async (userId, payload) => {
     if (rawStatus === 'online' || rawStatus === true || rawStatus === 'true') validStatus = 'online';
     else if (rawStatus === 'offline' || rawStatus === false || rawStatus === 'false') validStatus = 'offline';
 
-    // The admin's minimum wallet balance is enforced here too, not just in
-    // dispatch: without this a rider under the floor can flip themselves online
-    // and sit in the candidate pool looking available. The threshold comes from
-    // the admin setting (0 = rule off) — never from the app.
-    let walletGate = null;
+    // The admin's cash ceiling and minimum wallet balance are both enforced
+    // here too, not just in dispatch: without this a blocked rider can flip
+    // themselves online and sit in the candidate pool looking available. Both
+    // thresholds come from the admin settings (0 = rule off) — never from the
+    // app. Cash checked first: it is the more actionable of the two ("go
+    // deposit what you're holding"), and a rider over the cash ceiling is
+    // usually also the rider whose wallet balance the same cash pulled down.
+    let blockedGate = null;
+    let blockedReason = null;
     if (validStatus === 'online') {
-        const gate = await checkWalletMinimum(userId);
-        if (gate.blocked) {
+        const cashGate = await checkCashLimit(userId);
+        if (cashGate.blocked) {
             validStatus = 'offline';
-            walletGate = gate;
+            blockedGate = cashGate;
+            blockedReason = 'cash';
+        } else {
+            const walletGate = await checkWalletMinimum(userId);
+            if (walletGate.blocked) {
+                validStatus = 'offline';
+                blockedGate = walletGate;
+                blockedReason = 'wallet';
+            }
         }
     }
 
@@ -454,17 +466,25 @@ export const updateDeliveryAvailability = async (userId, payload) => {
         partner.lastLocationAt = new Date();
     }
     await partner.save();
-    if (!walletGate) return { availabilityStatus: partner.availabilityStatus };
+    if (!blockedGate) return { availabilityStatus: partner.availabilityStatus };
+
+    const message =
+        blockedReason === 'cash'
+            ? `You are holding Rs.${Math.floor(blockedGate.cashInHand || 0)} in cash, which is at your Rs.${blockedGate.limit} limit. ` +
+              'Deposit your cash to go online and receive new orders.'
+            : `Your wallet balance is Rs.${Math.floor(blockedGate.balance || 0)}. ` +
+              `You need at least Rs.${blockedGate.minimum} to go online and receive new orders. ` +
+              'Top up your wallet to continue.';
 
     return {
         availabilityStatus: partner.availabilityStatus,
         walletBlocked: true,
-        minWalletBalanceForOrders: walletGate.minimum,
-        walletBalance: walletGate.balance,
-        message:
-            `Your wallet balance is Rs.${Math.floor(walletGate.balance || 0)}. ` +
-            `You need at least Rs.${walletGate.minimum} to go online and receive new orders. ` +
-            'Top up your wallet to continue.'
+        blockedReason,
+        minWalletBalanceForOrders: blockedReason === 'wallet' ? blockedGate.minimum : undefined,
+        walletBalance: blockedReason === 'wallet' ? blockedGate.balance : undefined,
+        deliveryCashLimit: blockedReason === 'cash' ? blockedGate.limit : undefined,
+        cashInHand: blockedReason === 'cash' ? blockedGate.cashInHand : undefined,
+        message
     };
 };
 

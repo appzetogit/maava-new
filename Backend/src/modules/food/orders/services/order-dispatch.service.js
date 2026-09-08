@@ -2,9 +2,7 @@ import mongoose from 'mongoose';
 import { FoodOrder, FoodSettings } from '../models/order.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
-import { FoodDeliveryWallet } from '../../delivery/models/deliveryWallet.model.js';
-import { FoodDeliveryCashLimit } from '../../admin/models/deliveryCashLimit.model.js';
-import { partnersBelowMinWalletBalance } from '../../delivery/services/deliveryFinance.service.js';
+import { partnersBelowMinWalletBalance, partnersAtCashLimit } from '../../delivery/services/deliveryFinance.service.js';
 import { resolveDispatchRadiusBands } from './order-pricing.service.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 import { logger } from '../../../../utils/logger.js';
@@ -240,45 +238,6 @@ function buildPushItems(items) {
   if (Buffer.byteLength(encoded, 'utf8') <= 1024) return encoded;
 
   return JSON.stringify(withImages.map(({ image, ...rest }) => rest));
-}
-
-/**
- * Riders who are already holding as much cash as they are allowed to.
- *
- * The limit existed as an admin setting and was shown to riders in their wallet, but
- * nothing enforced it: an over-limit rider kept being offered cash orders and could
- * keep accepting them, so the cap was advisory only.
- *
- * Only applied to orders the rider will physically collect money for. A prepaid
- * order adds nothing to their float, so blocking those would idle riders for no
- * reason.
- *
- * A limit of 0 means "no limit" â€” that is the schema default, so an install that has
- * never configured this must not have every rider silently excluded.
- *
- * @returns {Promise<Set<string>>} partner ids to skip
- */
-async function getCashBlockedPartnerIds(partnerIds) {
-  if (!partnerIds.length) return new Set();
-
-  const { getCashInHandFor, getCashLimit, isOverCashLimit } = await import(
-    '../../delivery/services/cashInHand.service.js'
-  );
-
-  const limit = await getCashLimit();
-  if (limit <= 0) return new Set();
-
-  // Was querying FoodDeliveryWallet.cashInHand, which nothing increments on
-  // delivery -- so this matched no one and every rider stayed eligible however
-  // much cash they were carrying. The derived figure is the one the rider is
-  // shown, and the one that actually reflects their float.
-  const cashByPartner = await getCashInHandFor(partnerIds);
-
-  const blocked = new Set();
-  for (const [id, cash] of cashByPartner) {
-    if (isOverCashLimit(cash, limit)) blocked.add(id);
-  }
-  return blocked;
 }
 
 /** Cash the rider has to physically collect, so it counts against their float. */
@@ -559,7 +518,7 @@ export async function tryAutoAssign(orderId, options = {}) {
 
     // Riders at their cash ceiling are skipped for cash-collect orders only.
     const cashBlockedIds = orderCollectsCash(order)
-      ? await getCashBlockedPartnerIds(partners.map((p) => p.partnerId))
+      ? await partnersAtCashLimit(partners.map((p) => p.partnerId))
       : new Set();
 
     const eligible = partners.filter((partner) => {
