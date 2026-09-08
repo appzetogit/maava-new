@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { FoodOrder } from '../models/order.model.js';
+import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { logger } from '../../../../utils/logger.js';
 import { haversineKm as geoHaversineKm, parseGeoPoint } from '../../shared/geo.utils.js';
 import {
