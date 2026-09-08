@@ -10,7 +10,8 @@ const FEATURE_KEYS = {
     RESTAURANT_SUBSCRIPTION: 'restaurant_subscription',
     ADMIN_ACCESS_SECTION: 'admin_access_section',
     ROOT_LANDING_AND_UNREGISTERED_CONTROL: 'root_landing_and_unregistered_control',
-    QUICK_COMMERCE: 'quick_commerce'
+    QUICK_COMMERCE: 'quick_commerce',
+    ACCOUNT_DELETION: 'account_deletion'
 };
 
 export default function FeatureSettings() {
@@ -25,6 +26,11 @@ export default function FeatureSettings() {
 
     const adminAccessSection = useMemo(
         () => features.find((item) => item.key === FEATURE_KEYS.ADMIN_ACCESS_SECTION) || null,
+        [features]
+    );
+
+    const accountDeletion = useMemo(
+        () => features.find((item) => item.key === FEATURE_KEYS.ACCOUNT_DELETION) || null,
         [features]
     );
 
@@ -69,6 +75,7 @@ export default function FeatureSettings() {
             restaurantSubscription,
             adminAccessSection,
             quickCommerce,
+            accountDeletion,
             rootLandingAndUnregisteredControl,
         ].filter(Boolean);
         if (updates.length === 0) return;
@@ -170,6 +177,28 @@ export default function FeatureSettings() {
                     <Switch
                         checked={Boolean(quickCommerce?.isEnabled)}
                         onCheckedChange={(checked) => setToggle(FEATURE_KEYS.QUICK_COMMERCE, checked)}
+                    />
+                </CardContent>
+            </Card>
+
+            <Card className="border-slate-200">
+                <CardHeader>
+                    <CardTitle className="text-lg">Delete Account (customer app)</CardTitle>
+                    <CardDescription>
+                        Controls the Delete Account option in the customer profile, on both the
+                        app and the website. OFF hides it and refuses the delete endpoint, so an
+                        older app build cannot delete either. Existing accounts are untouched.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="flex items-center justify-between gap-4">
+                    <div className="text-sm text-gray-700">
+                        {accountDeletion?.isEnabled
+                            ? 'Enabled: customers can delete their own account'
+                            : 'Disabled: the option is hidden and deletion is refused'}
+                    </div>
+                    <Switch
+                        checked={Boolean(accountDeletion?.isEnabled)}
+                        onCheckedChange={(checked) => setToggle(FEATURE_KEYS.ACCOUNT_DELETION, checked)}
                     />
                 </CardContent>
             </Card>

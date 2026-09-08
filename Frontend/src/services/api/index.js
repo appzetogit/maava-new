@@ -2534,6 +2534,12 @@ export const userAPI = {
       return inFlight;
     };
   })(),
+  /** GET /food/admin/feature-settings/public (no auth) -- admin feature switches. */
+  getFeatureSettingsPublic: (config = {}) =>
+    publicConfigGetOnce("/food/admin/feature-settings/public", {
+      contextModule: "user",
+      ...config,
+    }),
   /** GET /food/user/referrals/stats (Bearer USER) */
   getReferralStats: () =>
     apiClient.get("/food/user/referrals/stats", { contextModule: "user" }),
