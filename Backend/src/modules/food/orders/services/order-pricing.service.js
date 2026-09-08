@@ -307,6 +307,19 @@ export function computeItemsTax(items = [], { subtotal = 0, discount = 0, fallba
 }
 
 export function resolveUserDeliveryFee(feeSettings = {}, { subtotal = 0, distanceKm = null } = {}) {
+  // The "Get free delivery" progress the cart shows the shopper is a promise,
+  // not decoration — `subtotal` was already being threaded in here for this
+  // exact check, it just never ran. 0 (the schema default) means the rule is
+  // off, same convention as every other admin threshold in this codebase.
+  const threshold = Number(feeSettings.freeDeliveryThreshold);
+  if (Number.isFinite(threshold) && threshold > 0 && Number(subtotal) >= threshold) {
+    return {
+      deliveryFee: 0,
+      distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
+      source: 'free_delivery_threshold',
+    };
+  }
+
   const ranges = Array.isArray(feeSettings.deliveryFeeRanges)
     ? feeSettings.deliveryFeeRanges
     : [];
