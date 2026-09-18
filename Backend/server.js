@@ -22,6 +22,7 @@ let server = null;
 let autoDeliverInterval = null;
 let expireOffersInterval = null;
 let fssaiExpiryInterval = null;
+let watchdogInterval = null;
 
 const gracefulShutdown = async (signal) => {
     logger.info(`${signal} received, starting graceful shutdown`);
@@ -37,6 +38,7 @@ const gracefulShutdown = async (signal) => {
             if (autoDeliverInterval) clearInterval(autoDeliverInterval);
             if (expireOffersInterval) clearInterval(expireOffersInterval);
             if (fssaiExpiryInterval) clearInterval(fssaiExpiryInterval);
+            if (watchdogInterval) clearInterval(watchdogInterval);
             logger.info('Graceful shutdown complete');
             process.exit(0);
         } catch (err) {
@@ -56,12 +58,20 @@ const startBackgroundJobs = async () => {
         return;
     }
 
-    try {
-        const { recoverStuckOrders } = await import('./src/modules/food/orders/services/order.service.js');
-        await recoverStuckOrders();
-    } catch (err) {
-        logger.error(`Watchdog startup error: ${err.message}`);
-    }
+    // Runs on an interval, not just at startup: the watchdog is what rescues
+    // orders whose dispatch retry was lost (BullMQ disabled, process restart),
+    // and a rider coming back online should not have to wait for a redeploy to
+    // start receiving the orders that piled up.
+    const runWatchdog = async () => {
+        try {
+            const { recoverStuckOrders } = await import('./src/modules/food/orders/services/order.service.js');
+            await recoverStuckOrders();
+        } catch (err) {
+            logger.error(`Watchdog error: ${err.message}`);
+        }
+    };
+    await runWatchdog();
+    watchdogInterval = setInterval(runWatchdog, 2 * 60 * 1000);
 
     const runExpire = async () => {
         try {
