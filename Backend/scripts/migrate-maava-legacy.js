@@ -408,6 +408,11 @@ const run = async () => {
                 platformFee: num(o.pricing?.platformFee),
                 packagingFee: num(o.pricing?.packagingFee),
                 discount: num(o.pricing?.discount),
+                // Rider tip. Missed on the first pass because it is named
+                // deliveryTip, not tip -- 18 orders carry ₹530 between them,
+                // and without it their `total` does not equal the sum of its
+                // own parts. Backfilled onto already-migrated orders below.
+                deliveryTip: num(o.pricing?.deliveryTip),
                 total: num(o.pricing?.total ?? o.pricing?.grandTotal),
                 currency: 'INR',
             },
@@ -429,6 +434,33 @@ const run = async () => {
     // history, and dropping it would silently shrink their record.
     record('orders -> food_orders', await insertMissing(T, 'food_orders', mapped));
     log(`  note: ${unresolved} order(s) reference a restaurant that no longer exists; migrated with the id intact\n`);
+
+    // ---- backfill: rider tips onto orders migrated before deliveryTip -----
+    // insertMissing never updates, so orders that landed on an earlier run
+    // keep the shape that run gave them and would stay tipless forever.
+    //
+    // Only the orders with a tip above zero are written: the rest read as 0
+    // from the schema default anyway, so touching all 1271 would be 1200-odd
+    // pointless writes against a collection serving live customers.
+    const tipped = mapped.filter((o) => num(o.pricing?.deliveryTip) > 0);
+    let tipsFixed = 0;
+    if (tipped.length) {
+        const stale = await T.collection('food_orders')
+            .find({ _id: { $in: tipped.map((o) => o._id) }, 'pricing.deliveryTip': { $exists: false } },
+                { projection: { _id: 1 } }).toArray();
+        const staleIds = new Set(stale.map((d) => String(d._id)));
+        const ops = tipped
+            .filter((o) => staleIds.has(String(o._id)))
+            .map((o) => ({
+                updateOne: {
+                    filter: { _id: o._id },
+                    update: { $set: { 'pricing.deliveryTip': num(o.pricing.deliveryTip) } },
+                },
+            }));
+        if (apply && ops.length) await T.collection('food_orders').bulkWrite(ops, { ordered: false });
+        tipsFixed = ops.length;
+    }
+    record('orders: backfill pricing.deliveryTip', { inserted: tipsFixed, skipped: tipped.length - tipsFixed });
 
     // =====================================================================
     // QUICK COMMERCE
@@ -691,16 +723,48 @@ const run = async () => {
             createdAt: t.createdAt, updatedAt: t.updatedAt,
         }))));
 
+    // The source stores the BUSINESS CODE here ("REST-1777878396104-4619"),
+    // not the restaurant's _id -- unlike every other restaurantId in the source.
+    // Our schema declares an ObjectId, and because this migration writes through
+    // the raw driver nothing casts it, so the string went straight into the
+    // database and every admin commissions request died with
+    // "Cast to ObjectId failed". Resolved through the source's own
+    // restaurants.restaurantId index; _ids carry across unchanged.
+    const commRests = await S.collection('restaurants')
+        .find({ restaurantId: { $exists: true, $ne: '' } }, { projection: { restaurantId: 1 } }).toArray();
+    const restIdByCode = new Map(commRests.map((r) => [String(r.restaurantId), r._id]));
+
     const comms = await S.collection('restaurantcommissions').find({}).toArray();
+    const commUnresolvedRows = [];
     record('restaurantcommissions -> food_restaurant_commissions', await insertMissing(T, 'food_restaurant_commissions',
-        comms.filter((c) => c.restaurantId).map((c) => ({
+        comms.map((c) => {
+            // Already an ObjectId in some rows; a code in others.
+            const direct = oid(c.restaurantId);
+            const viaCode = restIdByCode.get(String(c.restaurantId));
+            const resolved = viaCode || (direct && String(direct) === String(c.restaurantId) ? direct : null);
+            if (!resolved) { commUnresolvedRows.push(c); return null; }
+            return {
             _id: c._id,
-            restaurantId: c.restaurantId,
+            restaurantId: resolved,
             defaultCommission: c.defaultCommission ?? num(c.commission),
             notes: str(c.notes),
             status: c.status !== false,
             createdAt: c.createdAt, updatedAt: c.updatedAt,
-        })), 'restaurantId'));
+            };
+        }).filter(Boolean), 'restaurantId'));
+    // Kept, not dropped. These name a restaurant the source itself no longer
+    // has, so there is no ObjectId to point them at and they cannot go into
+    // food_restaurant_commissions -- one string there makes mongoose fail the
+    // cast for the whole query and the admin endpoint 500s for every other row.
+    // They are still a record of what was configured, so they are set aside
+    // verbatim rather than discarded.
+    if (commUnresolvedRows.length) {
+        record('restaurantcommissions (orphaned) -> legacy_orphan_restaurant_commissions',
+            await insertMissing(T, 'legacy_orphan_restaurant_commissions', commUnresolvedRows.map((c) => ({
+                ...c,
+                quarantinedReason: 'restaurantId names a restaurant absent from the source',
+            }))));
+    }
 
     // ---- fee settings -----------------------------------------------------
     const fees = await S.collection('feesettings').find({}).toArray();
@@ -762,6 +826,49 @@ const run = async () => {
             isDeleted: false,
             createdAt: a.createdAt, updatedAt: a.updatedAt,
         })), 'email'));
+
+    // ---- legal pages ------------------------------------------------------
+    // The source keeps the privacy policy and the terms in a collection each,
+    // one document apiece, as an HTML string. This app keys them by (key,
+    // module) in one collection. Without this they landed only as
+    // legacy_privacypolicies / legacy_termsandconditions -- preserved, but not
+    // where anything reads them, so /seller/privacy and /seller/terms rendered
+    // "No additional content available" while the text sat in the database.
+    //
+    // module 'ALL' because the source has no per-module split and the read path
+    // falls back to 'ALL', so one row serves the customer, seller and rider
+    // apps -- which is what the source did.
+    //
+    // Deliberately food only. The model's own note is that serving one
+    // vertical's legal text for another is a legal problem rather than a
+    // cosmetic one, and the source is the restaurant app's text; the quick
+    // vertical needs its own, written by someone who can sign off on it.
+    const legalPages = [
+        { key: 'privacy', from: 'privacypolicies', fallbackTitle: 'Privacy Policy' },
+        { key: 'terms', from: 'termsandconditions', fallbackTitle: 'Terms and Conditions' },
+    ];
+    const legalDocs = [];
+    for (const { key, from, fallbackTitle } of legalPages) {
+        const src = await S.collection(from).findOne({});
+        if (!src || !str(src.content)) continue;
+        legalDocs.push({
+            _id: derivedId('page_content', 'food', key, 'ALL'),
+            vertical: 'food',
+            key,
+            module: 'ALL',
+            legal: {
+                title: str(src.title, fallbackTitle),
+                content: str(src.content),
+                email: '',
+                mobile: '',
+            },
+            updatedBy: null,
+            updatedByRole: 'ADMIN',
+            createdAt: src.createdAt, updatedAt: src.updatedAt,
+        });
+    }
+    record('privacypolicies + termsandconditions -> food_page_contents',
+        await insertMissing(T, 'food_page_contents', legalDocs));
 
     // ---- everything else: preserved verbatim ------------------------------
     // Named legacy_* so it is obvious these are untranslated source records and
