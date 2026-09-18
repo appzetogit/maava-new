@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { FoodOrder } from '../models/order.model.js';
+import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { logger } from '../../../../utils/logger.js';
 import { haversineKm as geoHaversineKm, parseGeoPoint } from '../../shared/geo.utils.js';
 import {
@@ -63,6 +64,7 @@ export function sanitizeOrderForDeliveryPartner(orderDoc) {
   const o = sanitizeOrderForExternal(orderDoc);
   const cookingNote = String(o.note || "").trim();
   const deliveryInstructions = String(o.deliveryInstructions || "").trim();
+
   return {
     ...o,
     cookingNote,
@@ -444,6 +446,8 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
     orderMongoId:
       orderDoc?._id?.toString?.() || order?._id?.toString?.() || order?._id,
     orderId: order?.order_id || order?._id?.toString?.(),
+    // 'food' | 'quick' — lets the rider app label the job Food vs Mart.
+    vertical: order?.vertical,
     status: orderDoc?.orderStatus || order?.orderStatus,
     items: order?.items || [],
     pricing: order?.pricing,
@@ -514,6 +518,14 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
     deliveryInstructions: order?.deliveryInstructions || "",
     riderEarning: order?.riderEarning || 0,
     earnings: order?.riderEarning || order?.pricing?.deliveryFee || 0,
+    // riderEarning is base + tip. Broken out so the app can show "Delivery Tip"
+    // as its own line rather than folding it invisibly into the total.
+    deliveryTip: Number(order?.pricing?.deliveryTip) || 0,
+    riderBaseEarning: Math.max(
+      0,
+      (Number(order?.riderEarning) || 0) -
+        (Number(order?.pricing?.deliveryTip) || 0),
+    ),
     deliveryFee: order?.pricing?.deliveryFee || 0,
     deliveryFleet: order?.deliveryFleet,
     dispatch: order?.dispatch,
@@ -581,6 +593,23 @@ export async function notifyRestaurantNewOrder(orderDoc) {
           .join(", ")
       : "";
     const total = orderDoc.pricing?.total ?? 0;
+
+    // Coordinates for the card's route tile. parseGeoPoint normalises the
+    // several shapes a location arrives in; when restaurantId is a bare
+    // ObjectId rather than a populated document the pin is fetched, or the map
+    // would silently never appear.
+    let restaurantPoint = parseGeoPoint(orderDoc.restaurantId);
+    if (!restaurantPoint && orderDoc.restaurantId) {
+      try {
+        const store = await FoodRestaurant.findById(orderDoc.restaurantId)
+          .select('location')
+          .lean();
+        restaurantPoint = parseGeoPoint(store);
+      } catch (err) {
+        logger.warn(`Could not resolve store point for the order card: ${err?.message || err}`);
+      }
+    }
+    const customerPoint = parseGeoPoint(orderDoc.deliveryAddress);
     
     // Construct rich body for the custom notification layout in Flutter
     let bodyText = `Order #${orderDoc.order_id || orderDoc._id} is waiting for review.`;
@@ -601,11 +630,21 @@ export async function notifyRestaurantNewOrder(orderDoc) {
         title: "New order received",
         body: bodyText,
         androidTag: `order_${orderDoc._id?.toString?.() || ""}`,
-        // The channel the restaurant app actually creates. The service default
-        // is the rider app's new-order channel, which does not exist here —
-        // Android silently demotes an unknown channel to low importance, so the
-        // alert would arrive without sound or a heads-up even once it displayed.
-        androidChannelId: "new_order_channel",
+        // The channel the seller apps actually create, and a SILENT one.
+        //
+        // This leg is rendered by the system tray on its own, while the data
+        // leg below wakes the app and raises the native order card. Both used
+        // to make a noise — two different rings a beat apart for one order — so
+        // the card now owns the sound and this copy is a visible backstop only.
+        // The app cancels it (tag `order_<id>`) as soon as the card is up, and
+        // posts its own loud fallback when the card cannot be shown.
+        //
+        // Versioned because a channel's sound is frozen at creation: silencing
+        // the old `new_order_channel` in place is impossible on any device that
+        // already has it. Changing this string means changing NewOrderNotifier
+        // .CHANNEL_ID in BOTH seller apps to match, or Android demotes the
+        // notification to an unknown-channel default.
+        androidChannelId: "new_order_push_v3",
         data: {
           type: "new_order",
           title: "New order received",
@@ -622,6 +661,21 @@ export async function notifyRestaurantNewOrder(orderDoc) {
           address: str(addressStr),
           total: str(total),
           paymentMethod: str(orderDoc.payment?.method),
+          // Both already live on the order; the popup had nothing to show for
+          // preparation time or distance because neither was ever sent.
+          prepMinutes: str(orderDoc.pricing?.packingMinutes ?? ''),
+          // Store and customer coordinates, for the route tile on the card.
+          // Omitted rather than zeroed when either end is unknown - a
+          // restaurant with no pin set would otherwise map the Gulf of Guinea.
+          storeLat: str(restaurantPoint?.lat ?? ''),
+          storeLng: str(restaurantPoint?.lng ?? ''),
+          customerLat: str(customerPoint?.lat ?? ''),
+          customerLng: str(customerPoint?.lng ?? ''),
+          distanceKm: str(
+            orderDoc.pricing?.roadDistanceKm ??
+              orderDoc.pricing?.distanceKm ??
+              '',
+          ),
           acceptanceDeadlineAt: str(orderDoc.acceptanceDeadlineAt?.toISOString?.() || ""),
         },
       },

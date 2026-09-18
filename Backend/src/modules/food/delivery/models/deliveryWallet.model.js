@@ -18,6 +18,12 @@ const deliveryWalletSchema = new mongoose.Schema(
         lockedAmount: { type: Number, default: 0, min: 0 },
         /** Cash collected from COD orders but not yet deposited to company */
         cashInHand: { type: Number, default: 0, min: 0 },
+        /** Added to the calculated cash in hand (COD collected - deposits).
+         *  Set when an admin raises a rider's cash in hand by hand, so the
+         *  figure still moves with every delivery and deposit afterwards. */
+        cashInHandAdjustment: { type: Number, default: 0 },
+        /** Added to the calculated wallet balance; moved by admin edits. */
+        pocketBalanceAdjustment: { type: Number, default: 0 },
         /** Lifetime earnings from deliveries (excluding bonus) */
         totalEarnings: { type: Number, default: 0, min: 0 },
         /** Total bonus amount received from admin/offers */

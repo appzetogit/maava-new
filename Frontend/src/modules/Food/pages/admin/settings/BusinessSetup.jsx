@@ -35,6 +35,12 @@ export default function BusinessSetup() {
   const [restaurantFaviconFile, setRestaurantFaviconFile] = useState(null);
   const [deliveryLogoFile, setDeliveryLogoFile] = useState(null);
   const [deliveryFaviconFile, setDeliveryFaviconFile] = useState(null);
+  const [adminLoginImageFile, setAdminLoginImageFile] = useState(null);
+  const [adminLoginImagePreview, setAdminLoginImagePreview] = useState(null);
+  const adminLoginImageInputRef = useRef(null);
+  const [companyUpiQrFile, setCompanyUpiQrFile] = useState(null);
+  const [companyUpiQrPreview, setCompanyUpiQrPreview] = useState(null);
+  const companyUpiQrInputRef = useRef(null);
   const logoInputRef = useRef(null);
   const faviconInputRef = useRef(null);
   const restaurantLogoInputRef = useRef(null);
@@ -52,6 +58,7 @@ export default function BusinessSetup() {
     pincode: "",
     region: "",
     googleMapsApiKey: "",
+    companyUpiId: "",
     firebase: {
       apiKey: "",
       authDomain: "",
@@ -93,6 +100,7 @@ export default function BusinessSetup() {
           pincode: settings.pincode || "",
           region: settings.region || "India",
           googleMapsApiKey: settings.googleMapsApiKey || "",
+          companyUpiId: settings.companyUpiId || "",
           firebase: {
             apiKey: settings.firebase?.apiKey || "",
             authDomain: settings.firebase?.authDomain || "",
@@ -108,6 +116,12 @@ export default function BusinessSetup() {
 
         setServiceAccountStatus(settings.firebaseServiceAccount || null);
 
+        if (settings.companyUpiQr?.url) {
+          setCompanyUpiQrPreview(settings.companyUpiQr.url);
+        }
+        if (settings.adminLoginImage?.url) {
+          setAdminLoginImagePreview(settings.adminLoginImage.url);
+        }
         // Set logo and favicon previews if they exist
         if (settings.logo?.url) {
           setLogoPreview(settings.logo.url);
@@ -201,6 +215,7 @@ export default function BusinessSetup() {
         region: formData.region,
         // Trimmed, and sent even when empty so clearing the field revokes it.
         googleMapsApiKey: formData.googleMapsApiKey.trim(),
+        companyUpiId: formData.companyUpiId.trim(),
         firebase: Object.fromEntries(
           Object.entries(formData.firebase).map(([k, v]) => [k, String(v || "").trim()])
         ),
@@ -215,6 +230,12 @@ export default function BusinessSetup() {
 
       // Prepare files
       const files = {};
+      if (companyUpiQrFile) {
+        files.companyUpiQr = companyUpiQrFile;
+      }
+      if (adminLoginImageFile) {
+        files.adminLoginImage = adminLoginImageFile;
+      }
       if (logoFile) {
         files.logo = logoFile;
       }
@@ -474,6 +495,122 @@ export default function BusinessSetup() {
                   }}
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
+              </div>
+            </div>
+
+            {/* The artwork on the admin sign-in screen. Wide rather than
+                square: it fills half the window on a desktop. */}
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Admin login image
+              </label>
+              <input
+                ref={adminLoginImageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setAdminLoginImageFile(file);
+                  setAdminLoginImagePreview(URL.createObjectURL(file));
+                }}
+              />
+              <div
+                onClick={() => adminLoginImageInputRef.current?.click()}
+                className="relative w-full max-w-md h-40 border-2 border-dashed border-slate-300 rounded-lg flex items-center justify-center cursor-pointer hover:border-blue-400 transition-colors bg-white overflow-hidden"
+              >
+                {adminLoginImagePreview ? (
+                  <>
+                    <img
+                      src={adminLoginImagePreview}
+                      alt="Admin login artwork"
+                      className="w-full h-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAdminLoginImagePreview(null);
+                        setAdminLoginImageFile(null);
+                        if (adminLoginImageInputRef.current) {
+                          adminLoginImageInputRef.current.value = "";
+                        }
+                      }}
+                      className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </>
+                ) : (
+                  <div className="text-center">
+                    <Upload className="w-5 h-5 text-slate-400 mx-auto mb-1" />
+                    <p className="text-xs text-slate-400">Click to upload login image</p>
+                  </div>
+                )}
+              </div>
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Fills the left half of the sign-in screen. Landscape, roughly 1200&times;1600 or
+                wider. Empty keeps the built-in illustration.
+              </p>
+            </div>
+
+            {/* The QR riders scan to hand over COD cash, and the id shown
+                beneath it for anyone whose app will not scan. Here rather than
+                in the rider app so changing the receiving account is an upload
+                rather than a release. */}
+            <div className="mb-4 border border-slate-200 rounded-lg p-4">
+              <h3 className="text-xs font-bold text-slate-800 mb-1">Cash settlement UPI</h3>
+              <p className="text-[11px] text-slate-500 mb-3">
+                Shown to delivery partners clearing their pending COD cash. They pay,
+                then file the UTR and a screenshot for an admin to verify.
+              </p>
+              <div className="flex flex-wrap gap-4 items-start">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">UPI QR</label>
+                  <input
+                    ref={companyUpiQrInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setCompanyUpiQrFile(file);
+                      setCompanyUpiQrPreview(URL.createObjectURL(file));
+                    }}
+                  />
+                  <div
+                    onClick={() => companyUpiQrInputRef.current?.click()}
+                    className="relative w-32 h-32 border-2 border-dashed border-slate-300 rounded-lg flex items-center justify-center cursor-pointer hover:border-blue-400 transition-colors bg-white"
+                  >
+                    {companyUpiQrPreview ? (
+                      <img
+                        src={companyUpiQrPreview}
+                        alt="Company UPI QR"
+                        className="w-full h-full object-contain p-1"
+                      />
+                    ) : (
+                      <div className="text-center">
+                        <Upload className="w-5 h-5 text-slate-400 mx-auto mb-1" />
+                        <p className="text-xs text-slate-400">Upload QR</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">UPI ID</label>
+                  <input
+                    type="text"
+                    placeholder="company@upi"
+                    value={formData.companyUpiId}
+                    onChange={(e) => handleInputChange("companyUpiId", e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="mt-1.5 text-[11px] text-slate-500">
+                    Optional. Shown under the QR so a rider can pay by typing it.
+                  </p>
+                </div>
               </div>
             </div>
 

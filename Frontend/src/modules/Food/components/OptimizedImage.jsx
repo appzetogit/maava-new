@@ -14,7 +14,7 @@ import { motion } from 'framer-motion'
  * - Error handling with fallback
  */
 const OptimizedImage = React.memo(({
-  src,
+  src: rawSrc,
   alt,
   className = '',
   priority = false, // For above-the-fold images
@@ -26,6 +26,12 @@ const OptimizedImage = React.memo(({
   onError,
   ...props
 }) => {
+  // Same as components/OptimizedImage: the API often hands an image over as
+  // { url } rather than a string, and supportsOptimization() below calls
+  // .startsWith on it -- which throws during render and unmounts the page.
+  const src = typeof rawSrc === "string"
+    ? rawSrc
+    : (rawSrc && typeof rawSrc === "object" ? (rawSrc.url || rawSrc.secure_url || rawSrc.src || "") : "")
   const [isLoaded, setIsLoaded] = useState(false)
   const [hasError, setHasError] = useState(false)
   const [isInView, setIsInView] = useState(priority) // Start visible if priority

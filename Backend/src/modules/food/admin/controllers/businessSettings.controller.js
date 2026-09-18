@@ -39,8 +39,13 @@ const describeServiceAccount = (raw) => {
 const POWER_SCANNING_DEFAULT = {
     user: { themeColor: '#FA0272', fontFamily: 'Poppins' },
     restaurant: { themeColor: '#2563EB', fontFamily: 'Poppins' },
-    delivery: { themeColor: '#00B761', fontFamily: 'Poppins' }
+    delivery: { themeColor: '#00B761', fontFamily: 'Poppins' },
+    // The customer app's Mart (quick-commerce) section. It is a separate entry
+    // from `user` because the two halves of that one app are branded apart.
+    mart: { themeColor: '#068483', fontFamily: 'Poppins' }
 };
+
+const POWER_SCANNING_MODULES = Object.keys(POWER_SCANNING_DEFAULT);
 
 const POWER_SCANNING_FONT_OPTIONS = [
     'Poppins', 'Outfit', 'Inter', 'Roboto', 'Montserrat',
@@ -67,20 +72,11 @@ const normalizeOrderAcceptanceMinutes = (value, fallback = 4) => {
     return Math.max(1, Math.min(20, Math.round(numeric)));
 };
 
-const buildPowerScanningPayload = (payload = {}, existing = POWER_SCANNING_DEFAULT) => ({
-    user: {
-        themeColor: normalizeHexColor(payload?.user?.themeColor, existing?.user?.themeColor || POWER_SCANNING_DEFAULT.user.themeColor),
-        fontFamily: normalizeFontFamily(payload?.user?.fontFamily, existing?.user?.fontFamily || POWER_SCANNING_DEFAULT.user.fontFamily)
-    },
-    restaurant: {
-        themeColor: normalizeHexColor(payload?.restaurant?.themeColor, existing?.restaurant?.themeColor || POWER_SCANNING_DEFAULT.restaurant.themeColor),
-        fontFamily: normalizeFontFamily(payload?.restaurant?.fontFamily, existing?.restaurant?.fontFamily || POWER_SCANNING_DEFAULT.restaurant.fontFamily)
-    },
-    delivery: {
-        themeColor: normalizeHexColor(payload?.delivery?.themeColor, existing?.delivery?.themeColor || POWER_SCANNING_DEFAULT.delivery.themeColor),
-        fontFamily: normalizeFontFamily(payload?.delivery?.fontFamily, existing?.delivery?.fontFamily || POWER_SCANNING_DEFAULT.delivery.fontFamily)
-    }
-});
+const buildPowerScanningPayload = (payload = {}, existing = POWER_SCANNING_DEFAULT) =>
+    Object.fromEntries(POWER_SCANNING_MODULES.map((key) => [key, {
+        themeColor: normalizeHexColor(payload?.[key]?.themeColor, existing?.[key]?.themeColor || POWER_SCANNING_DEFAULT[key].themeColor),
+        fontFamily: normalizeFontFamily(payload?.[key]?.fontFamily, existing?.[key]?.fontFamily || POWER_SCANNING_DEFAULT[key].fontFamily)
+    }]));
 
 const ensurePowerScanningOnSettings = (settingsDocOrPlain = null) => {
     const current = settingsDocOrPlain || {};
@@ -113,10 +109,7 @@ export async function getBusinessSettings(req, res, next) {
 
         // Backfill old docs that might not have powerScanning persisted yet.
         const persistedPowerScanning = settings?.powerScanning || {};
-        const wasMissingAnyModule =
-            !persistedPowerScanning?.user ||
-            !persistedPowerScanning?.restaurant ||
-            !persistedPowerScanning?.delivery;
+        const wasMissingAnyModule = POWER_SCANNING_MODULES.some((key) => !persistedPowerScanning?.[key]);
         if (wasMissingAnyModule) {
             settings.powerScanning = normalizedPowerScanning;
             await settings.save();
@@ -243,7 +236,7 @@ export async function updateBusinessSettings(req, res, next) {
         const data = req.body.data ? JSON.parse(req.body.data) : {};
         const {
             companyName, email, phoneCountryCode, phoneNumber, address, state, pincode, region,
-            googleMapsApiKey, firebase, firebaseServiceAccount
+            googleMapsApiKey, companyUpiId, firebase, firebaseServiceAccount
         } = data;
 
         // Validation
@@ -287,6 +280,10 @@ export async function updateBusinessSettings(req, res, next) {
         // possible: a leaked key needs revoking here as well as in Google.
         if (googleMapsApiKey !== undefined) {
             settings.googleMapsApiKey = String(googleMapsApiKey || '').trim();
+        }
+        // Shown under the QR for riders whose app will not scan it.
+        if (companyUpiId !== undefined) {
+            settings.companyUpiId = String(companyUpiId || '').trim();
         }
 
         // Field by field off an allowlist, not a wholesale assign: the panel
@@ -333,6 +330,26 @@ export async function updateBusinessSettings(req, res, next) {
                 settings.logo = {
                     url: logoResult.secure_url,
                     publicId: logoResult.public_id
+                };
+            }
+            if (req.files.adminLoginImage) {
+                const loginImageResult = await uploadImageBufferDetailed(
+                    req.files.adminLoginImage[0].buffer,
+                    'business/admin-login'
+                );
+                settings.adminLoginImage = {
+                    url: loginImageResult.secure_url,
+                    publicId: loginImageResult.public_id
+                };
+            }
+            if (req.files.companyUpiQr) {
+                const qrResult = await uploadImageBufferDetailed(
+                    req.files.companyUpiQr[0].buffer,
+                    'business/upi-qr'
+                );
+                settings.companyUpiQr = {
+                    url: qrResult.secure_url,
+                    publicId: qrResult.public_id
                 };
             }
             if (req.files.favicon) {

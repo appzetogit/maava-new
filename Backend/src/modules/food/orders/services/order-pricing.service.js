@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { FoodOrder } from '../models/order.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodFeeSettings } from '../../admin/models/feeSettings.model.js';
+import { findZoneForPoint, readAddressPoint } from '../../shared/zoneServiceability.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
 import { FoodOfferUsage } from '../../admin/models/offerUsage.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
@@ -20,13 +21,59 @@ import { AVG_SPEED_KMPH, DEFAULT_PACKING_MINUTES } from './order.helpers.js';
 
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
-/** Fixed 18% GST on delivery fee (separate from item GST in fee settings). */
+/**
+ * Default GST on delivery fee (a distinct supply of service from the food
+ * itself) when the admin has not configured `feeSettings.deliveryFeeGstRate`.
+ * Kept as the fallback rather than removed so an unconfigured store's total
+ * does not change.
+ */
 export const DELIVERY_FEE_GST_RATE = 0.18;
 
-export function computeDeliveryFeeGst(deliveryFee) {
+/**
+ * Ceiling on a rider tip, in rupees.
+ *
+ * The tip arrives from the client and is paid straight through to the rider,
+ * so an unbounded value is a way to mint a payout. ₹1000 is far above any
+ * real tip on a food order and still low enough to be worth nothing to abuse.
+ */
+export const MAX_DELIVERY_TIP = 1000;
+
+/**
+ * A tip the pricing math can trust: a finite, non-negative, 2dp number no
+ * larger than the cap. Anything else -- a string, NaN, Infinity, a negative
+ * meant to shrink the bill -- becomes 0 rather than throwing, because the
+ * validator has already rejected genuinely malformed requests and a quote
+ * should not die over a junk optional field.
+ */
+export function normalizeDeliveryTip(value) {
+  const tip = Number(value);
+  if (!Number.isFinite(tip) || tip <= 0) return 0;
+  return round2(Math.min(tip, MAX_DELIVERY_TIP));
+}
+
+/** `rate` is a fraction (0.18), not a percentage — callers with a
+ * percentage from fee settings must divide by 100 first. */
+export function computeDeliveryFeeGst(deliveryFee, rate = DELIVERY_FEE_GST_RATE) {
   const base = Math.max(0, Number(deliveryFee) || 0);
   if (base <= 0) return 0;
-  return round2(base * DELIVERY_FEE_GST_RATE);
+  return round2(base * (Number(rate) || 0));
+}
+
+/** Admin-configured delivery-fee GST %, or the fallback default. Kept in one
+ * place so every caller agrees on what "unconfigured" means.
+ *
+ * Unconfigured is blank -- null, undefined or an empty string -- and only that
+ * gets the 18% default. This used to test `> 0`, which read an explicit 0 as
+ * blank too: a zone set to 0% delivery GST went on charging 18%. */
+export function resolveDeliveryFeeGstRatePercent(feeSettings = {}) {
+  const raw = feeSettings?.deliveryFeeGstRate;
+  if (raw === null || raw === undefined || raw === '') {
+    return DELIVERY_FEE_GST_RATE * 100;
+  }
+  const configured = Number(raw);
+  return Number.isFinite(configured) && configured >= 0
+    ? configured
+    : DELIVERY_FEE_GST_RATE * 100;
 }
 
 const applyDeliveryModePricing = (pricing, deliveryMode, quickSurcharge = 0) => {
@@ -49,6 +96,7 @@ const applyDeliveryModePricing = (pricing, deliveryMode, quickSurcharge = 0) => 
     quickDeliveryFee: surcharge,
   };
 };
+
 
 export async function loadRestaurantForOrdering(restaurantId) {
   if (!restaurantId || !mongoose.Types.ObjectId.isValid(String(restaurantId))) {
@@ -163,10 +211,46 @@ function matchFeeRange(ranges, distanceKm, pickValue) {
   return null;
 }
 
-export async function loadActiveFeeSettings() {
-  const feeDoc = await FoodFeeSettings.findOne({ isActive: { $ne: false } })
+/**
+ * A zone's record laid over the default one, field by field. Kept here rather
+ * than imported from admin.service, which imports from orders.
+ */
+function overlayZoneFeeSettings(defaults, zoneDoc) {
+  if (!zoneDoc) return defaults || null;
+  if (!defaults) return zoneDoc;
+  const merged = { ...defaults };
+  for (const [key, value] of Object.entries(zoneDoc)) {
+    if (['_id', 'createdAt', 'updatedAt', '__v'].includes(key)) continue;
+    if (value === null || value === undefined) continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+    merged[key] = value;
+  }
+  return merged;
+}
+
+/**
+ * Fees for a zone: the zone's own record laid over the default one. Without a
+ * zone, or for a zone that has none of its own, this is the default record,
+ * exactly as before.
+ */
+export async function loadActiveFeeSettings(zoneId = null) {
+  const active = { isActive: { $ne: false } };
+  const feeDefault = await FoodFeeSettings.findOne({
+    ...active,
+    $or: [{ zoneId: null }, { zoneId: { $exists: false } }]
+  })
     .sort({ createdAt: -1 })
     .lean();
+
+  const zoneRaw = String(zoneId || '').trim();
+  const feeZone =
+    zoneRaw && mongoose.Types.ObjectId.isValid(zoneRaw)
+      ? await FoodFeeSettings.findOne({ ...active, zoneId: new mongoose.Types.ObjectId(zoneRaw) })
+          .sort({ createdAt: -1 })
+          .lean()
+      : null;
+
+  const feeDoc = overlayZoneFeeSettings(feeDefault, feeZone);
 
   return (
     feeDoc || {
@@ -202,7 +286,12 @@ export function estimateDeliveryPromiseMinutes(distanceKm, packingMinutes = DEFA
  * resolve it differently.
  */
 export function resolvePackingMinutes(feeSettings = {}) {
-  const configured = Number(feeSettings.packingMinutes);
+  const raw = feeSettings?.packingMinutes;
+  // The field defaults to null. Number(null) is 0 and passes isFinite, so an
+  // unconfigured vertical was quoting zero packing time and stamping that zero
+  // onto every order it priced.
+  if (raw === null || raw === undefined || raw === '') return DEFAULT_PACKING_MINUTES;
+  const configured = Number(raw);
   return Number.isFinite(configured) && configured >= 0 ? configured : DEFAULT_PACKING_MINUTES;
 }
 
@@ -265,6 +354,51 @@ export function computeItemsTax(items = [], { subtotal = 0, discount = 0, fallba
 }
 
 export function resolveUserDeliveryFee(feeSettings = {}, { subtotal = 0, distanceKm = null } = {}) {
+  // The "Get free delivery" progress the cart shows the shopper is a promise,
+  // not decoration — `subtotal` was already being threaded in here for this
+  // exact check, it just never ran. 0 (the schema default) means the rule is
+  // off, same convention as every other admin threshold in this codebase.
+  const threshold = Number(feeSettings.freeDeliveryThreshold);
+  if (Number.isFinite(threshold) && threshold > 0 && Number(subtotal) >= threshold) {
+    return {
+      deliveryFee: 0,
+      distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
+      source: 'free_delivery_threshold',
+    };
+  }
+
+  // Distance pricing: the base fee covers the base distance, then the distance
+  // beyond it is charged pro rata -- 6.2 km with a 3 km base is 3.2 extra
+  // kilometres. Only the final amount is rounded, to whole rupees.
+  const baseKm = Number(feeSettings.baseDeliveryKm);
+  const baseFee = Number(feeSettings.baseDeliveryFee);
+  if (
+    Number.isFinite(baseFee) &&
+    baseFee >= 0 &&
+    Number.isFinite(baseKm) &&
+    baseKm >= 0 &&
+    Number.isFinite(distanceKm)
+  ) {
+    const perKm = Number(feeSettings.perKmFee);
+    const perKmFee = Number.isFinite(perKm) && perKm > 0 ? perKm : 0;
+    const extraKm = Math.max(0, Number((distanceKm - baseKm).toFixed(2)));
+    const cap = Number(feeSettings.maxDeliveryFee);
+    const uncapped = baseFee + extraKm * perKmFee;
+    const capped = Number.isFinite(cap) && cap > 0 ? Math.min(uncapped, cap) : uncapped;
+    return {
+      deliveryFee: Math.round(capped),
+      distanceKm: Number(distanceKm.toFixed(2)),
+      source: 'base_per_km',
+      breakdown: {
+        baseKm,
+        baseFee,
+        perKmFee,
+        extraKm,
+        cappedAt: Number.isFinite(cap) && cap > 0 ? cap : null
+      }
+    };
+  }
+
   const ranges = Array.isArray(feeSettings.deliveryFeeRanges)
     ? feeSettings.deliveryFeeRanges
     : [];
@@ -288,7 +422,61 @@ export function resolveUserDeliveryFee(feeSettings = {}, { subtotal = 0, distanc
   };
 }
 
+/**
+ * Rider pay under base + per extra km, or null when that is not configured.
+ *
+ * Kept apart from the bands on purpose: a band pays a flat amount or a per-km
+ * rate on the whole trip, so "Rs 20 for the first km, Rs 5 for each km after"
+ * could not be written down at all. Extra distance is pro rata, like the
+ * customer side; only the result is rounded.
+ */
+function calculateRiderBasePerKm(feeSettings, distanceKm) {
+  const raw = feeSettings?.riderBasePay;
+  if (raw === null || raw === undefined || raw === '') return null;
+  const basePay = Number(raw);
+  if (!Number.isFinite(basePay) || basePay < 0) return null;
+
+  const baseKm = Math.max(0, Number(feeSettings.riderBaseKm) || 0);
+  const perKm = Math.max(0, Number(feeSettings.riderPerKmPay) || 0);
+  // An unknown distance pays the base: the trip happened, its length is what
+  // is missing, and guessing long would overpay on one bad coordinate.
+  const km = Number.isFinite(Number(distanceKm)) && distanceKm !== null && distanceKm !== ''
+    ? Math.max(0, Number(distanceKm))
+    : 0;
+  const extraKm = Math.max(0, Number((km - baseKm).toFixed(2)));
+  const uncapped = basePay + extraKm * perKm;
+  const cap = Number(feeSettings.riderMaxPay);
+  const pay = Number.isFinite(cap) && cap > 0 ? Math.min(uncapped, cap) : uncapped;
+  return Math.round(pay);
+}
+
+/**
+ * One line a customer can read: the distance, and for per-km pricing the sum
+ * behind the fee -- "11.5 km · first 1 km ₹20 + 10.5 km × ₹5".
+ */
+function describeDeliveryFee(result, distanceKm) {
+  if (!Number.isFinite(distanceKm)) return null;
+  const km = (value) => {
+    const n = Number(value);
+    return Number.isInteger(n) ? String(n) : n.toFixed(1);
+  };
+  const b = result?.breakdown;
+  if (result?.source === 'base_per_km' && b) {
+    const base = `first ${km(b.baseKm)} km ₹${km(b.baseFee)}`;
+    if (!(Number(b.extraKm) > 0)) return `${km(distanceKm)} km · ${base}`;
+    // cappedAt is the cap whenever one is set; only say so when it bit.
+    const hitCap = Number(b.cappedAt) > 0 && Number(result.deliveryFee) >= Number(b.cappedAt);
+    const capped = hitCap ? ` (capped at ₹${km(b.cappedAt)})` : '';
+    return `${km(distanceKm)} km · ${base} + ${km(b.extraKm)} km × ₹${km(b.perKmFee)}${capped}`;
+  }
+  return `Distance: ${km(distanceKm)} km`;
+}
+
 export function calculateRiderEarning(feeSettings = {}, distanceKm) {
+  // Base + per extra km wins when it is set; the bands are the fallback.
+  const basePerKm = calculateRiderBasePerKm(feeSettings, distanceKm);
+  if (basePerKm !== null) return basePerKm;
+
   const ranges = Array.isArray(feeSettings.deliveryFeeRanges)
     ? feeSettings.deliveryFeeRanges
     : [];
@@ -376,6 +564,62 @@ async function resolveDeliveryAddress(userId, dto) {
   return chosen || dto.deliveryAddress;
 }
 
+/**
+ * The welcome for people who just joined: delivery is free for their first few
+ * orders, for a while after signing up, or both. Only delivered orders count, so
+ * a cancelled first order does not burn it, and the rider is still paid as usual.
+ */
+async function resolveNewCustomerFreeDelivery(userId, feeSettings, subtotal) {
+  if (!feeSettings?.newCustomerFreeDelivery || !userId) return null;
+
+  const minOrder = Number(feeSettings.newCustomerMinOrder);
+  if (Number.isFinite(minOrder) && minOrder > 0 && Number(subtotal) < minOrder) return null;
+
+  const maxOrders = Number(feeSettings.newCustomerFreeDeliveryOrders);
+  const withinDays = Number(feeSettings.newCustomerFreeDeliveryDays);
+  const hasOrderLimit = Number.isFinite(maxOrders) && maxOrders > 0;
+  const hasDayLimit = Number.isFinite(withinDays) && withinDays > 0;
+  if (!hasOrderLimit && !hasDayLimit) return null;
+
+  if (hasDayLimit) {
+    const user = await FoodUser.findById(userId).select('createdAt').lean();
+    const joinedAt = user?.createdAt ? new Date(user.createdAt).getTime() : null;
+    if (!joinedAt) return null;
+    if (Date.now() - joinedAt > withinDays * 24 * 60 * 60 * 1000) return null;
+  }
+
+  let ordersLeft = null;
+  if (hasOrderLimit) {
+    const delivered = await FoodOrder.countDocuments({
+      userId: new mongoose.Types.ObjectId(String(userId)),
+      orderStatus: 'delivered'
+    });
+    if (delivered >= maxOrders) return null;
+    ordersLeft = maxOrders - delivered;
+  }
+
+  return {
+    ordersLeft,
+    maxOrders: hasOrderLimit ? maxOrders : null,
+    withinDays: hasDayLimit ? withinDays : null
+  };
+}
+
+async function resolveFeeZoneId(deliveryAddress, restaurant, dto) {
+  const point = readAddressPoint(deliveryAddress);
+  if (point) {
+    try {
+      const zone = await findZoneForPoint(point.lat, point.lng);
+      if (zone?._id) return String(zone._id);
+    } catch {
+      // fall through to the seller's zone
+    }
+  }
+  if (restaurant?.zoneId) return String(restaurant.zoneId);
+  const raw = String(dto?.zoneId || '').trim();
+  return raw || null;
+}
+
 export async function calculateOrderPricing(userId, dto, options = {}) {
   const at = options.at instanceof Date ? options.at : new Date();
   const restaurant =
@@ -402,16 +646,32 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
     ),
   );
 
-  const feeSettings = await loadActiveFeeSettings();
+  // Zone-wise fees: the area the food is delivered to decides the fee, and the
+  // seller's zone stands in when the address cannot be placed on the map.
+  const feeZoneId = await resolveFeeZoneId(deliveryAddress, restaurant, dto);
+  const feeSettings = await loadActiveFeeSettings(feeZoneId);
 
-  const packagingFee = 0;
+  // Packaging is set per zone in the admin panel: a flat amount for the order
+  // plus an optional amount for each item boxed. It goes to the restaurant, so
+  // it is charged on top of the basket and never discounted with a coupon.
+  const packedItemCount = items.reduce(
+    (count, it) => count + (Number(it.quantity) || 1),
+    0,
+  );
+  const packagingFee = round2(
+    (Number(feeSettings.packagingFee) || 0) +
+      (Number(feeSettings.packagingFeePerItem) || 0) * packedItemCount,
+  );
   const platformFee = Number(feeSettings.platformFee || 0);
 
   let distanceKm = await getDeliveryDistanceKm(restaurant, deliveryAddress);
   const straightLineKm = calculateDistanceKm(restaurant, deliveryAddress);
 
   const deliveryFeeResult = resolveUserDeliveryFee(feeSettings, { subtotal, distanceKm });
-  const deliveryFee = round2(deliveryFeeResult.deliveryFee);
+  // A new customer's welcome waives the fee that was just worked out, so the
+  // bill still shows which rule would otherwise have applied.
+  const newCustomerWelcome = await resolveNewCustomerFreeDelivery(userId, feeSettings, subtotal);
+  const deliveryFee = round2(newCustomerWelcome ? 0 : deliveryFeeResult.deliveryFee);
   distanceKm = deliveryFeeResult.distanceKm ?? distanceKm;
 
   let discount = 0;
@@ -437,6 +697,12 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
       const scopeOk =
         offer.restaurantScope !== "selected" ||
         selectedRestaurantIds.some((id) => String(id) === String(dto.restaurantId || ""));
+      // Zone-wise offers: a code limited to zones only applies to an order
+      // delivered into one of them.
+      const offerZoneIds = Array.isArray(offer.zoneIds) ? offer.zoneIds : [];
+      const zoneOk =
+        offer.zoneScope !== 'selected' ||
+        Boolean(feeZoneId && offerZoneIds.some((id) => String(id) === String(feeZoneId)));
       const minOk = subtotal >= (Number(offer.minOrderValue) || 0);
       let usageOk = true;
       if (
@@ -478,6 +744,7 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
         startOk &&
         endOk &&
         scopeOk &&
+        zoneOk &&
         minOk &&
         usageOk &&
         perUserOk &&
@@ -502,29 +769,42 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
   }
 
   // GST is charged on the post-discount item value (discount is already clamped to <= subtotal).
+  const gstRate = Number(feeSettings.gstRate || 0);
   const tax = computeItemsTax(items, {
     subtotal,
     discount,
-    fallbackRate: Number(feeSettings.gstRate || 0),
+    fallbackRate: gstRate,
   });
 
-  const deliveryFeeGst = computeDeliveryFeeGst(deliveryFee);
+  const deliveryFeeGstRate = resolveDeliveryFeeGstRatePercent(feeSettings);
+  const deliveryFeeGst = computeDeliveryFeeGst(deliveryFee, deliveryFeeGstRate / 100);
+
+  // Added after the discount, never before it: a tip is money for the rider,
+  // not part of the order value, so a coupon must not discount it and a
+  // percentage-off must not be computed against it.
+  const deliveryTip = normalizeDeliveryTip(dto.deliveryTip);
 
   const total = round2(
     Math.max(
       0,
       subtotal + packagingFee + deliveryFee + deliveryFeeGst + platformFee + tax - discount,
-    ),
+    ) + deliveryTip,
   );
 
   const basePricing = {
     subtotal,
     tax,
+    // The rate `tax`/`deliveryFeeGst` were actually charged at, so the client
+    // can label the amount instead of guessing — see the comment on
+    // pricingSchema.gstRate for why this was missing before.
+    gstRate,
     packagingFee,
     deliveryFee,
     deliveryFeeGst,
+    deliveryFeeGstRate,
     platformFee,
     discount,
+    deliveryTip,
     total,
     currency: "INR",
     couponCode: appliedCoupon?.code || codeRaw || null,
@@ -535,6 +815,15 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
       ? Number(straightLineKm.toFixed(2))
       : null,
     deliveryFeeBreakdown: deliveryFeeResult.breakdown || null,
+    // Why delivery costs what it does, so the cart can say "FREE" and explain.
+    deliveryFeeReason: newCustomerWelcome ? 'new_customer' : deliveryFeeResult.source || null,
+    newCustomerFreeDelivery: newCustomerWelcome
+      ? {
+          ordersLeft: newCustomerWelcome.ordersLeft,
+          maxOrders: newCustomerWelcome.maxOrders,
+          withinDays: newCustomerWelcome.withinDays
+        }
+      : null,
     // Shown before the customer commits, which is the whole point of a
     // quick-commerce promise: it is a reason to order, not a status to check
     // afterwards. Packing plus the ride, from the same numbers the live
@@ -577,15 +866,24 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
   return {
     items,
     priceChanges,
+    // The zone this order was priced in, so rider pay reads the same zone's
+    // settings instead of the default record.
+    feeZoneId: feeZoneId ? String(feeZoneId) : null,
     pricing: {
       ...pricing,
       deliveryFeeBreakdown: {
+        // The per-km detail (baseKm, baseFee, perKmFee, extraKm, cappedAt) when
+        // that rule set the fee. This block used to replace it outright, so no
+        // app could show how the fee was reached. baseDeliveryKm is the name the
+        // customer app reads.
+        ...(deliveryFeeResult.breakdown || {}),
+        ...(deliveryFeeResult.breakdown
+          ? { baseDeliveryKm: deliveryFeeResult.breakdown.baseKm }
+          : {}),
         source: deliveryFeeResult.source,
         distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
         deliveryFee,
-        message: Number.isFinite(distanceKm)
-          ? `Distance: ${Number(distanceKm).toFixed(1)} km`
-          : null,
+        message: describeDeliveryFee(deliveryFeeResult, distanceKm),
       },
     },
   };

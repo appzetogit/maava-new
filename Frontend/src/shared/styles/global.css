@@ -2,6 +2,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "leaflet/dist/leaflet.css";
+/* Maava design system (the Flutter app's tokens), scoped to .mv -- see module/user/design. */
+@import "../../module/user/design/maava.css";
 
 @custom-variant dark (&:is(.dark *));
 

@@ -12,6 +12,8 @@ import { FoodOrder } from '../../orders/models/order.model.js';
 import { FoodRestaurantOutletTimings } from '../models/outletTimings.model.js';
 import { attachOutletTimingsToRestaurants } from './outletTimings.service.js';
 import { getRestaurantOperationalStatus } from '../helpers/restaurantAvailability.helper.js';
+import { shouldRetryUnscoped } from '../../shared/zoneServiceability.js';
+import { currentVertical } from '../../../../core/vertical/verticalScope.js';
 import {
     calculateDistanceKm,
     normalizeRestaurantLocation,
@@ -426,10 +428,58 @@ const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$
 
 const normalizeCuisine = (value) => String(value || '').trim().slice(0, 80);
 
-const parseSortBy = (value) => {
+export const parseSortBy = (value) => {
     const v = String(value || '').trim();
-    const allowed = new Set(['nearest', 'rating', 'newest', 'deliveryTime', 'price-low', 'price-high', 'rating-high', 'rating-low']);
+    const allowed = new Set(['nearest', 'rating', 'newest', 'deliveryTime', 'price-low', 'price-high', 'rating-high', 'rating-low', 'trending']);
     return allowed.has(v) ? v : null;
+};
+
+/** Real demand only -- an order the user or restaurant backed out of never happened. */
+const CANCELLED_ORDER_STATUSES = ['cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin'];
+
+/** "Trending" is recent momentum, not a lifetime leaderboard one early rush would win forever. */
+const TRENDING_WINDOW_DAYS = 30;
+
+/**
+ * `sortBy=trending` pipeline stages: rank the already-filtered restaurant set by
+ * how many non-cancelled orders each got in the trailing window, most first.
+ *
+ * The count comes from a `$lookup` sub-pipeline against FoodOrder, which runs
+ * as a raw aggregation stage rather than through `FoodOrder.aggregate()` -- so
+ * `verticalPlugin`'s `pre('aggregate')` hook never sees it and can't scope it.
+ * `vertical` is matched by hand here for exactly that reason (see
+ * core/vertical/verticalScope.js). `restaurantId`+`orderStatus`+`createdAt`
+ * (leading with `vertical`) is an existing compound index on FoodOrder, built
+ * for precisely this access pattern.
+ */
+export const trendingSortStages = () => {
+    const since = new Date(Date.now() - TRENDING_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    return [
+        {
+            $lookup: {
+                from: FoodOrder.collection.name,
+                let: { restaurantId: '$_id' },
+                pipeline: [
+                    {
+                        $match: {
+                            vertical: currentVertical(),
+                            $expr: { $eq: ['$restaurantId', '$$restaurantId'] },
+                            orderStatus: { $nin: CANCELLED_ORDER_STATUSES },
+                            createdAt: { $gte: since },
+                        },
+                    },
+                    { $count: 'count' },
+                ],
+                as: 'trendingStats',
+            },
+        },
+        {
+            $addFields: {
+                orderCount: { $ifNull: [{ $arrayElemAt: ['$trendingStats.count', 0] }, 0] },
+            },
+        },
+        { $sort: { orderCount: -1, rating: -1, createdAt: -1 } },
+    ];
 };
 
 const zoneToPolygon = (zoneDoc) => {
@@ -1914,6 +1964,15 @@ export const uploadRestaurantMenuImages = async (restaurantId, files = []) => {
 };
 
 export const listApprovedRestaurants = async (query = {}) => {
+    const result = await listApprovedRestaurantsScoped(query);
+    if (shouldRetryUnscoped({ total: result.total, zoneIdRaw: query.zoneId, isZoneFallback: query._zoneFallback })) {
+        const fallback = await listApprovedRestaurantsScoped({ ...query, zoneId: undefined, _zoneFallback: true });
+        if (fallback.total > 0) return { ...fallback, wasFallback: true };
+    }
+    return result;
+};
+
+const listApprovedRestaurantsScoped = async (query = {}) => {
     const limit = Math.min(Math.max(parseInt(query.limit, 10) || 100, 1), 1000);
     const page = Math.max(parseInt(query.page, 10) || 1, 1);
     const skip = (page - 1) * limit;
@@ -2141,25 +2200,43 @@ export const listApprovedRestaurants = async (query = {}) => {
         };
     }
 
-    // Non-geo path: normal query + sort.
-    const sort = (() => {
-        if (sortBy === 'rating' || sortBy === 'rating-high') return { rating: -1, createdAt: -1 };
-        if (sortBy === 'rating-low') return { rating: 1, createdAt: -1 };
-        if (sortBy === 'price-low') return { featuredPrice: 1, createdAt: -1 };
-        if (sortBy === 'price-high') return { featuredPrice: -1, createdAt: -1 };
-        if (sortBy === 'deliveryTime') return { estimatedDeliveryTimeMinutes: 1, createdAt: -1 };
-        return { createdAt: -1 };
-    })();
+    // Non-geo path: normal query + sort, except 'trending' which needs an
+    // order-count lookup a plain .find().sort() can't express.
+    let restaurantsRaw;
+    let total;
+    if (sortBy === 'trending') {
+        const trendingPipeline = [{ $match: filter }, ...trendingSortStages()];
+        const [pageDocs, totalDocs] = await Promise.all([
+            FoodRestaurant.aggregate([
+                ...trendingPipeline,
+                { $project: projection },
+                { $skip: skip },
+                { $limit: limit },
+            ]),
+            FoodRestaurant.aggregate([...trendingPipeline, { $count: 'count' }]),
+        ]);
+        restaurantsRaw = pageDocs;
+        total = totalDocs?.[0]?.count || 0;
+    } else {
+        const sort = (() => {
+            if (sortBy === 'rating' || sortBy === 'rating-high') return { rating: -1, createdAt: -1 };
+            if (sortBy === 'rating-low') return { rating: 1, createdAt: -1 };
+            if (sortBy === 'price-low') return { featuredPrice: 1, createdAt: -1 };
+            if (sortBy === 'price-high') return { featuredPrice: -1, createdAt: -1 };
+            if (sortBy === 'deliveryTime') return { estimatedDeliveryTimeMinutes: 1, createdAt: -1 };
+            return { createdAt: -1 };
+        })();
 
-    const [restaurantsRaw, total] = await Promise.all([
-        FoodRestaurant.find(filter)
-            .select(Object.keys(projection).join(' '))
-            .sort(sort)
-            .skip(skip)
-            .limit(limit)
-            .lean(),
-        FoodRestaurant.countDocuments(filter)
-    ]);
+        [restaurantsRaw, total] = await Promise.all([
+            FoodRestaurant.find(filter)
+                .select(Object.keys(projection).join(' '))
+                .sort(sort)
+                .skip(skip)
+                .limit(limit)
+                .lean(),
+            FoodRestaurant.countDocuments(filter)
+        ]);
+    }
 
     const restaurants = (restaurantsRaw || []).map((r) => ({
         ...r,
@@ -2317,6 +2394,18 @@ export const listPublicOffers = async (query = {}) => {
     const now = new Date();
     const filter = buildActivePublicOfferFilter(now);
 
+    // Zone-wise offers: only show codes that run where this order is going, so
+    // nobody is offered a coupon their address cannot use.
+    const { zoneId } = query;
+    if (zoneId && mongoose.Types.ObjectId.isValid(zoneId)) {
+        filter.$and.push({
+            $or: [
+                { zoneScope: { $ne: 'selected' } },
+                { zoneIds: new mongoose.Types.ObjectId(zoneId) }
+            ]
+        });
+    }
+
     // If restaurantId is provided, filter for global (all) or specific restaurant coupons
     if (restaurantId && mongoose.Types.ObjectId.isValid(restaurantId)) {
         filter.$and.push({
@@ -2462,7 +2551,9 @@ export async function createRestaurantOffer(restaurantId, body) {
         minOrderValue: body.minOrderValue ?? 0,
         maxDiscount: body.maxDiscount ?? null,
         usageLimit: body.usageLimit ?? null,
-        perUserLimit: body.perUserLimit ?? null,
+        // Blank means once per customer; an explicit null here overrode the
+        // model default and made every restaurant coupon unlimited.
+        perUserLimit: body.perUserLimit ?? 1,
         startDate: body.startDate,
         isFirstOrderOnly: body.isFirstOrderOnly ?? false,
         endDate: body.endDate,

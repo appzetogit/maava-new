@@ -45,21 +45,21 @@ function RestaurantGlobalNotificationListenerInner() {
 function RestaurantGlobalNotificationListener() {
   const location = useLocation()
   const isRestaurantRoute =
-    location.pathname.startsWith("/seller") &&
+    location.pathname.startsWith("/restaurant") &&
     !location.pathname.startsWith("/sellers")
   const isRestaurantAuthRoute =
-    location.pathname === "/seller/login" ||
-    location.pathname === "/seller/auth/sign-in" ||
-    location.pathname === "/seller/signup" ||
-    location.pathname === "/seller/signup-email" ||
-    location.pathname === "/seller/forgot-password" ||
-    location.pathname === "/seller/otp" ||
-    location.pathname === "/seller/welcome" ||
-    location.pathname === "/seller/auth/google-callback"
+    location.pathname === "/restaurant/login" ||
+    location.pathname === "/restaurant/auth/sign-in" ||
+    location.pathname === "/restaurant/signup" ||
+    location.pathname === "/restaurant/signup-email" ||
+    location.pathname === "/restaurant/forgot-password" ||
+    location.pathname === "/restaurant/otp" ||
+    location.pathname === "/restaurant/welcome" ||
+    location.pathname === "/restaurant/auth/google-callback"
   const isOrderManagedRoute =
-    location.pathname === "/seller" ||
-    location.pathname === "/seller/orders" ||
-    location.pathname.startsWith("/seller/orders/")
+    location.pathname === "/restaurant" ||
+    location.pathname === "/restaurant/orders" ||
+    location.pathname.startsWith("/restaurant/orders/")
 
   const shouldListen =
     isRestaurantRoute &&
@@ -83,7 +83,7 @@ export default function App() {
 
   useEffect(() => {
     const resolveModule = () => {
-      if (location.pathname.startsWith("/seller")) return "restaurant"
+      if (location.pathname.startsWith("/restaurant")) return "restaurant"
       return "user"
     }
 

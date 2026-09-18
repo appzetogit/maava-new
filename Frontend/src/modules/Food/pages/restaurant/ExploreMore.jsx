@@ -511,7 +511,7 @@ export default function ExploreMore() {
       localStorage.removeItem("restaurant_refresh_token");
       localStorage.removeItem("restaurant_user");
 
-      navigate("/seller/login", { replace: true });
+      navigate("/restaurant/login", { replace: true });
     } catch (error) {
       toast.error(error?.response?.data?.message || "Failed to delete account");
     }
@@ -527,7 +527,7 @@ export default function ExploreMore() {
       await logoutRestaurantSession({ navigate })
     } catch (error) {
       debugError("Error during logout:", error)
-      navigate("/seller/login", { replace: true })
+      navigate("/restaurant/login", { replace: true })
     } finally {
       setIsLoggingOut(false)
     }
@@ -546,7 +546,7 @@ export default function ExploreMore() {
       })
     } catch (error) {
       debugError("Error during logout from all devices:", error)
-      navigate("/seller/login", { replace: true })
+      navigate("/restaurant/login", { replace: true })
     } finally {
       setIsLoggingOut(false)
     }
@@ -663,33 +663,33 @@ export default function ExploreMore() {
 
   // Section data
   const manageOutletItems = [
-    { id: 1, label: "Outlet info", icon: Info, route: "/seller/outlet-info" },
-    { id: 2, label: "Outlet timings", icon: Clock, route: "/seller/outlet-timings" },
-    // { id: 3, label: "Dining Reservations", icon: Calendar, route: "/seller/reservations" }, // Hidden from UI for now
-    { id: 4, label: "Menu categories", icon: Settings, route: "/seller/menu-categories" },
-    { id: "coupons-nav", label: "Offers & Coupons", icon: FileCheck, route: "/seller/coupon" },
+    { id: 1, label: "Outlet info", icon: Info, route: "/restaurant/outlet-info" },
+    { id: 2, label: "Outlet timings", icon: Clock, route: "/restaurant/outlet-timings" },
+    // { id: 3, label: "Dining Reservations", icon: Calendar, route: "/restaurant/reservations" }, // Hidden from UI for now
+    { id: 4, label: "Menu categories", icon: Settings, route: "/restaurant/menu-categories" },
+    { id: "coupons-nav", label: "Offers & Coupons", icon: FileCheck, route: "/restaurant/coupon" },
   ]
 
   const settingsItems = [
-    { id: 3, label: "Delivery settings", icon: Truck, route: "/seller/delivery-settings" },
-    { id: 4, label: "Zone Setup", icon: MapPin, route: "/seller/zone-setup" },
+    { id: 3, label: "Delivery settings", icon: Truck, route: "/restaurant/delivery-settings" },
+    { id: 4, label: "Zone Setup", icon: MapPin, route: "/restaurant/zone-setup" },
   ]
 
   const ordersItems = [
-    { id: 1, label: "Order history", icon: FileText, route: "/seller/orders/all" },
-    { id: 2, label: "Complaints", icon: Star, route: "/seller/feedback?tab=complaints" },
-    { id: 3, label: "Reviews", icon: MessageSquare, route: "/seller/feedback" },
+    { id: 1, label: "Order history", icon: FileText, route: "/restaurant/orders/all" },
+    { id: 2, label: "Complaints", icon: Star, route: "/restaurant/feedback?tab=complaints" },
+    { id: 3, label: "Reviews", icon: MessageSquare, route: "/restaurant/feedback" },
   ]
 
   const helpItems = [
-    { id: 1, label: "Support", icon: LifeBuoy, route: "/seller/help-centre/support" },
-    { id: 2, label: "Share your feedback", icon: Edit, route: "/seller/share-feedback" },
+    { id: 1, label: "Support", icon: LifeBuoy, route: "/restaurant/help-centre/support" },
+    { id: 2, label: "Share your feedback", icon: Edit, route: "/restaurant/share-feedback" },
   ]
 
   const accountingItems = [
-    { id: 1, label: "Payout", icon: IndianRupee, route: "/seller/hub-finance" },
-    { id: 2, label: "Invoices", icon: Receipt, route: "/seller/hub-finance?tab=invoices" },
-    { id: 3, label: "Bank details", icon: Building2, route: "/seller/update-bank-details" },
+    { id: 1, label: "Payout", icon: IndianRupee, route: "/restaurant/hub-finance" },
+    { id: 2, label: "Invoices", icon: Receipt, route: "/restaurant/hub-finance?tab=invoices" },
+    { id: 3, label: "Bank details", icon: Building2, route: "/restaurant/update-bank-details" },
   ]
 
   // All sections with their items
@@ -810,7 +810,7 @@ export default function ExploreMore() {
         <div className="flex items-center justify-between md:max-w-6xl md:mx-auto md:px-4 md:py-2 md:w-full">
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <button
-              onClick={() => navigate("/seller")}
+              onClick={() => navigate("/restaurant")}
               className="p-2 hover:bg-gray-100 rounded-xl transition-colors md:hidden"
               aria-label="Go back"
             >

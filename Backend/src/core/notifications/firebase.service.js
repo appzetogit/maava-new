@@ -34,11 +34,13 @@ const MAX_TOKENS_PER_PLATFORM = 3;
  * never arriving, which is why these defaults are taken from the apps' own source
  * rather than from what anyone assumed the ids were.
  *
- * Delivery app (quickcommerce_delivery, com.quickcommerce.delivery):
- *   'new_orders_v2' — Importance.max, full-screen incoming order alerts, and
- *   the sound is set on the channel (raw/neworder.mp3). From Android 8 the
+ * Delivery app (maava_delivery, com.maava.delivery):
+ *   'new_orders_v3' — Importance.max, full-screen incoming order alerts, and
+ *   the sound is set on the channel (raw/neworder_ring.mp4). From Android 8 the
  *   channel owns the sound, so the per-message `sound` below only affects
- *   older devices.
+ *   older devices — and a channel's sound is frozen at creation, so swapping
+ *   the ringtone means a new id here AND in the app's NewOrderNotifier
+ *   .CHANNEL_ID / fcm_service._newOrdersChannelId, which must all match.
  *   The app also still registers the previous 'incoming_orders_channel_v3', so
  *   this id can change on either side independently; that legacy channel is
  *   due for removal from the app once this is deployed.
@@ -61,7 +63,7 @@ const MAX_TOKENS_PER_PLATFORM = 3;
  */
 const NEW_ORDER_TTL_SECONDS = Number(process.env.FCM_NEW_ORDER_TTL_SECONDS) || 60;
 
-const NEW_ORDER_CHANNEL_ID = process.env.FCM_NEW_ORDER_CHANNEL_ID || 'new_orders_v2';
+const NEW_ORDER_CHANNEL_ID = process.env.FCM_NEW_ORDER_CHANNEL_ID || 'new_orders_v3';
 const DEFAULT_CHANNEL_ID = process.env.FCM_DEFAULT_CHANNEL_ID || 'high_importance_channel';
 
 let cachedAccessToken = null;
@@ -92,8 +94,18 @@ const normalizeNotificationText = (value) => {
         .replace(/�[A-Za-z0-9{}[\]\\/_.:-]*/g, ' ')
         // Remove remaining control chars and collapse spaces.
         .replace(/[\u0000-\u001F\u007F]/g, ' ')
-        // Force plain text for notifications.
-        .replace(/[^\x20-\x7E]/g, ' ')
+        // Strip only what actually breaks a notification: unpaired surrogates,
+        // and zero-width / bidi controls that render blank or reorder text.
+        //
+        // This was `.replace(/[^\x20-\x7E]/g, ' ')` -- everything outside printable
+        // ASCII. Presumably aimed at mojibake, but it deleted every non-Latin
+        // script and every emoji, so a Telugu broadcast arrived on phones as
+        // "MAAVA ! MAAVA App 3 . MAAVA App !" -- the English words, digits and
+        // punctuation survived and the actual message did not. FCM carries UTF-8
+        // JSON perfectly well; the mojibake repair above is where that problem
+        // belongs, not a blanket ASCII filter.
+        .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
+        .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, '')
         .replace(/\s+/g, ' ')
         .trim();
 };
@@ -590,13 +602,18 @@ const sendMessageWithRetry = async (message, { projectId, accessToken }) => {
 };
 
 export const sendPushNotification = async (tokens, payload = {}) => {
-    const projectId = getFirebaseProjectId();
-    const accessToken = await getFirebaseAccessToken();
     const uniqueTokens = normalizeTokenList(tokens);
 
+    // Checked BEFORE the token exchange. This used to mint an OAuth token
+    // first and only then notice there was nothing to send it with, so every
+    // owner without a registered device paid for a Google round trip to
+    // deliver nothing -- and on a cold cache that is the slowest call here.
     if (uniqueTokens.length === 0) {
         return { successCount: 0, failureCount: 0, results: [] };
     }
+
+    const projectId = getFirebaseProjectId();
+    const accessToken = await getFirebaseAccessToken();
 
     const results = await Promise.all(
         uniqueTokens.map(async (token) => {
@@ -650,25 +667,79 @@ export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, pla
     }
 };
 
+/**
+ * How many owners are pushed to at once.
+ *
+ * Bounded rather than unbounded: a broadcast addressed to every customer would
+ * otherwise open one socket per recipient in a single tick.
+ */
+const FANOUT_CONCURRENCY = 25;
+
+/**
+ * Run [worker] over [items] with at most [limit] in flight, preserving order.
+ *
+ * A rejection from one item is returned, never thrown, so a single bad target
+ * cannot abandon the rest of a broadcast.
+ */
+const mapWithConcurrency = async (items, limit, worker) => {
+    const results = new Array(items.length);
+    let cursor = 0;
+    const runner = async () => {
+        for (;;) {
+            const index = cursor;
+            cursor += 1;
+            if (index >= items.length) return;
+            try {
+                results[index] = await worker(items[index], index);
+            } catch (error) {
+                results[index] = {
+                    successCount: 0,
+                    failureCount: 0,
+                    results: [],
+                    error: error?.message || String(error)
+                };
+            }
+        }
+    };
+    await Promise.all(
+        Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, runner)
+    );
+    return results;
+};
+
 export const sendNotificationToOwners = async (targets = [], payload = {}) => {
-    // 🔍 Tip #6: Deduplicate targets by ownerType:ownerId before sending
-    // This prevents duplicate notifications if the same person is listed twice (e.g. as USER and partner)
-    const uniqueTargets = Array.isArray(targets) 
+    // Deduplicate by ownerType:ownerId so somebody listed twice (as a customer
+    // and as a partner, say) is not notified twice.
+    const uniqueTargets = Array.isArray(targets)
         ? [...new Map(targets.filter(t => t?.ownerType && t?.ownerId).map(t => [`${t.ownerType}:${t.ownerId}`, t])).values()]
         : [];
 
-    const results = [];
-    for (const target of uniqueTargets) {
-        results.push(
-            await sendNotificationToOwner({
-                ownerType: target.ownerType,
-                ownerId: target.ownerId,
-                platform: target.platform,
-                payload
-            })
-        );
-    }
-    return results;
+    /**
+     * Fanned out in parallel. This was a sequential for-await loop: one owner's
+     * token lookup plus FCM round trip -- ~200ms measured on this server --
+     * before the next owner was even looked up. An admin broadcast to the whole
+     * customer base therefore took minutes end to end, and the last person heard
+     * about it long after the first. Rider dispatch paid the same cost twice,
+     * once per leg of notifyOwnersActionableAlert.
+     *
+     * The two legs of an actionable alert stay ordered, because that ordering
+     * lives one level up: the caller awaits the notification leg in full before
+     * starting the data-only leg. Only owners are parallel to each other, and
+     * they were always independent.
+     *
+     * A throwing target no longer strands the rest either. The old loop awaited
+     * inside the for body, so one un-castable owner id -- exactly the 'GLOBAL'
+     * placeholder that used to sit in the dispatch escalation -- threw and
+     * silently abandoned every target after it in the list.
+     */
+    return mapWithConcurrency(uniqueTargets, FANOUT_CONCURRENCY, (target) =>
+        sendNotificationToOwner({
+            ownerType: target.ownerType,
+            ownerId: target.ownerId,
+            platform: target.platform,
+            payload
+        })
+    );
 };
 
 export const notifyAdminsSafely = async (payload = {}) => {

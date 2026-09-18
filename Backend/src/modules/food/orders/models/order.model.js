@@ -85,12 +85,41 @@ const pricingSchema = new mongoose.Schema(
     {
         subtotal: { type: Number, required: true, min: 0 },
         tax: { type: Number, default: 0, min: 0 },
+        /**
+         * Rate `tax` was actually charged at (the admin's configured fallback
+         * GST %, since items can carry their own slab and there is no single
+         * rate that always describes a mixed cart). Snapshotted so the bill
+         * can label the amount instead of guessing — before this field
+         * existed the client had no rate to display and fell back to a
+         * hardcoded guess of its own, which never moved when the admin
+         * changed the real one.
+         */
+        gstRate: { type: Number, default: 0, min: 0, max: 100 },
         packagingFee: { type: Number, default: 0, min: 0 },
         deliveryFee: { type: Number, default: 0, min: 0 },
         deliveryFeeGst: { type: Number, default: 0, min: 0 },
+        /** Rate `deliveryFeeGst` was actually charged at — same reasoning as [gstRate]. */
+        deliveryFeeGstRate: { type: Number, default: 0, min: 0, max: 100 },
         platformFee: { type: Number, default: 0, min: 0 },
         /** Extra surcharge when user selects Quick Mode (also included in platformFee). */
         quickDeliveryFee: { type: Number, default: 0, min: 0 },
+        /**
+         * Rider tip, carried over from the legacy maava orders.
+         *
+         * Storage only -- nothing in this codebase charges, collects or pays
+         * out a tip. It exists so migrated orders keep a `total` its own parts
+         * add up to; 18 legacy orders carry ₹530 between them. Wiring up
+         * tipping (checkout, rider payout, refund on cancellation) is a
+         * separate piece of work.
+         */
+        deliveryTip: { type: Number, default: 0, min: 0 },
+        /**
+         * What the restaurant actually earns on this order: their goods and
+         * packaging, less commission. Deliberately excludes delivery fee, tax,
+         * platform fee and the delivery tip — none of that is theirs. Stored so
+         * the seller app has a figure to show instead of the customer total.
+         */
+        restaurantPayable: { type: Number, default: 0, min: 0 },
         deliveryMode: { type: String, enum: ['basic', 'quick'], default: 'basic' },
         restaurantCommission: { type: Number, default: 0, min: 0 },
         discount: { type: Number, default: 0, min: 0 },
@@ -99,6 +128,9 @@ const pricingSchema = new mongoose.Schema(
         currency: { type: String, default: 'INR' },
         /** Straight-line restaurant ↔ customer km (fee calculation) */
         distanceKm: { type: Number, default: null, min: 0 },
+        /** How the delivery fee was worked out, as shown at checkout, so the
+         *  order details page can show the same line afterwards. */
+        deliveryFeeMessage: { type: String, default: null, trim: true },
         /** Driving / road restaurant ↔ customer km (Directions API) */
         roadDistanceKm: { type: Number, default: null, min: 0 },
         roadDurationMins: { type: Number, default: null, min: 0 },
@@ -339,6 +371,14 @@ const orderSchema = new mongoose.Schema(
             ],
             default: 'created'
         },
+        /**
+          * Why the order was cancelled, in the words of whoever cancelled it.
+          *
+          * Denormalised from statusHistory deliberately: it is read on every
+          * order view and by three different apps, and re-scanning the history
+          * in each of them is how it ended up missing from most of them.
+          */
+        cancellationReason: { type: String, default: '', trim: true },
         dispatch: {
             type: dispatchSchema,
             default: () => ({})
@@ -370,6 +410,17 @@ const orderSchema = new mongoose.Schema(
          * twice silently inflates inventory, and nothing downstream would notice.
          */
         stockRestoredAt: { type: Date, default: null },
+        /**
+         * The coupon counterpart of the two stock fields above: when this
+         * order's redemption was counted against the customer, and when a
+         * cancellation gave it back. Release claims the pair atomically, so
+         * however many cancel paths fire, one use comes back exactly once.
+         * couponOfferId is kept because the code alone would be looked up in
+         * whatever vertical is in scope when a background job cancels.
+         */
+        couponUsageRecordedAt: { type: Date, default: null },
+        couponUsageReleasedAt: { type: Date, default: null },
+        couponOfferId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodOffer', default: null },
         sendCutlery: { type: Boolean, default: true },
         deliveryFleet: { type: String, default: 'standard', trim: true },
         scheduledAt: { type: Date, default: null },

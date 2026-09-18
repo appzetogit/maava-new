@@ -10,7 +10,7 @@ import { resolveDeviceFcmToken } from "@food/utils/firebaseMessaging";
 // user and delivery are absent on purpose: neither has a web login any more.
 // resolveLoginPath falls back to the admin login for anything not listed.
 const LOGIN_PATHS = {
-  restaurant: "/seller/login",
+  restaurant: "/restaurant/login",
   admin: "/admin/login",
 };
 

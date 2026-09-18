@@ -4,6 +4,20 @@ const deliveryCashLimitSchema = new mongoose.Schema(
     {
         deliveryCashLimit: { type: Number, default: 0, min: 0 },
         deliveryWithdrawalLimit: { type: Number, default: 100, min: 0 },
+        /**
+         * Wallet balance a rider must keep to be offered NEW orders.
+         *
+         * 0 means "no minimum", the default, so installs that never configured
+         * this keep dispatching to everyone. Lives here rather than in a new
+         * collection because it is the same kind of setting as the two above:
+         * one global rider money limit, deliberately NOT vertical-scoped — a
+         * rider's wallet is one pot across Food and Mart, so one threshold
+         * governs both.
+         *
+         * Only ever gates NEW offers. A trip already accepted is never touched
+         * if the balance drops mid-delivery.
+         */
+        minWalletBalanceForOrders: { type: Number, default: 0, min: 0 },
         isActive: { type: Boolean, default: true, index: true }
     },
     { collection: 'food_delivery_cash_limits', timestamps: true }

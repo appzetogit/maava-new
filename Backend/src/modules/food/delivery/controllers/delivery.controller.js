@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { registerDeliveryPartner, updateDeliveryPartnerProfile, updateDeliveryPartnerBankDetails, listSupportTicketsByPartner, createSupportTicket, getSupportTicketByIdAndPartner, updateDeliveryPartnerDetails, updateDeliveryPartnerProfilePhotoBase64, updateDeliveryAvailability, getDeliveryPartnerWallet, getDeliveryPartnerEarnings, getDeliveryPartnerTripHistory, getDeliveryPocketDetails, getActiveEarningAddonsForPartner, deleteDeliveryPartnerAccount } from '../services/delivery.service.js';
+import { registerDeliveryPartner, updateDeliveryPartnerProfile, updateDeliveryPartnerBankDetails, listSupportTicketsByPartner, createSupportTicket, getSupportTicketByIdAndPartner, updateDeliveryPartnerDetails, updateDeliveryPartnerProfilePhotoBase64, updateDeliveryAvailability, getDeliveryPartnerEarnings, getDeliveryPartnerTripHistory, getDeliveryPocketDetails, getActiveEarningAddonsForPartner, deleteDeliveryPartnerAccount } from '../services/delivery.service.js';
 import { createDeliveryCashDepositOrder, getDeliveryPartnerWalletEnhanced, requestDeliveryWithdrawal, verifyDeliveryCashDepositPayment } from '../services/deliveryFinance.service.js';
 import { getDeliveryCashLimitSettings, getDeliveryEmergencyHelp } from '../../admin/services/admin.service.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
@@ -7,10 +7,39 @@ import { validateDeliveryRegisterDto, validateDeliveryProfileUpdateDto, validate
 import { sendResponse } from '../../../../utils/response.js';
 import { getDeliveryReferralStats } from '../services/deliveryReferral.service.js';
 import {
+    listCashSettlementsForPartner,
+    submitCashSettlement
+} from '../services/cashSettlement.service.js';
+import {
     createOrderEmergencyRequest,
     getOrderEmergencyRequestByPartner,
     listOrderEmergencyRequestsByPartner
 } from '../services/orderEmergencyRequest.service.js';
+
+/**
+ * A rider's claim that they paid their COD dues to the company's UPI QR.
+ *
+ * Nothing about their balance changes here -- the claim waits for an admin.
+ */
+export const submitCashSettlementController = async (req, res, next) => {
+    try {
+        // upload.fields() gives req.files as an object of arrays.
+        const file = Array.isArray(req.files?.proof) ? req.files.proof[0] : null;
+        const data = await submitCashSettlement(req.user.userId, req.body || {}, file);
+        return sendResponse(res, 201, 'Settlement submitted for verification', data);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const listCashSettlementsController = async (req, res, next) => {
+    try {
+        const data = await listCashSettlementsForPartner(req.user.userId, req.query || {});
+        return sendResponse(res, 200, 'Settlements fetched successfully', data);
+    } catch (error) {
+        next(error);
+    }
+};
 
 export const registerDeliveryPartnerController = async (req, res, next) => {
     try {
@@ -260,7 +289,7 @@ export const createCashDepositOrderController = async (req, res, next) => {
     try {
         const deliveryPartnerId = req.user?.userId;
         const amount = req.body?.amount;
-        const data = await createDeliveryCashDepositOrder(deliveryPartnerId, amount);
+        const data = await createDeliveryCashDepositOrder(deliveryPartnerId, amount, req.body?.type);
         return sendResponse(res, 201, 'Cash deposit order created successfully', data);
     } catch (error) {
         next(error);
@@ -274,7 +303,8 @@ export const verifyCashDepositPaymentController = async (req, res, next) => {
             razorpayOrderId: req.body?.razorpay_order_id,
             razorpayPaymentId: req.body?.razorpay_payment_id,
             razorpaySignature: req.body?.razorpay_signature,
-            amount: req.body?.amount
+            amount: req.body?.amount,
+            type: req.body?.type
         });
         return sendResponse(res, 200, 'Cash deposit verified successfully', data);
     } catch (error) {

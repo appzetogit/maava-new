@@ -28,6 +28,7 @@ import { FeedbackExperience } from '../models/feedbackExperience.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodRefreshToken } from '../../../../core/refreshTokens/refreshToken.model.js';
 import { FoodDeliveryCashLimit } from '../models/deliveryCashLimit.model.js';
+import { computePocketBalance } from '../../delivery/services/walletMath.js';
 import { FoodDeliveryEmergencyHelp } from '../models/deliveryEmergencyHelp.model.js';
 import { FoodReferralSettings } from '../models/referralSettings.model.js';
 import { FoodReferralLog } from '../models/referralLog.model.js';
@@ -413,13 +414,79 @@ export async function getRestaurants(query) {
     };
     const sort = sortMap[sortBy] || { createdAt: -1 };
 
-    const listPromise = FoodRestaurant.find(filter)
-        .sort(sort)
-        .skip(skip)
-        .limit(limit)
-        .select('restaurantName slug location area city status ownerName ownerPhone primaryContactNumber zoneId profileImage coverImages menuImages rating totalRatings isActive')
-        .populate('zoneId', 'name zoneName')
-        .lean();
+    const LIST_FIELDS = 'restaurantName slug location area city status ownerName ownerPhone primaryContactNumber zoneId profileImage coverImages menuImages rating totalRatings isActive';
+
+    /**
+     * Commission lives in its own collection, so ordering by it needs a lookup
+     * rather than a field sort. Only that one case pays for an aggregation;
+     * every other sort keeps the existing indexed find.
+     *
+     * The vertical plugin hooks pre('aggregate') as well as the query hooks, so
+     * this pipeline is scoped to the caller's vertical exactly like the find is.
+     */
+    const commissionDir = sortBy === 'commission-asc' ? 1 : sortBy === 'commission-desc' ? -1 : 0;
+
+    const listPromise = commissionDir
+        ? FoodRestaurant.aggregate([
+            { $match: filter },
+            {
+                $lookup: {
+                    from: 'food_restaurant_commissions',
+                    localField: '_id',
+                    foreignField: 'restaurantId',
+                    as: 'commissionRule',
+                },
+            },
+            {
+                $addFields: {
+                    /**
+                     * Percentages and flat amounts are different units, so they
+                     * are grouped rather than interleaved: 15% and Rs.15 are not
+                     * the same rate, and ordering one against the other says
+                     * nothing. The direction orders values WITHIN a group; the
+                     * groups keep a fixed order so flipping the arrow does not
+                     * reshuffle the table wholesale.
+                     *
+                     * Rank 2 is 'no rule at all', which is not 0% but uncharged,
+                     * and stays last in both directions.
+                     */
+                    commissionTypeRank: {
+                        $switch: {
+                            branches: [
+                                { case: { $eq: [{ $size: '$commissionRule' }, 0] }, then: 2 },
+                                {
+                                    case: {
+                                        $eq: [
+                                            { $arrayElemAt: ['$commissionRule.defaultCommission.type', 0] },
+                                            'amount',
+                                        ],
+                                    },
+                                    then: 1,
+                                },
+                            ],
+                            // defaultCommission.type defaults to 'percentage', so
+                            // anything that is not explicitly 'amount' lands here.
+                            default: 0,
+                        },
+                    },
+                    commissionValue: {
+                        $ifNull: [{ $arrayElemAt: ['$commissionRule.defaultCommission.value', 0] }, 0],
+                    },
+                },
+            },
+            { $sort: { commissionTypeRank: 1, commissionValue: commissionDir, createdAt: -1 } },
+            { $skip: skip },
+            { $limit: limit },
+            // Match the find path's projection so both return the same shape.
+            { $project: LIST_FIELDS.split(' ').reduce((acc, f) => ({ ...acc, [f]: 1 }), {}) },
+        ]).then((docs) => FoodRestaurant.populate(docs, { path: 'zoneId', select: 'name zoneName' }))
+        : FoodRestaurant.find(filter)
+            .sort(sort)
+            .skip(skip)
+            .limit(limit)
+            .select(LIST_FIELDS)
+            .populate('zoneId', 'name zoneName')
+            .lean();
     const countPromise = FoodRestaurant.countDocuments(filter);
 
     const statsFilter = status && ['pending', 'approved', 'rejected'].includes(status)
@@ -1555,7 +1622,7 @@ export async function getCustomers(query = {}) {
                 .sort(sort)
                 .skip(skip)
                 .limit(limit)
-                .select('name email phone countryCode isVerified isActive createdAt profileImage')
+                .select('name email phone countryCode isVerified isActive codEnabled createdAt profileImage')
                 .lean(),
             FoodUser.countDocuments(filter),
         ]);
@@ -1614,6 +1681,9 @@ export async function getCustomers(query = {}) {
         status: u.isActive !== false,
         isActive: u.isActive !== false,
         isVerified: u.isVerified === true,
+        // Missing means allowed: the field was added after these rows existed,
+        // so only an explicit false blocks Cash on Delivery.
+        codEnabled: u.codEnabled !== false,
         totalOrder: stats.totalOrder,
         totalOrderAmount: stats.totalOrderAmount,
         joiningDate: u.createdAt,
@@ -1688,6 +1758,22 @@ export async function updateCustomerStatus(id, isActive) {
         await FoodRefreshToken.deleteMany({ userId: updated._id });
     }
     return updated;
+}
+
+/**
+ * Turn Cash on Delivery on or off for one customer.
+ *
+ * Unlike [updateCustomerStatus] this does not touch refresh tokens -- the
+ * customer stays signed in, they simply lose the cash option at checkout.
+ */
+export async function updateCustomerCodAccess(id, codEnabled) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const updatedDoc = await FoodUser.findByIdAndUpdate(
+        id,
+        { $set: { codEnabled: Boolean(codEnabled) } },
+        { new: true }
+    ).select('name email phone countryCode isVerified isActive codEnabled createdAt profileImage');
+    return updatedDoc ? updatedDoc.toObject() : null;
 }
 
 export async function getSupportTickets(query = {}) {
@@ -2214,15 +2300,70 @@ export async function toggleDeliveryCommissionRuleStatus(id, status) {
 }
 
 // ----- Fee Settings (admin) -----
-export async function getFeeSettings() {
-    const doc = await FoodFeeSettings.findOne().sort({ createdAt: -1 }).lean();
-    // If not configured yet, return null so UI does not show defaults automatically.
-    return { feeSettings: doc || null };
+const feeSettingsZoneFilter = (zoneIdRaw) => {
+    const raw = String(zoneIdRaw || '').trim();
+    if (!raw) return { $or: [{ zoneId: null }, { zoneId: { $exists: false } }] };
+    if (!mongoose.Types.ObjectId.isValid(raw)) throw new ValidationError('Invalid zone id');
+    return { zoneId: new mongoose.Types.ObjectId(raw) };
+};
+
+const findFeeSettingsDoc = (zoneIdRaw) =>
+    FoodFeeSettings.findOne(feeSettingsZoneFilter(zoneIdRaw)).sort({ createdAt: -1 });
+
+/**
+ * What a zone actually charges: its own record laid over the default one, field
+ * by field. A zone that only sets a delivery fee still uses the default GST,
+ * platform fee and tip presets.
+ */
+export function mergeFeeSettings(defaults, zoneDoc) {
+    if (!zoneDoc) return defaults || null;
+    if (!defaults) return zoneDoc;
+    const merged = { ...defaults };
+    for (const [key, value] of Object.entries(zoneDoc)) {
+        if (['_id', 'createdAt', 'updatedAt', '__v'].includes(key)) continue;
+        if (value === null || value === undefined) continue;
+        if (Array.isArray(value) && value.length === 0) continue;
+        merged[key] = value;
+    }
+    merged._id = zoneDoc._id;
+    merged.zoneId = zoneDoc.zoneId;
+    return merged;
+}
+
+/**
+ * query.zoneId picks a zone's own record; without it this is the default record.
+ * query.effective merges the two, which is what the customer apps read.
+ */
+export async function getFeeSettings(query = {}) {
+    const zoneIdRaw = String(query?.zoneId || '').trim();
+    const defaults = await findFeeSettingsDoc('').lean();
+    if (!zoneIdRaw) {
+        // If not configured yet, return null so UI does not show defaults automatically.
+        return { feeSettings: defaults || null, defaultFeeSettings: defaults || null, zoneId: null, isZoneOverride: false };
+    }
+    const zoneDoc = await findFeeSettingsDoc(zoneIdRaw).lean();
+    const wantsEffective = query?.effective === true || String(query?.effective || '') === 'true';
+    return {
+        feeSettings: wantsEffective ? mergeFeeSettings(defaults, zoneDoc) : zoneDoc || null,
+        defaultFeeSettings: defaults || null,
+        zoneId: zoneIdRaw,
+        isZoneOverride: Boolean(zoneDoc)
+    };
+}
+
+/** Drop a zone's own fees; that zone falls back to the default record. */
+export async function deleteZoneFeeSettings(zoneId) {
+    const raw = String(zoneId || '').trim();
+    if (!raw || !mongoose.Types.ObjectId.isValid(raw)) throw new ValidationError('Invalid zone id');
+    const deleted = await FoodFeeSettings.findOneAndDelete({ zoneId: new mongoose.Types.ObjectId(raw) }).lean();
+    if (!deleted) throw new NotFoundError('This zone has no fees of its own');
+    return { deleted: true, zoneId: raw };
 }
 
 export async function upsertFeeSettings(body) {
-    // Single active doc pattern: keep only one active record.
-    const existing = await FoodFeeSettings.findOne().sort({ createdAt: -1 });
+    // One record per zone, plus the default record (zoneId null).
+    const zoneIdRaw = String(body?.zoneId || '').trim();
+    const existing = await findFeeSettingsDoc(zoneIdRaw);
     console.log('[DEBUG] upsertFeeSettings - existing:', existing ? 'Yes' : 'No');
     if (existing) {
         const $set = {};
@@ -2242,6 +2383,38 @@ export async function upsertFeeSettings(body) {
         if (body.gstRate === null) $unset.gstRate = 1;
         else if (body.gstRate !== undefined) $set.gstRate = body.gstRate;
 
+        if (body.deliveryFeeGstRate === null) $unset.deliveryFeeGstRate = 1;
+        else if (body.deliveryFeeGstRate !== undefined) $set.deliveryFeeGstRate = body.deliveryFeeGstRate;
+
+        // Order value at which delivery becomes free. Null clears the offer.
+        if (body.freeDeliveryThreshold === null) $unset.freeDeliveryThreshold = 1;
+        else if (body.freeDeliveryThreshold !== undefined) {
+            $set.freeDeliveryThreshold = body.freeDeliveryThreshold;
+        }
+
+        if (body.tipPresets !== undefined) $set.tipPresets = body.tipPresets;
+
+        // Distance pricing and the new-customer welcome: null clears, a number sets.
+        for (const key of [
+            'baseDeliveryKm',
+            'baseDeliveryFee',
+            'perKmFee',
+            'maxDeliveryFee',
+            'riderBaseKm',
+            'riderBasePay',
+            'riderPerKmPay',
+            'riderMaxPay',
+            'newCustomerFreeDeliveryOrders',
+            'newCustomerFreeDeliveryDays',
+            'newCustomerMinOrder',
+            'packagingFee',
+            'packagingFeePerItem'
+        ]) {
+            if (body[key] === null) $unset[key] = 1;
+            else if (body[key] !== undefined) $set[key] = body[key];
+        }
+        if (body.newCustomerFreeDelivery !== undefined) $set.newCustomerFreeDelivery = body.newCustomerFreeDelivery;
+
         if (body.isActive !== undefined) $set.isActive = body.isActive;
 
         const update = {};
@@ -2255,12 +2428,38 @@ export async function upsertFeeSettings(body) {
 
     const payload = {
         deliveryFeeRanges: body.deliveryFeeRanges ?? [],
-        isActive: body.isActive !== false
+        isActive: body.isActive !== false,
+        zoneId: zoneIdRaw ? new mongoose.Types.ObjectId(zoneIdRaw) : null
     };
+    for (const key of [
+        'baseDeliveryKm',
+        'baseDeliveryFee',
+        'perKmFee',
+        'maxDeliveryFee',
+        'riderBaseKm',
+        'riderBasePay',
+        'riderPerKmPay',
+        'riderMaxPay',
+        'newCustomerFreeDelivery',
+        'newCustomerFreeDeliveryOrders',
+        'newCustomerFreeDeliveryDays',
+        'newCustomerMinOrder',
+        'packagingFee',
+        'packagingFeePerItem'
+    ]) {
+        if (body[key] !== undefined && body[key] !== null) payload[key] = body[key];
+    }
     if (body.deliveryFee !== undefined && body.deliveryFee !== null) payload.deliveryFee = body.deliveryFee;
     if (body.platformFee !== undefined && body.platformFee !== null) payload.platformFee = body.platformFee;
+    if (body.freeDeliveryThreshold !== undefined && body.freeDeliveryThreshold !== null) {
+        payload.freeDeliveryThreshold = body.freeDeliveryThreshold;
+    }
     if (body.quickDeliveryFee !== undefined && body.quickDeliveryFee !== null) payload.quickDeliveryFee = body.quickDeliveryFee;
     if (body.gstRate !== undefined && body.gstRate !== null) payload.gstRate = body.gstRate;
+    if (body.deliveryFeeGstRate !== undefined && body.deliveryFeeGstRate !== null) {
+        payload.deliveryFeeGstRate = body.deliveryFeeGstRate;
+    }
+    if (body.tipPresets !== undefined) payload.tipPresets = body.tipPresets;
 
     console.log('[DEBUG] Creating NEW settings with payload:', JSON.stringify(payload, null, 2));
     const created = await FoodFeeSettings.create(payload);
@@ -2442,10 +2641,11 @@ export async function getContactMessages(query = {}) {
 // ----- Delivery Cash Limit (admin) -----
 export async function getDeliveryCashLimitSettings() {
     const doc = await FoodDeliveryCashLimit.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
-    const settings = doc || { deliveryCashLimit: 0, deliveryWithdrawalLimit: 100, isActive: true };
+    const settings = doc || { deliveryCashLimit: 0, deliveryWithdrawalLimit: 100, minWalletBalanceForOrders: 0, isActive: true };
     return {
         deliveryCashLimit: Number(settings.deliveryCashLimit) || 0,
-        deliveryWithdrawalLimit: Number(settings.deliveryWithdrawalLimit) || 100
+        deliveryWithdrawalLimit: Number(settings.deliveryWithdrawalLimit) || 100,
+        minWalletBalanceForOrders: Number(settings.minWalletBalanceForOrders) || 0
     };
 }
 
@@ -2453,26 +2653,31 @@ export async function upsertDeliveryCashLimitSettings(body = {}) {
     const existing = await FoodDeliveryCashLimit.findOne({ isActive: true }).sort({ createdAt: -1 });
     const nextCashLimit = body.deliveryCashLimit;
     const nextWithdrawalLimit = body.deliveryWithdrawalLimit;
+    const nextMinWalletBalance = body.minWalletBalanceForOrders;
 
     if (existing) {
         if (nextCashLimit !== undefined) existing.deliveryCashLimit = Math.max(0, Number(nextCashLimit) || 0);
         if (nextWithdrawalLimit !== undefined) existing.deliveryWithdrawalLimit = Math.max(0, Number(nextWithdrawalLimit) || 0);
+        if (nextMinWalletBalance !== undefined) existing.minWalletBalanceForOrders = Math.max(0, Number(nextMinWalletBalance) || 0);
         await existing.save();
         return {
             deliveryCashLimit: existing.deliveryCashLimit,
-            deliveryWithdrawalLimit: existing.deliveryWithdrawalLimit
+            deliveryWithdrawalLimit: existing.deliveryWithdrawalLimit,
+            minWalletBalanceForOrders: existing.minWalletBalanceForOrders || 0
         };
     }
 
     const created = await FoodDeliveryCashLimit.create({
         deliveryCashLimit: nextCashLimit !== undefined ? Math.max(0, Number(nextCashLimit) || 0) : 0,
         deliveryWithdrawalLimit: nextWithdrawalLimit !== undefined ? Math.max(0, Number(nextWithdrawalLimit) || 0) : 100,
+        minWalletBalanceForOrders: nextMinWalletBalance !== undefined ? Math.max(0, Number(nextMinWalletBalance) || 0) : 0,
         isActive: true
     });
 
     return {
         deliveryCashLimit: created.deliveryCashLimit,
-        deliveryWithdrawalLimit: created.deliveryWithdrawalLimit
+        deliveryWithdrawalLimit: created.deliveryWithdrawalLimit,
+        minWalletBalanceForOrders: created.minWalletBalanceForOrders || 0
     };
 }
 
@@ -3043,6 +3248,23 @@ export async function updateRestaurantById(id, body = {}) {
         const name = toStr(body.name !== undefined ? body.name : body.restaurantName);
         if (!name) throw new ValidationError('Restaurant name cannot be empty');
         doc.restaurantName = name;
+    }
+
+    // Zone assignment. The admin could SEE a store's zone but never change it:
+    // this function populated `zoneId` on the way out and ignored it on the way
+    // in, so a store was stuck in whatever zone it was created with.
+    if (body.zoneId !== undefined) {
+        const nextZoneId = toStr(body.zoneId);
+        if (!nextZoneId) {
+            doc.zoneId = undefined;
+        } else {
+            if (!mongoose.Types.ObjectId.isValid(nextZoneId)) {
+                throw new ValidationError('Invalid zone id');
+            }
+            const zone = await FoodZone.findById(nextZoneId).select('_id').lean();
+            if (!zone) throw new ValidationError('Zone not found');
+            doc.zoneId = zone._id;
+        }
     }
 
     if (body.ownerName !== undefined) doc.ownerName = toStr(body.ownerName);
@@ -4033,6 +4255,20 @@ export async function updateFood(id, body) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const doc = await FoodItem.findById(id);
     if (!doc) return null;
+
+    // Move an item between stores. Applied BEFORE the restaurant is loaded so
+    // every check below -- the pure-veg policy in particular -- is made against
+    // the store the item is moving TO, not the one it is leaving.
+    if (body.restaurantId !== undefined) {
+        const nextStoreId = String(body.restaurantId || '').trim();
+        if (!mongoose.Types.ObjectId.isValid(nextStoreId)) {
+            throw new ValidationError('Invalid restaurant id');
+        }
+        const target = await FoodRestaurant.findById(nextStoreId).select('_id').lean();
+        if (!target) throw new ValidationError('Restaurant not found');
+        doc.restaurantId = target._id;
+    }
+
     const restaurant = await FoodRestaurant.findById(doc.restaurantId)
         .select('pureVegRestaurant')
         .lean();
@@ -4423,6 +4659,7 @@ export async function getAllOffers(_query = {}) {
         .sort({ createdAt: -1 })
         .populate({ path: 'restaurantId', select: 'restaurantName' })
         .populate({ path: 'restaurantIds', select: 'restaurantName' })
+        .populate({ path: 'zoneIds', select: 'name zoneName' })
         .lean();
 
     const offers = list.map((o, index) => {
@@ -4449,6 +4686,11 @@ export async function getAllOffers(_query = {}) {
             dishName: 'All Items',
             couponCode: o.couponCode,
             customerGroup: o.customerScope === 'first-time' ? 'new' : 'all',
+            // Where the offer runs, so the panel can show it in the list.
+            zoneScope: o.zoneScope || 'all',
+            zoneNames: Array.isArray(o.zoneIds)
+                ? o.zoneIds.map((zone) => zone?.name || zone?.zoneName).filter(Boolean)
+                : [],
             discountType: o.discountType,
             discountPercentage,
             originalPrice,
@@ -4461,6 +4703,9 @@ export async function getAllOffers(_query = {}) {
             maxDiscount: o.maxDiscount ?? null,
             usageLimit: o.usageLimit ?? null,
             usedCount: o.usedCount ?? 0,
+            // null on coupons made before the default existed: those are
+            // unlimited per customer, and the panel has to say so.
+            perUserLimit: o.perUserLimit ?? null,
             restaurantScope: o.restaurantScope,
             createdByRole: o.createdByRole || 'ADMIN',
             adminBearPercentage: Number(o.adminBearPercentage ?? (o.createdByRole === 'RESTAURANT' ? 0 : 100)),
@@ -4485,10 +4730,13 @@ export async function createAdminOffer(body) {
         restaurantScope: body.restaurantScope,
         restaurantId: body.restaurantScope === 'selected' ? body.restaurantId : undefined,
         restaurantIds: body.restaurantScope === 'selected' ? body.restaurantIds : [],
+        zoneScope: body.zoneScope || 'all',
+        zoneIds: body.zoneScope === 'selected' ? body.zoneIds || [] : [],
         minOrderValue: body.minOrderValue ?? 0,
         maxDiscount: body.maxDiscount ?? null,
         usageLimit: body.usageLimit ?? null,
-        perUserLimit: body.perUserLimit ?? null,
+        // Blank means the default of once per customer, never unlimited.
+        perUserLimit: body.perUserLimit ?? 1,
         startDate: body.startDate,
         isFirstOrderOnly: body.isFirstOrderOnly ?? false,
         endDate: body.endDate,
@@ -4535,6 +4783,22 @@ export async function updateAdminOfferCartVisibility(offerId, itemId, showInCart
         { new: true }
     ).lean();
     return updated;
+}
+
+/**
+ * Change how many times one customer may redeem a coupon. 0 allows unlimited.
+ * Takes effect on the next price calculation; past redemptions still count.
+ */
+export async function updateAdminOfferPerUserLimit(offerId, perUserLimit) {
+    const limit = Number(perUserLimit);
+    if (!Number.isInteger(limit) || limit < 0 || limit > 1000) {
+        throw new ValidationError('Per-customer limit must be a whole number from 0 to 1000');
+    }
+    return FoodOffer.findByIdAndUpdate(
+        offerId,
+        { $set: { perUserLimit: limit } },
+        { new: true }
+    ).lean();
 }
 
 export async function deleteAdminOffer(id) {
@@ -4843,7 +5107,7 @@ export const getAdminRestaurantSubscriptionHistory = async (query = {}) => {
 /**
  * Private helper to get financial stats for multiple delivery partners in bulk.
  */
-async function getBulkDeliveryPartnerStats(partnerIds) {
+export async function getBulkDeliveryPartnerStats(partnerIds) {
     if (!partnerIds || partnerIds.length === 0) return new Map();
 
     const [earnings, cash, deposits, bonuses, withdrawals, ordersCount] = await Promise.all([
@@ -4861,10 +5125,17 @@ async function getBulkDeliveryPartnerStats(partnerIds) {
             } },
             { $group: { _id: '$dispatch.deliveryPartnerId', total: { $sum: { $ifNull: ['$pricing.total', 0] } } } }
         ]),
-        // Cash Deposits
+        // Money paid in, split by why: COD deposits clear cash-in-hand, wallet
+        // top-ups are the rider's own money and add to the balance. Rows with
+        // no `type` predate top-ups and are COD deposits.
         FoodDeliveryCashDeposit.aggregate([
             { $match: { deliveryPartnerId: { $in: partnerIds }, status: 'Completed' } },
-            { $group: { _id: '$deliveryPartnerId', total: { $sum: '$amount' } } }
+            {
+                $group: {
+                    _id: { partner: '$deliveryPartnerId', type: { $ifNull: ['$type', 'cod_deposit'] } },
+                    total: { $sum: '$amount' }
+                }
+            }
         ]),
         // Bonuses
         DeliveryBonusTransaction.aggregate([
@@ -4894,6 +5165,7 @@ async function getBulkDeliveryPartnerStats(partnerIds) {
             totalEarning: 0,
             cashCollected: 0,
             totalDeposited: 0,
+            topUps: 0,
             bonus: 0,
             totalWithdrawn: 0,
             pendingWithdrawal: 0,
@@ -4903,7 +5175,13 @@ async function getBulkDeliveryPartnerStats(partnerIds) {
 
     earnings.forEach(row => { if (row._id) statsMap.get(row._id.toString()).totalEarning = row.total; });
     cash.forEach(row => { if (row._id) statsMap.get(row._id.toString()).cashCollected = row.total; });
-    deposits.forEach(row => { if (row._id) statsMap.get(row._id.toString()).totalDeposited = row.total; });
+    deposits.forEach(row => {
+        const partnerKey = row?._id?.partner?.toString();
+        const stats = partnerKey && statsMap.get(partnerKey);
+        if (!stats) return;
+        if (row._id.type === 'wallet_topup') stats.topUps = row.total;
+        else stats.totalDeposited = row.total;
+    });
     bonuses.forEach(row => { if (row._id) statsMap.get(row._id.toString()).bonus = row.total; });
     withdrawals.forEach(row => { 
         if (row._id) {
@@ -4913,10 +5191,30 @@ async function getBulkDeliveryPartnerStats(partnerIds) {
     });
     ordersCount.forEach(row => { if (row._id) statsMap.get(row._id.toString()).totalOrders = row.count; });
 
+    const offsetByPartner = new Map((await FoodDeliveryWallet.find({ deliveryPartnerId: { $in: partnerIds } }).select('deliveryPartnerId cashInHandAdjustment').lean()).map((w) => [String(w.deliveryPartnerId), Number(w.cashInHandAdjustment) || 0]));
+    const walletByPartner = new Map((await FoodDeliveryWallet.find({ deliveryPartnerId: { $in: partnerIds } }).select('deliveryPartnerId totalEarnings totalBonus totalSettled pocketBalanceAdjustment').lean()).map((w) => [String(w.deliveryPartnerId), w]));
     // Calculate final pocket balance and other fields
     for (const [id, stats] of statsMap) {
-        stats.pocketBalance = stats.totalEarning + stats.bonus - stats.totalWithdrawn - stats.pendingWithdrawal;
-        stats.cashInHand = stats.cashCollected - stats.totalDeposited;
+        // Same figure the rider app shows: floored at 0, admin offset included.
+        stats.cashInHand = Math.max(0, Math.round((stats.cashCollected - stats.totalDeposited + (offsetByPartner.get(String(id)) || 0)) * 100) / 100);
+        // Undeposited COD is the company's cash sitting in the rider's pocket,
+        // so it is held OUT of the wallet balance until they deposit it. Same
+        // formula as the rider-facing pocket balance in
+        // deliveryFinance.getDeliveryPartnerWalletEnhanced — the two must agree,
+        // because this one also decides who is below the new-order wallet floor.
+        // Same arithmetic as the rider app (getDeliveryPartnerWalletEnhanced):
+        // wallet totals floor the aggregates, plus the admin adjustment.
+        const w = walletByPartner.get(String(id)) || {};
+        stats.totalEarning = Math.max(Number(stats.totalEarning) || 0, Number(w.totalEarnings) || 0);
+        stats.bonus = Math.max(Number(stats.bonus) || 0, Number(w.totalBonus) || 0);
+        stats.totalWithdrawn = Math.max(Number(stats.totalWithdrawn) || 0, Number(w.totalSettled) || 0);
+        stats.pocketBalance = Math.max(0, Math.round((computePocketBalance({
+            totalEarned: stats.totalEarning,
+            totalBonus: stats.bonus,
+            topUps: stats.topUps,
+            totalWithdrawn: stats.totalWithdrawn,
+            pendingWithdrawals: stats.pendingWithdrawal,
+        }) + (Number(w.pocketBalanceAdjustment) || 0)) * 100) / 100);
     }
 
     return statsMap;
@@ -5461,7 +5759,9 @@ export async function creditEarningAddonHistory(historyId, notes) {
     if (amountToCredit > 0) {
         await FoodDeliveryWallet.findOneAndUpdate(
             { deliveryPartnerId: doc.deliveryPartnerId },
-            { $inc: { balance: amountToCredit, totalEarnings: amountToCredit } },
+            // Counted as bonus (the transaction below) -- adding it to
+            // totalEarnings too counted it twice.
+            { $inc: { balance: amountToCredit, totalBonus: amountToCredit } },
             { upsert: true }
         );
 
@@ -5973,9 +6273,14 @@ export async function updateDeliveryWithdrawalStatus(id, { status, adminNote, re
         const currentLocked = Number(wallet?.lockedAmount) || 0;
 
         if (nextStatus === 'approved') {
-            if (currentBalance < amount) {
+            // The calculated balance; the stored one still carries old COD
+            // debits. This request is already held out of it, so add it back.
+            const { getDeliveryPartnerWalletEnhanced } = await import('../../delivery/services/deliveryFinance.service.js');
+            const available = (Number((await getDeliveryPartnerWalletEnhanced(deliveryPartnerId))?.pocketBalance) || 0) + amount;
+            if (available + 0.001 < amount) {
                 throw new ValidationError('Delivery wallet balance is lower than the requested amount');
             }
+            void currentBalance;
 
             await FoodDeliveryWallet.findOneAndUpdate(
                 { deliveryPartnerId },
@@ -6049,7 +6354,8 @@ export async function getDeliveryWallets(query = {}) {
             deliveryIdString: p.phone,
             pocketBalance: stats.pocketBalance || 0,
             remainingCashLimit: Math.max(0, globalLimit - (stats.cashInHand || 0)),
-            cashCollected: stats.cashInHand || 0,
+            cashCollected: stats.cashCollected || 0,
+            cashInHand: stats.cashInHand || 0,
             totalEarning: stats.totalEarning || 0,
             bonus: stats.bonus || 0,
             totalWithdrawn: stats.totalWithdrawn || 0,
@@ -6076,20 +6382,73 @@ export async function updateDeliveryBoyWallet(data) {
     const { deliveryId, pocketBalance, cashInHand } = data;
     if (!deliveryId) throw new ValidationError('Delivery partner ID required');
 
+    // Cash in hand everywhere is the larger of (COD collected - confirmed
+    // deposits) and the wallet field below, so writing a lower number into the
+    // field alone changed nothing -- the calculated figure stayed higher and
+    // won. Lowering it records the difference as a confirmed cash deposit,
+    // which is what moves the calculated figure, and leaves a line in Cash Limit
+    // Settlement. Raising it needs only the field, as before.
+    if (cashInHand !== undefined && cashInHand !== null && cashInHand !== '') {
+        const target = Number(cashInHand);
+        if (!Number.isFinite(target) || target < 0) {
+            throw new ValidationError('Cash in hand must be 0 or more');
+        }
+        // Loaded here, not at the top: deliveryFinance imports this module.
+        const { getDeliveryPartnerWalletEnhanced } = await import('../../delivery/services/deliveryFinance.service.js');
+        const current = Number((await getDeliveryPartnerWalletEnhanced(deliveryId))?.cashInHand) || 0;
+        const reduction = Math.round((current - target) * 100) / 100;
+        if (reduction < 0) {
+            await FoodDeliveryWallet.findOneAndUpdate(
+                { deliveryPartnerId: deliveryId },
+                { $inc: { cashInHandAdjustment: -reduction } },
+                { upsert: true },
+            );
+        }
+        if (reduction > 0) {
+            await FoodDeliveryCashDeposit.create({
+                deliveryPartnerId: deliveryId,
+                amount: reduction,
+                type: 'cod_deposit',
+                paymentMethod: 'cash',
+                status: 'Completed',
+                adminNote: `Admin set cash in hand from Rs ${current} to Rs ${target}`,
+            });
+        }
+    }
+
+    // The wallet shown everywhere is calculated + adjustment, so an edit
+    // moves the adjustment by the difference -- lowering works too.
+    if (pocketBalance !== undefined && pocketBalance !== null && pocketBalance !== '') {
+        const targetPocket = Number(pocketBalance);
+        if (!Number.isFinite(targetPocket) || targetPocket < 0) {
+            throw new ValidationError('Wallet balance must be 0 or more');
+        }
+        const { getDeliveryPartnerWalletEnhanced: readPocket } = await import('../../delivery/services/deliveryFinance.service.js');
+        const shownPocket = Number((await readPocket(deliveryId))?.pocketBalance) || 0;
+        const delta = Math.round((targetPocket - shownPocket) * 100) / 100;
+        if (delta) {
+            await FoodDeliveryWallet.findOneAndUpdate(
+                { deliveryPartnerId: deliveryId },
+                { $inc: { pocketBalanceAdjustment: delta } },
+                { upsert: true },
+            );
+        }
+    }
+
     let wallet = await FoodDeliveryWallet.findOne({ deliveryPartnerId: deliveryId });
     if (!wallet) {
         wallet = new FoodDeliveryWallet({
             deliveryPartnerId: deliveryId,
-            balance: pocketBalance || 0,
-            cashInHand: cashInHand || 0
+            balance: 0
         });
     } else {
-        if (pocketBalance !== undefined) wallet.balance = pocketBalance;
-        if (cashInHand !== undefined) wallet.cashInHand = cashInHand;
+        // Cash in hand is moved above (deposit or offset), not stored here.
     }
 
     await wallet.save();
-    return wallet.toObject();
+    const { getDeliveryPartnerWalletEnhanced: readWallet } = await import('../../delivery/services/deliveryFinance.service.js');
+    const shown = await readWallet(deliveryId).catch(() => null);
+    return { ...wallet.toObject(), ...(shown ? { cashInHand: shown.cashInHand, pocketBalance: shown.pocketBalance } : {}) };
 }
 
 /**
@@ -6176,13 +6535,21 @@ export async function getCashLimitSettlements(query = {}) {
     const page = parseInt(query.page, 10) || 1;
     const skip = (page - 1) * limit;
 
-    const filter = {};
+    // COD settlements only. Wallet top-ups share this collection but are the
+    // rider's own money going in, not cash they owed the company — listing
+    // them here would overstate how much COD has been settled.
+    const filter = { type: { $ne: 'wallet_topup' } };
     if (query.search) {
         // Search by razorpay ID or find partner IDs to search by partner
         if (query.search.startsWith('pay_')) {
             filter.razorpayPaymentId = query.search;
+        } else {
+            // A UTR is what an admin has in front of them when checking the
+            // bank statement, so it is the other thing worth searching by.
+            filter.utr = String(query.search).trim().toUpperCase();
         }
     }
+    if (query.status) filter.status = String(query.status);
 
     const [deposits, total] = await Promise.all([
         FoodDeliveryCashDeposit.find(filter)
@@ -6202,6 +6569,13 @@ export async function getCashLimitSettlements(query = {}) {
         deliveryIdString: d.deliveryPartnerId?.phone || 'N/A',
         amount: Number(d.amount || 0),
         status: d.status,
+        // UPI settlements carry the rider's claim; gateway rows leave these empty.
+        utr: d.utr || '',
+        proofImageUrl: d.proofImageUrl || '',
+        paymentMethod: d.paymentMethod || 'cash',
+        rejectionReason: d.rejectionReason || '',
+        submittedAt: d.submittedAt || d.createdAt,
+        reviewedAt: d.reviewedAt || null,
         razorpayPaymentId: d.razorpayPaymentId || '-'
     }));
 

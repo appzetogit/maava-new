@@ -1,5 +1,29 @@
 import { config } from '../../../../config/env.js';
 import { logger } from '../../../../utils/logger.js';
+import { FoodBusinessSettings } from '../../admin/models/businessSettings.model.js';
+
+/**
+ * The key the operator set in Admin -> Settings -> Business Setup, so rotating
+ * it there also changes the distances this file measures. The environment
+ * variable stays as the fallback for a cleared field or an unreachable read.
+ *
+ * Cached for a minute: this runs on the order path, and a database round trip
+ * per route lookup buys nothing when the key changes maybe twice a year.
+ */
+let mapsKeyCache = { value: null, expiresAt: 0 };
+
+async function resolveMapsApiKey() {
+    if (mapsKeyCache.value && Date.now() < mapsKeyCache.expiresAt) return mapsKeyCache.value;
+    try {
+        const settings = await FoodBusinessSettings.findOne().select('googleMapsApiKey').lean();
+        const key = String(settings?.googleMapsApiKey || '').trim() || config.googleMapsApiKey;
+        mapsKeyCache = { value: key, expiresAt: Date.now() + 60_000 };
+        return key;
+    } catch (error) {
+        logger.warn(`Business settings map key unreadable, using env: ${error.message}`);
+        return config.googleMapsApiKey;
+    }
+}
 
 /**
  * Fetches driving route metrics from Google Directions API.
@@ -92,7 +116,51 @@ export function buildDetailedPolyline(legs = []) {
   return points.length >= 2 ? encodePolyline(points) : '';
 }
 
-export async function fetchDrivingRoute(origin, destination) {
+/**
+ * Short-lived cache in front of Directions.
+ *
+ * The comment above says to call this once per order, but the rider map polls
+ * /orders/:id/route continuously, so it was one billed Google request per poll:
+ * 9,761 of them in a single log file, averaging 113ms and costing more server
+ * time in total than any other endpoint.
+ *
+ * Keyed on coordinates quantised to `cacheKeyPrecision` decimal places, so a
+ * rider waiting outside a restaurant reuses one answer instead of re-asking
+ * every few seconds. The DEFAULT precision is 5 (~1m), effectively exact:
+ * callers that price an order off this distance keep the answer they would
+ * have got anyway and only gain when the same pair repeats. Only the
+ * display-only route endpoint opts into coarse rounding.
+ *
+ * Failures are never cached -- a Google blip must not blank the map for a
+ * minute.
+ */
+const ROUTE_CACHE_TTL_MS = 60_000;
+const ROUTE_CACHE_MAX_ENTRIES = 5000;
+const routeCache = new Map();
+const routeInFlight = new Map();
+
+const quantise = (value, precision) => Number(value).toFixed(precision);
+
+function readRouteCache(key) {
+  const hit = routeCache.get(key);
+  if (!hit) return null;
+  if (hit.expiresAt <= Date.now()) {
+    routeCache.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+function writeRouteCache(key, value, ttlMs) {
+  // Map keeps insertion order, so the oldest key is the first one out.
+  if (routeCache.size >= ROUTE_CACHE_MAX_ENTRIES) {
+    const oldest = routeCache.keys().next().value;
+    if (oldest !== undefined) routeCache.delete(oldest);
+  }
+  routeCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+
+export async function fetchDrivingRoute(origin, destination, options = {}) {
   const empty = {
     polyline: '',
     distanceMeters: null,
@@ -100,7 +168,7 @@ export async function fetchDrivingRoute(origin, destination) {
     distanceKm: null,
   };
 
-  const apiKey = config.googleMapsApiKey;
+  const apiKey = await resolveMapsApiKey();
   if (!apiKey) {
     logger.warn('Google Maps API key missing. Driving route fetch skipped.');
     return empty;
@@ -117,6 +185,22 @@ export async function fetchDrivingRoute(origin, destination) {
     return empty;
   }
 
+  const precision = Number.isInteger(options.cacheKeyPrecision) ? options.cacheKeyPrecision : 5;
+  const ttlMs = Number.isFinite(options.cacheTtlMs) ? options.cacheTtlMs : ROUTE_CACHE_TTL_MS;
+  const cacheKey =
+    `${quantise(origin.lat, precision)},${quantise(origin.lng, precision)}` +
+    `|${quantise(destination.lat, precision)},${quantise(destination.lng, precision)}`;
+
+  const cached = readRouteCache(cacheKey);
+  if (cached) return cached;
+
+  // Collapse concurrent identical lookups onto one request. Several riders on
+  // the same leg, or one rider's overlapping polls, would otherwise each open
+  // their own billed call for the same answer.
+  const inFlight = routeInFlight.get(cacheKey);
+  if (inFlight) return inFlight;
+
+  const work = (async () => {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
@@ -161,6 +245,18 @@ export async function fetchDrivingRoute(origin, destination) {
   }
 
   return empty;
+  })();
+
+  routeInFlight.set(cacheKey, work);
+  try {
+    const result = await work;
+    // Only a real route is worth remembering; `empty` means a missing key,
+    // Google saying no, or a timeout.
+    if (result?.polyline) writeRouteCache(cacheKey, result, ttlMs);
+    return result;
+  } finally {
+    routeInFlight.delete(cacheKey);
+  }
 }
 
 /**

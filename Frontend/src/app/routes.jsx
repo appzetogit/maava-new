@@ -35,6 +35,10 @@ const FoodAppWrapper = () => {
  * with them. These paths stay mapped instead of falling through to the 404
  * catch-all so an old bookmark lands somewhere real.
  */
+// Previous customer UI, mounted for review at /legacy. Lazily loaded so it
+// ships as its own chunk and adds nothing to the live app's entry bundle.
+const LegacyUserApp = lazy(() => import('@/module/user/components/UserRouter'))
+
 const RedirectToAdmin = () => <Navigate to="/admin" replace />;
 
 /** Bare customer paths older builds and deep links still navigate to. */
@@ -76,17 +80,20 @@ const AdminRouter = lazy(() => import('../modules/Food/components/admin/AdminRou
 const SellerRouter = lazy(() => import('../modules/Food/components/restaurant/RestaurantRouter'))
 
 /**
- * Sends the old /food/restaurant/* addresses to /seller/*.
+ * Sends the older addresses -- /seller/* and /food/restaurant/* -- to
+ * /restaurant/*, where the partner panel actually lives.
  *
  * A redirect rather than a second mount: two live copies of the panel would
  * mean two sessions, two sets of sockets, and a bug fixed in one of them. The
  * rest of the path, the query string and the hash survive, so a deep link to a
  * specific order still lands on it.
  */
-const RedirectToSeller = () => {
+const RedirectToRestaurant = () => {
   const location = useLocation()
   const target =
-    location.pathname.replace(/^\/food\/restaurant/, '/seller') +
+    location.pathname
+      .replace(/^\/food\/restaurant/, '/restaurant')
+      .replace(/^\/seller/, '/restaurant') +
     location.search +
     location.hash
   return <Navigate to={target} replace />
@@ -119,6 +126,21 @@ const AppRoutes = () => {
     <Routes>
       {/* Root → Master Landing Page */}
       <Route path="/" element={<RootEntryRoute />} />
+      {/*
+        The previous customer app, mounted in place of the current one.
+
+        More specific than the /food/* route below, so v6 matches it first --
+        the rest of /food (seller, admin, checkout links) is untouched, and
+        reverting is deleting this one Route.
+      */}
+      <Route
+        path="/food/user/*"
+        element={
+          <Suspense fallback={<PageLoader />}>
+            <LegacyUserApp />
+          </Suspense>
+        }
+      />
 
       {/*
         Public CMS pages -- privacy, terms, about, support. The landing page
@@ -138,9 +160,9 @@ const AppRoutes = () => {
       {/* Food Module */}
       <Route path="/food/*" element={<FoodAppWrapper />} />
 
-      {/* Seller Portal. Canonical home of the partner panel. */}
+      {/* Restaurant Portal. Canonical home of the partner panel. */}
       <Route
-        path="/seller/*"
+        path="/restaurant/*"
         element={
           <Suspense fallback={<PageLoader />}>
             <SellerRouter />
@@ -148,7 +170,8 @@ const AppRoutes = () => {
         }
       />
       {/* Where the panel used to live; bookmarks and old links still resolve. */}
-      <Route path="/food/restaurant/*" element={<RedirectToSeller />} />
+      <Route path="/seller/*" element={<RedirectToRestaurant />} />
+      <Route path="/food/restaurant/*" element={<RedirectToRestaurant />} />
 
       {/*
         Global Admin Portal. AdminRouter handles its own protection for sub-routes.
@@ -171,7 +194,6 @@ const AppRoutes = () => {
         rather than the 404 catch-all.
       */}
       <Route path="/user/*" element={<RedirectToShop />} />
-      <Route path="/restaurant/*" element={<RedirectToSeller />} />
       <Route path="/delivery/*" element={<RedirectToAdmin />} />
       <Route path="/usermain/*" element={<RedirectToShop />} />
       <Route path="/profile/*" element={<RedirectToShop />} />

@@ -1,0 +1,45 @@
+/* Layout for the design-kit review page only. Components carry their own styles in maava.css. */
+.mv-kit { min-height: 100vh; padding-bottom: 120px; background: var(--mv-bg); }
+.mv-kit__top {
+  position: sticky;
+  top: 0;
+  z-index: 35;
+  background: color-mix(in srgb, var(--mv-bg) 94%, transparent);
+  border-bottom: 1px solid var(--mv-border);
+  backdrop-filter: blur(10px);
+}
+.mv-kit__top-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 14px 20px;
+}
+.mv-kit__brand { display: grid; gap: 2px; }
+.mv-kit__controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.mv-kit__main { display: grid; gap: 44px; max-width: 1080px; margin: 0 auto; padding: 28px 20px; }
+.mv-kit__section { display: grid; gap: 14px; }
+.mv-kit__section > header { display: grid; gap: 4px; }
+.mv-kit__eyebrow { color: var(--mv-text-2); font: 600 11px/1 var(--mv-font); letter-spacing: 0.1em; text-transform: uppercase; }
+.mv-kit__note { max-width: 72ch; color: var(--mv-text-2); font: 400 13px/1.5 var(--mv-font); }
+.mv-kit__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); align-items: start; gap: 16px; }
+.mv-kit__phone { display: grid; gap: 12px; width: 100%; max-width: 420px; }
+.mv-kit__panel { display: grid; gap: 12px; padding: 16px; background: var(--mv-surface); border: 1px solid var(--mv-border); border-radius: 20px; }
+.mv-kit__panel h3 { color: var(--mv-text-2); font: 600 12px/1.2 var(--mv-font); letter-spacing: 0.04em; text-transform: uppercase; }
+.mv-kit__row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.mv-kit__swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.mv-kit__swatch { display: grid; grid-template-rows: 52px auto; overflow: hidden; background: var(--mv-card); border: 1px solid var(--mv-border); border-radius: 14px; }
+.mv-kit__swatch div { display: grid; gap: 2px; padding: 8px 10px; }
+.mv-kit__swatch b { font: 600 12px/1.3 var(--mv-font); }
+.mv-kit__swatch code,
+.mv-kit__type-row code { color: var(--mv-text-2); font: 400 11px/1.4 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
+.mv-kit__type { padding: 4px 16px; background: var(--mv-surface); border: 1px solid var(--mv-border); border-radius: 20px; }
+.mv-kit__type-row { display: grid; grid-template-columns: 190px 1fr; align-items: baseline; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--mv-divider); }
+.mv-kit__type-row:last-child { border-bottom: 0; }
+.mv-kit__frame { overflow: hidden; background: var(--mv-bg); border: 1px solid var(--mv-border); border-radius: 20px; }
+@media (max-width: 560px) {
+  .mv-kit__type-row { grid-template-columns: 1fr; gap: 4px; }
+}

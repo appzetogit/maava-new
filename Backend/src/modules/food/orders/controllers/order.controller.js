@@ -1,6 +1,7 @@
 import { sendResponse } from '../../../../utils/response.js';
 import * as orderService from '../services/order.service.js';
 import * as foodOrderPaymentService from '../services/foodOrderPayment.service.js';
+import { FoodBusinessSettings } from '../../admin/models/businessSettings.model.js';
 import {
     validateCalculateOrderDto,
     validateCreateOrderDto,
@@ -193,12 +194,38 @@ export async function getOrderByIdRestaurantController(req, res, next) {
     }
 }
 
+/**
+ * The reasons the seller app offers when rejecting an order.
+ *
+ * Read-only and settings-backed. Runs in the caller's vertical, so a Mart
+ * seller gets Mart's list without the route having to know which app asked.
+ */
+export async function listRejectionReasonsController(req, res, next) {
+    try {
+        const settings = await FoodBusinessSettings.findOne()
+            .select('restaurantRejectionReasons')
+            .lean();
+        const reasons = (settings?.restaurantRejectionReasons ?? [])
+            .map((r) => String(r || '').trim())
+            .filter(Boolean);
+        return sendResponse(res, 200, 'Rejection reasons retrieved', { reasons });
+    } catch (err) {
+        next(err);
+    }
+}
+
 export async function updateOrderStatusRestaurantController(req, res, next) {
     try {
         const restaurantId = req.user?.userId;
         const orderId = req.params.orderId;
         const dto = validateOrderStatusDto(req.body);
-        const order = await orderService.updateOrderStatusRestaurant(orderId, restaurantId, dto.orderStatus, dto.note);
+        const order = await orderService.updateOrderStatusRestaurant(
+            orderId,
+            restaurantId,
+            dto.orderStatus,
+            dto.note,
+            dto.packingMinutes,
+        );
         return sendResponse(res, 200, 'Order status updated', { order });
     } catch (err) {
         next(err);

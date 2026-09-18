@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { runWithVertical } from '../../../../core/vertical/verticalScope.js';
 import { FoodOrder, FoodSettings } from '../models/order.model.js';
 // import { paymentSnapshotFromOrder } from './foodOrderPayment.service.js';
 import { logger } from '../../../../utils/logger.js';
@@ -13,6 +14,7 @@ import { findZoneForPoint, readAddressPoint } from '../../shared/zoneServiceabil
 import { buildPaginationOptions, buildPaginatedResult } from '../../../../utils/helpers.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
 import { FoodOfferUsage } from '../../admin/models/offerUsage.model.js';
+import { claimCouponUsageRecord, releaseCouponUsageForOrder } from './couponUsage.service.js';
 import { FoodDeliveryCommissionRule } from '../../admin/models/deliveryCommissionRule.model.js';
 import { FoodRestaurantCommission } from '../../admin/models/restaurantCommission.model.js';
 import { FoodBusinessSettings } from '../../admin/models/businessSettings.model.js';
@@ -74,6 +76,41 @@ let commissionRulesCache = null;
 let commissionRulesLoadedAt = 0;
 const ORDER_ACCEPTANCE_WINDOW_SECONDS = 240;
 
+/**
+ * How long after placing an order the customer may still cancel it themselves.
+ * The apps mirror this value to draw their countdown; this constant is the one
+ * that actually decides, so change it here.
+ */
+export const CANCELLATION_WINDOW_MS = 60_000;
+
+/**
+ * Whether an order placed at [createdAt] may still be cancelled at [now].
+ *
+ * An order with no createdAt is allowed through rather than blocked: the status
+ * check upstream is what actually guards it, and refusing on a missing
+ * timestamp would strand legacy rows nobody can cancel.
+ */
+export const isWithinCancellationWindow = (createdAt, now = Date.now()) => {
+    const placedAtMs = createdAt?.getTime?.() ?? Date.parse(createdAt ?? '');
+    if (!Number.isFinite(placedAtMs)) return true;
+    return now - placedAtMs <= CANCELLATION_WINDOW_MS;
+};
+
+/**
+ * Seconds win over minutes when set.
+ *
+ * The minutes field rounds to whole minutes, so a window like 100s could not be
+ * configured at all. Operators who only have the minutes value keep working
+ * exactly as before.
+ */
+function normalizeAcceptanceWindowFromSettings(settings) {
+  const seconds = Number(settings?.orderAcceptanceTimeSeconds);
+  if (Number.isFinite(seconds) && seconds >= 10 && seconds <= 1200) {
+    return Math.round(seconds);
+  }
+  return normalizeAcceptanceWindowSeconds(settings?.orderAcceptanceTimeMinutes);
+}
+
 function normalizeAcceptanceWindowSeconds(minutes) {
   const numeric = Number(minutes);
   if (!Number.isFinite(numeric)) return ORDER_ACCEPTANCE_WINDOW_SECONDS;
@@ -85,9 +122,9 @@ function normalizeAcceptanceWindowSeconds(minutes) {
 async function getOrderAcceptanceWindowSeconds() {
   try {
     const settings = await FoodBusinessSettings.findOne()
-      .select('orderAcceptanceTimeMinutes')
+      .select('orderAcceptanceTimeMinutes orderAcceptanceTimeSeconds')
       .lean();
-    return normalizeAcceptanceWindowSeconds(settings?.orderAcceptanceTimeMinutes);
+    return normalizeAcceptanceWindowFromSettings(settings);
   } catch (err) {
     logger.warn(`Failed to load order acceptance setting: ${err?.message || err}`);
     return ORDER_ACCEPTANCE_WINDOW_SECONDS;
@@ -113,6 +150,10 @@ async function incrementCouponUsageForOrder(order, userId) {
   try {
     const offer = await FoodOffer.findOne({ couponCode }).lean();
     if (offer) {
+      // Claimed before counting, so the payment callback and its webhook
+      // cannot count one order twice -- and so a cancellation later knows
+      // there is exactly one use to give back.
+      if (!(await claimCouponUsageRecord(order._id, offer._id))) return;
       // Conditional increment so concurrent orders cannot push usedCount past usageLimit.
       const incrementResult = await FoodOffer.updateOne(
         {
@@ -152,6 +193,7 @@ async function deletePendingPaymentOrder(orderLike) {
   // An abandoned payment must not hold units forever. Restocked before the
   // delete, since the order rows are what say how much to give back.
   await restoreOrderStock(orderLike);
+  await releaseCouponUsageForOrder(orderLike);
 
   await Promise.all([
     FoodSupportTicket.updateMany(
@@ -372,6 +414,7 @@ async function expireUnacceptedOrders(filter = {}) {
     if (!updated) continue;
 
     await restoreOrderStock(updated);
+    await releaseCouponUsageForOrder(updated);
 
     try {
       await applyCancellationRefund(updated, { cancelledBy: 'auto_cancel' });
@@ -396,10 +439,57 @@ async function expireUnacceptedOrders(filter = {}) {
     } catch (err) {
       logger.warn(`expireUnacceptedOrders socket emit failed: ${err?.message || err}`);
     }
+
+    // A socket event only reaches an app that is open. The restaurant's new-order
+    // ringer runs in a native overlay while the app is closed, and the ONLY thing
+    // that stops it early is a push of type order_cancelled / order_taken. Without
+    // this, an order that timed out kept ringing until the overlay's own watchdog,
+    // and the customer -- app closed -- was never told the order was cancelled.
+    try {
+      await notifyOwnersSafely(
+        [
+          { ownerType: "RESTAURANT", ownerId: updated.restaurantId },
+          { ownerType: "USER", ownerId: updated.userId },
+        ],
+        {
+          title: "Order not accepted",
+          body: `Order #${updated.order_id || updated._id} was not accepted by the restaurant in time and has been cancelled.`,
+          data: {
+            type: "order_cancelled",
+            orderId: String(updated._id),
+            orderMongoId: String(updated._id),
+          },
+        },
+      );
+    } catch (err) {
+      logger.warn(`expireUnacceptedOrders push failed: ${err?.message || err}`);
+    }
   }
 
   return docs.length;
 }
+
+// ACCEPTANCE-SWEEP. Every order arms ORDER_ACCEPTANCE_TIMEOUT_CHECK through
+// addOrderJob, which is a documented no-op without BullMQ -- and production runs
+// without BullMQ. Unlike dispatch retries, that job had no fallback, so an order
+// the restaurant never answered was only expired lazily, whenever somebody
+// happened to list orders. Until then it sat pending: still ringing on the
+// restaurant's phone, and refusing acceptance with 'window has expired'.
+// A short sweep closes that gap and, unlike an in-process timer per order,
+// survives a restart. It is idempotent: the conditional findOneAndUpdate above
+// lets exactly one process win each order, so running in several is harmless.
+// Both verticals, because outside a request the scope falls back to 'food'
+// and would silently skip Mart orders.
+const ACCEPTANCE_SWEEP_MS = 20 * 1000;
+const acceptanceSweep = setInterval(() => {
+  if (mongoose.connection.readyState !== 1) return;
+  for (const vertical of ["food", "quick"]) {
+    runWithVertical(vertical, () => expireUnacceptedOrders()).catch((err) =>
+      logger.warn(`acceptance sweep (${vertical}) failed: ${err?.message || err}`),
+    );
+  }
+}, ACCEPTANCE_SWEEP_MS);
+acceptanceSweep.unref?.();
 
 export async function expireUnacceptedOrderById(orderMongoId) {
   if (!orderMongoId || !mongoose.Types.ObjectId.isValid(String(orderMongoId))) {
@@ -424,13 +514,13 @@ async function getActiveCommissionRules() {
   return commissionRulesCache;
 }
 
-// 🗑️ Moved to foodTransaction.service.js to centralize finance logic.
+// ð️ Moved to foodTransaction.service.js to centralize finance logic.
 
 
 // Rider earnings use deliveryBoyBasePay / deliveryBoyPerKm from admin fee ranges (see order-pricing.service.js).
 
 /** Append-only food_order_payments row; never blocks main flow on failure */
-// 🗑️ Deprecated in favor of FoodTransaction system.
+// ð️ Deprecated in favor of FoodTransaction system.
 
 // ----- Settings -----
 export async function getDispatchSettings() {
@@ -511,7 +601,43 @@ export async function createOrder(userId, dto) {
     if (paymentMethod === "cash" && String(process.env.COD_ENABLED || "true") !== "true") {
       throw new ValidationError("Cash on Delivery is no longer available. Please pay online.");
     }
+
+    // Platform-wide COD switch (Admin -> Feature Settings -> "Cash On Delivery").
+    //
+    // The flag existed and was described as controlling COD, but nothing read
+    // it outside the admin sidebar, so turning it off changed nothing. The env
+    // var above still works and is the ops-level kill switch; this is the one
+    // an admin can actually reach, and unlike the env var it takes effect
+    // without a restart.
+    //
+    // Checked server-side for the same reason as the per-account switch below:
+    // the app only HIDES the option, and an older build or a crafted request
+    // can still ask for cash. Defaults to enabled if the lookup fails, so a
+    // database blip cannot take COD away from everyone mid-service.
+    if (paymentMethod === "cash") {
+      const { isFeatureEnabled, FEATURE_KEYS } = await import(
+        "../../admin/services/featureSettings.service.js"
+      );
+      if (!(await isFeatureEnabled(FEATURE_KEYS.COD_CONTROL, true))) {
+        throw new ValidationError(
+          "Cash on Delivery is currently unavailable. Please pay online.",
+        );
+      }
+    }
     const isCash = paymentMethod === "cash";
+    // Per-account COD switch (Admin -> COD Access). Checked server-side because
+    // the app only HIDES the option: an older build, or a crafted request, can
+    // still ask for cash. Read fresh rather than trusting the JWT, so revoking
+    // COD takes effect on the customer's very next order instead of after they
+    // sign in again.
+    if (isCash) {
+      const buyer = await FoodUser.findById(userId).select("codEnabled").lean();
+      if (buyer && buyer.codEnabled === false) {
+        throw new ValidationError(
+          "Cash on Delivery is not available on your account. Please pay online.",
+        );
+      }
+    }
     const isWallet = paymentMethod === "wallet";
 
     const pricingResult = await calculateOrderPricing(
@@ -522,6 +648,10 @@ export async function createOrder(userId, dto) {
         deliveryAddress,
         couponCode: dto.pricing?.couponCode || undefined,
         deliveryMode: dto.deliveryMode || "basic",
+        // Without this the tip is validated, stored on the DTO, and then
+        // silently dropped: the bill is recomputed here, so a tip missing
+        // from this object is a tip missing from total and rider payout.
+        deliveryTip: dto.deliveryTip,
       },
       { at: orderAt, restaurant, skipAvailabilityCheck: true },
     );
@@ -530,9 +660,13 @@ export async function createOrder(userId, dto) {
     const normalizedPricing = {
       subtotal: Number(pricingResult.pricing?.subtotal) || 0,
       tax: Number(pricingResult.pricing?.tax) || 0,
+      gstRate: Number(pricingResult.pricing?.gstRate) || 0,
       packagingFee: Number(pricingResult.pricing?.packagingFee) || 0,
       deliveryFee: Number(pricingResult.pricing?.deliveryFee) || 0,
       deliveryFeeGst: Number(pricingResult.pricing?.deliveryFeeGst) || 0,
+      // The km working shown at checkout, kept for the order details page.
+      deliveryFeeMessage: pricingResult.pricing?.deliveryFeeBreakdown?.message || null,
+      deliveryFeeGstRate: Number(pricingResult.pricing?.deliveryFeeGstRate) || 0,
       platformFee: Number(pricingResult.pricing?.platformFee) || 0,
       quickDeliveryFee: Number(pricingResult.pricing?.quickDeliveryFee) || 0,
       deliveryMode:
@@ -540,6 +674,11 @@ export async function createOrder(userId, dto) {
           ? "quick"
           : "basic",
       discount: Number(pricingResult.pricing?.discount) || 0,
+      // Taken from the priced result, never from the raw dto: the client sends
+      // a tip but the service is what clamps it, and reading dto here would
+      // put an unclamped number on the order while the total used the clamped
+      // one.
+      deliveryTip: Number(pricingResult.pricing?.deliveryTip) || 0,
       couponCode: pricingResult.pricing?.couponCode
         ? String(pricingResult.pricing.couponCode).trim().toUpperCase()
         : null,
@@ -587,8 +726,15 @@ export async function createOrder(userId, dto) {
       normalizedPricing.roadDistanceKm = distanceKm;
     }
 
-    const feeSettings = await loadActiveFeeSettings();
-    const riderEarning = calculateRiderEarning(feeSettings, distanceKm) || 0;
+    // The order's own zone, not the default record: a zone's rider pay was
+    // being ignored because this read the default settings only.
+    const feeSettings = await loadActiveFeeSettings(pricingResult.feeZoneId || null);
+    // The tip is folded into riderEarning rather than tracked beside it, so
+    // every existing consumer -- the wallet credit, the earnings totals, the
+    // trip history, the admin rider reports -- pays it out without knowing
+    // tips exist. pricing.deliveryTip keeps it separately auditable.
+    const riderEarning =
+      (calculateRiderEarning(feeSettings, distanceKm) || 0) + normalizedPricing.deliveryTip;
     
     // Calculate restaurant commission from subtotal
     let restaurantCommission = 0;
@@ -603,6 +749,18 @@ export async function createOrder(userId, dto) {
     }
 
     normalizedPricing.restaurantCommission = restaurantCommission;
+    // The same arithmetic foodTransaction.service.js settles on, recorded on the
+    // order itself so every reader agrees. Tip-free by construction: the tip is
+    // the rider's and never passes through the restaurant's side of the ledger.
+    normalizedPricing.restaurantPayable = Math.max(
+      0,
+      Math.round(
+        ((Number(normalizedPricing.subtotal) || 0) +
+          (Number(normalizedPricing.packagingFee) || 0) -
+          restaurantCommission) *
+          100,
+      ) / 100,
+    );
 
     // Provisional value; synced to the transaction's platformNetProfit (which also
     // accounts for the admin discount share) once the initial transaction is created.
@@ -733,6 +891,7 @@ export async function createOrder(userId, dto) {
         await userWalletService.deductWalletBalance(userId, order.pricing.total, `Payment for order #${order.order_id || order._id}`, { orderId: order._id });
       } catch (err) {
         await restoreOrderStock(order);
+        await releaseCouponUsageForOrder(order);
         await FoodOrder.deleteOne({ _id: order._id });
         throw err;
       }
@@ -768,8 +927,18 @@ export async function createOrder(userId, dto) {
       // payment screen, and an abandoned order is already handled by
       // abandonOnlinePaymentOrder. A push adds nothing a screen they are
       // looking at does not already say.
+      // Detached, not awaited.
+      //
+      // Both of these are pushes. The customer's HTTP response does not depend
+      // on either one landing, but awaiting them put two FCM round trips -- about
+      // 170ms each, measured on this server -- in the middle of checkout. Order
+      // placement averaged 598ms with a 1.3s p95, and this was the bulk of it.
+      //
+      // Same treatment tryAutoAssign already gets a few lines below, and that one
+      // matters far more: it is what finds a rider at all. Failures are logged
+      // rather than swallowed, so a silent stop stays visible.
       if (!isAwaitingOnlinePayment) {
-        await notifyOwnersSafely([{ ownerType: "USER", ownerId: userId }], {
+        void notifyOwnersSafely([{ ownerType: "USER", ownerId: userId }], {
           title: "Order Confirmed! 🍔",
           body: `Your order #${order.order_id || order._id} from ${restaurant.restaurantName || "the restaurant"} has been placed successfully.`,
           image: "https://res.cloudinary.com/drbbc0l3a/image/upload/v1770098888/appzeto/business/logo/g0mvyt8uug5rtfiqcdeh.png",
@@ -779,11 +948,15 @@ export async function createOrder(userId, dto) {
             orderMongoId: order._id.toString(),
             link: `/food/user/orders/${order._id.toString()}`,
           },
-        });
+        }).catch((e) =>
+          logger.warn(`order_created push failed for ${order._id}: ${e?.message || e}`),
+        );
       }
 
       if (!isAwaitingOnlinePayment) {
-        await notifyRestaurantNewOrder(order);
+        void notifyRestaurantNewOrder(order).catch((e) =>
+          logger.warn(`new-order push to seller failed for ${order._id}: ${e?.message || e}`),
+        );
       }
     } catch (err) {
       logger.warn(`Notifications failed for order ${order._id}: ${err.message}`);
@@ -1410,6 +1583,17 @@ export async function cancelOrder(orderId, userId, reason) {
   if (!allowed.includes(order.orderStatus))
     throw new ValidationError("Order cannot be cancelled");
 
+  // Authoritative cancellation window. The apps render a countdown from the same
+  // createdAt, but that is only a courtesy -- the window is decided here, off the
+  // server's own clock, so a direct API call or a device with a wrong time
+  // cannot cancel late. Slow networks fail closed for the same reason: a request
+  // that leaves in time but lands after the window is refused.
+  if (!isWithinCancellationWindow(order.createdAt)) {
+    throw new ValidationError(
+      "The 1-minute cancellation window for this order has passed",
+    );
+  }
+
   const from = order.orderStatus;
   order.orderStatus = "cancelled_by_user";
   pushStatusHistory(order, {
@@ -1421,6 +1605,7 @@ export async function cancelOrder(orderId, userId, reason) {
   });
 
   await restoreOrderStock(order);
+  await releaseCouponUsageForOrder(order);
 
   const paymentMethod = String(order.payment?.method || "cash").toLowerCase();
   const paymentStatus = String(order.payment?.status || "cod_pending").toLowerCase();
@@ -1772,6 +1957,7 @@ export async function updateOrderStatusRestaurant(
   restaurantId,
   orderStatus,
   note = "",
+  packingMinutes = undefined,
 ) {
   await expireUnacceptedOrders({
     restaurantId: new mongoose.Types.ObjectId(restaurantId),
@@ -1807,6 +1993,19 @@ export async function updateOrderStatusRestaurant(
     );
   }
 
+  // The kitchen's own estimate, chosen on the order card as it accepts.
+  // Recorded on the order so the customer's ETA reflects what the restaurant
+  // actually committed to rather than the global default. Only on acceptance:
+  // re-quoting prep time while marking an order delivered is meaningless.
+  if (
+    Number.isFinite(Number(packingMinutes)) &&
+    (targetStatus === "confirmed" || targetStatus === "preparing")
+  ) {
+    order.pricing = order.pricing || {};
+    order.pricing.packingMinutes = Number(packingMinutes);
+    order.markModified("pricing");
+  }
+
   order.orderStatus = orderStatus;
   // The acceptance window exists only to auto-cancel orders the restaurant never acted
   // on. It was never cleared once they did, so expireUnacceptedOrders (which sweeps
@@ -1831,6 +2030,7 @@ export async function updateOrderStatusRestaurant(
 
   if (String(orderStatus).includes("cancel")) {
     await restoreOrderStock(order);
+    await releaseCouponUsageForOrder(order);
   }
 
   await order.save();
@@ -1857,13 +2057,13 @@ export async function updateOrderStatusRestaurant(
   let body = `Status changed to ${String(orderStatus).replace(/_/g, " ")}`;
 
   if (orderStatus === "confirmed") {
-    title = "Order Accepted! 🧑‍🍳";
+    title = "Order Accepted! ð§‍ð³";
     body = "The restaurant has accepted your order and is starting to prepare it.";
   } else if (orderStatus === "preparing") {
-    title = "Food is being prepared! 🍳";
+    title = "Food is being prepared! ð³";
     body = "Your food is currently being prepared by the restaurant.";
   } else if (orderStatus === "ready_for_pickup") {
-    title = "Food is ready! 🛍️";
+    title = "Food is ready! ð️";
     body = "Your order is ready and waiting to be picked up.";
   } else if (String(orderStatus).includes("cancel")) {
     const isOnlinePaid = order.payment.method === "razorpay" && (order.payment.status === "paid" || order.payment.status === "refunded");
@@ -2472,6 +2672,7 @@ export async function deleteOrderAdmin(orderId, adminId) {
   // tidied up the record would invent inventory that was genuinely sold.
   if (String(order.orderStatus) !== 'delivered') {
     await restoreOrderStock(order);
+    await releaseCouponUsageForOrder(order);
   }
 
   // Keep support tickets but detach deleted order reference.
@@ -2564,6 +2765,7 @@ export async function updateOrderStatusAdmin(orderId, orderStatus, note = "", ad
 
     if (String(orderStatus).includes("cancel")) {
         await restoreOrderStock(order);
+        await releaseCouponUsageForOrder(order);
         try {
             await applyCancellationRefund(order, { cancelledBy: 'admin' });
         } catch (err) {
@@ -2600,17 +2802,17 @@ export async function updateOrderStatusAdmin(orderId, orderStatus, note = "", ad
         notifyList.push({ ownerType: "DELIVERY_PARTNER", ownerId: order.dispatch.deliveryPartnerId });
     }
 
-    let title = `Order Status Updated 📋`;
+    let title = `Order Status Updated ð`;
     let body = `Order #${order.order_id || order._id} status changed to ${String(orderStatus).replace(/_/g, " ")} by support.`;
 
     if (orderStatus === "confirmed") {
-        title = "Order Accepted! 🧑‍🍳";
+        title = "Order Accepted! ð§‍ð³";
         body = "The order has been accepted and is starting to be prepared.";
     } else if (orderStatus === "preparing") {
-        title = "Food is being prepared! 🍳";
+        title = "Food is being prepared! ð³";
         body = "Your food is currently being prepared by the restaurant.";
     } else if (orderStatus === "ready_for_pickup") {
-        title = "Food is ready! 🛍️";
+        title = "Food is ready! ð️";
         body = "Your order is ready and waiting to be picked up.";
     } else if (String(orderStatus).includes("cancel")) {
         title = "Order Cancelled ❌";
@@ -2734,7 +2936,7 @@ export async function markOrderDeliveredAdmin(orderId, adminId, note = "") {
     }
 
     await notifyOwnersSafely(notifyList, {
-        title: "Order Delivered! 🎉",
+        title: "Order Delivered! ð",
         body: `Order #${orderLabel} has been marked as delivered by support.`,
         data: {
             type: "order_status_update",
@@ -2752,7 +2954,7 @@ export async function markOrderDeliveredAdmin(orderId, adminId, note = "") {
                 orderStatus: "delivered",
                 deliveryState: order.deliveryState,
                 message: `Order #${orderLabel} marked as delivered by admin.`,
-                title: "Order Delivered! 🎉",
+                title: "Order Delivered! ð",
             };
             io.to(rooms.user(order.userId)).emit("order_status_update", payload);
             io.to(rooms.restaurant(order.restaurantId)).emit("order_status_update", payload);

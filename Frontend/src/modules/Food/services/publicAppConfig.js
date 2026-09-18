@@ -212,6 +212,15 @@ export const loadLandingSettingsForZone = async (zoneId, { force = false } = {})
   return landing;
 };
 
+/**
+ * Whether the shared config was loaded recently enough to serve without
+ * asking again. Exported so callers holding their own copy (the business
+ * settings cache in localStorage) can tell "paint this immediately" from
+ * "this is still current" -- conflating the two is how an operator's new
+ * logo never reached a browser that had loaded the app once.
+ */
+export const isPublicAppConfigFresh = () => isFresh();
+
 export const getCachedBusinessSettings = () => store.businessSettings;
 
 export const getCachedFeatureSettings = () => store.featureSettings;

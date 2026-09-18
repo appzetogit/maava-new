@@ -45,8 +45,8 @@ export const config = {
     // JWT
     jwtAccessSecret: process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET,
     jwtRefreshSecret: process.env.JWT_REFRESH_SECRET,
-    jwtAccessExpiresIn: process.env.JWT_ACCESS_EXPIRES || '15m',
-    jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES || '7d',
+    jwtAccessExpiresIn: process.env.JWT_ACCESS_EXPIRES || process.env.JWT_ACCESS_EXPIRY || '15m',
+    jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES || process.env.JWT_REFRESH_EXPIRY || '7d',
 
     // OTP
     otpExpiry: process.env.OTP_EXPIRY || '5m',
@@ -105,6 +105,21 @@ export const config = {
         || (process.env.NODE_ENV === 'production' ? '/var/www/uploads' : 'uploads'),
     uploadBaseUrl: sanitizeUploadBaseUrl(process.env.UPLOAD_BASE_URL)
         || (process.env.NODE_ENV === 'production' ? '/uploads' : '/uploads'),
+    /**
+     * Absolute origin for media sent to clients that cannot resolve a relative
+     * path themselves.
+     *
+     * [uploadBaseUrl] is deliberately relative ('/uploads') because nginx serves
+     * it and the host changes between environments — every HTTP client resolves
+     * it against the origin it just called. Push payloads have no such origin:
+     * the rider app's native order card loads thumbnails straight from the FCM
+     * data with no API host in reach, and `new URL('/uploads/x.webp')` simply
+     * throws, which is why those thumbnails rendered as empty grey squares.
+     */
+    publicMediaBaseUrl: String(
+        process.env.PUBLIC_MEDIA_BASE_URL || process.env.PUBLIC_BASE_URL || 'https://maava.in'
+    ).trim().replace(/\/+$/, ''),
+
     uploadMaxFileSizeBytes: Number(process.env.UPLOAD_MAX_FILE_SIZE_MB || 5) * 1024 * 1024,
     uploadRateLimitWindowMinutes: Number(process.env.UPLOAD_RATE_LIMIT_WINDOW || 15),
     uploadRateLimitMax: Number(process.env.UPLOAD_RATE_LIMIT_MAX || 60),

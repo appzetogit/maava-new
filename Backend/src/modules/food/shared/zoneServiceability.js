@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { FoodZone } from '../admin/models/zone.model.js';
 import { getRedisClient } from '../../../config/redis.js';
 
@@ -126,6 +127,20 @@ export const findZoneForPoint = async (lat, lng) => {
   }
   return null;
 };
+
+export const isValidZoneId = (zoneIdRaw) => {
+  const trimmed = String(zoneIdRaw || '').trim();
+  return trimmed !== '' && mongoose.Types.ObjectId.isValid(trimmed);
+};
+
+/**
+ * A zone-scoped catalogue query that finds nothing is more likely to mean
+ * "this restaurant/store has no zoneId assigned yet" than "this zone truly
+ * has zero sellers" — so callers retry once unscoped rather than showing a
+ * blank catalogue. `isZoneFallback` marks that retry so it can't recurse.
+ */
+export const shouldRetryUnscoped = ({ total, zoneIdRaw, isZoneFallback }) =>
+  total === 0 && !isZoneFallback && isValidZoneId(zoneIdRaw);
 
 /** Pulls a lat/lng off any of the address shapes in circulation. */
 export const readAddressPoint = (address) => {

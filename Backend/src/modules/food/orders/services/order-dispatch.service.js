@@ -2,14 +2,15 @@ import mongoose from 'mongoose';
 import { FoodOrder, FoodSettings } from '../models/order.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
-import { FoodDeliveryWallet } from '../../delivery/models/deliveryWallet.model.js';
-import { FoodDeliveryCashLimit } from '../../admin/models/deliveryCashLimit.model.js';
+import { partnersBelowMinWalletBalance, partnersAtCashLimit } from '../../delivery/services/deliveryFinance.service.js';
 import { resolveDispatchRadiusBands } from './order-pricing.service.js';
+import { notifyAdminsSafely } from '../../../../core/notifications/firebase.service.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 import { logger } from '../../../../utils/logger.js';
 import { config } from '../../../../config/env.js';
 import { getIO, rooms } from '../../../../config/socket.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
+import { runWithVertical } from '../../../../core/vertical/verticalScope.js';
 import {
   buildDeliverySocketPayload,
   buildOrderIdentityFilter,
@@ -17,7 +18,6 @@ import {
   haversineKm,
   notifyOwnerSafely,
   notifyOwnersActionableAlert,
-  notifyOwnersSafely,
 } from './order.helpers.js';
 import { fetchDrivingRoute } from '../utils/googleMaps.js';
 import { parseGeoPoint } from '../../shared/geo.utils.js';
@@ -31,9 +31,23 @@ async function enrichPayloadWithTripRoadDistance(order, payload) {
   if (Number.isFinite(Number(existingRoadKm))) {
     const km = Number(Number(existingRoadKm).toFixed(2));
     const minsRaw = order?.tripDurationMins ?? order?.pricing?.roadDurationMins;
-    const tripDurationMins = Number.isFinite(Number(minsRaw))
+    const hadPersistedMins = Number.isFinite(Number(minsRaw));
+    const tripDurationMins = hadPersistedMins
       ? Math.ceil(Number(minsRaw))
       : payload.tripDurationMins;
+
+    // The distance branch below persists on every fresh Directions fetch, but
+    // this branch only ever reused an already-persisted distance — so a
+    // fallback duration computed here used to live only on this one payload.
+    // The next reconnect/poll re-read the order from Mongo, found
+    // tripDurationMins still null, and showed distance with a blank "-- MINS".
+    if (!hadPersistedMins && tripDurationMins != null && order?._id) {
+      FoodOrder.updateOne(
+        { _id: order._id },
+        { $set: { tripDurationMins, 'pricing.roadDurationMins': tripDurationMins } },
+      ).catch(() => {});
+    }
+
     return {
       ...payload,
       tripDistanceKm: km,
@@ -126,11 +140,12 @@ export function buildIncomingOrderPushData(order, payload, acceptanceDeadlineAt)
     // reads as a broken push rather than a missing field. The restaurant app hit
     // exactly this. These give the rider app ready-made strings straight from
     // message.data.
-    title: 'New order available!',
+    title: orderSourceTitle(order),
     body: bodyLines.join('\n'),
     orderId: s(order?._id),
     orderMongoId: s(order?._id),
     orderDisplayId: s(order?.order_id || order?._id),
+    vertical: s(order?.vertical || payload?.vertical || ''),
     restaurantName: s(payload?.restaurantName),
     restaurantAddress: s(payload?.restaurantAddress),
     customerAddress: s(payload?.customerAddress),
@@ -167,7 +182,7 @@ export function buildIncomingOrderPushData(order, payload, acceptanceDeadlineAt)
     // The coordinates in particular let the app draw the pickup/drop pins and
     // a straight-line preview before the app is even opened.
     orderNumber: s(order?.order_id || ''),
-    restaurantImage: s(payload?.restaurantCoverImage || ''),
+    restaurantImage: absoluteMediaUrl(payload?.restaurantCoverImage),
     pickupLat: s(payload?.restaurantLocation?.latitude ?? ''),
     pickupLng: s(payload?.restaurantLocation?.longitude ?? ''),
     dropLat: s(payload?.customerLocation?.latitude ?? ''),
@@ -198,6 +213,17 @@ export function buildIncomingOrderPushData(order, payload, acceptanceDeadlineAt)
  *    rather than truncating the string into JSON the app cannot parse. A card
  *    with no thumbnails degrades; a card with broken JSON does not render.
  */
+/**
+ * Absolute URL for a stored media path, so a client with no API host of its own
+ * can fetch it. Already-absolute values and data URIs are left alone.
+ */
+export function absoluteMediaUrl(raw) {
+  const v = String(raw || '').trim();
+  if (!v) return '';
+  if (/^(https?:)?\/\/(?!\/)/i.test(v) || v.startsWith('data:')) return v;
+  return `${config.publicMediaBaseUrl}/${v.replace(/^\/+/, '')}`;
+}
+
 function buildPushItems(items) {
   const list = Array.isArray(items) ? items.slice(0, 4) : [];
   if (list.length === 0) return '[]';
@@ -205,7 +231,7 @@ function buildPushItems(items) {
   const withImages = list.map((i) => ({
     name: String(i?.name || ''),
     quantity: Number(i?.quantity || 1),
-    image: String(i?.image || ''),
+    image: absoluteMediaUrl(i?.image),
   }));
 
   const encoded = JSON.stringify(withImages);
@@ -214,54 +240,74 @@ function buildPushItems(items) {
   return JSON.stringify(withImages.map(({ image, ...rest }) => rest));
 }
 
-/**
- * Riders who are already holding as much cash as they are allowed to.
- *
- * The limit existed as an admin setting and was shown to riders in their wallet, but
- * nothing enforced it: an over-limit rider kept being offered cash orders and could
- * keep accepting them, so the cap was advisory only.
- *
- * Only applied to orders the rider will physically collect money for. A prepaid
- * order adds nothing to their float, so blocking those would idle riders for no
- * reason.
- *
- * A limit of 0 means "no limit" â€” that is the schema default, so an install that has
- * never configured this must not have every rider silently excluded.
- *
- * @returns {Promise<Set<string>>} partner ids to skip
- */
-async function getCashBlockedPartnerIds(partnerIds) {
-  if (!partnerIds.length) return new Set();
-
-  const { getCashInHandFor, getCashLimit, isOverCashLimit } = await import(
-    '../../delivery/services/cashInHand.service.js'
-  );
-
-  const limit = await getCashLimit();
-  if (limit <= 0) return new Set();
-
-  // Was querying FoodDeliveryWallet.cashInHand, which nothing increments on
-  // delivery -- so this matched no one and every rider stayed eligible however
-  // much cash they were carrying. The derived figure is the one the rider is
-  // shown, and the one that actually reflects their float.
-  const cashByPartner = await getCashInHandFor(partnerIds);
-
-  const blocked = new Set();
-  for (const [id, cash] of cashByPartner) {
-    if (isOverCashLimit(cash, limit)) blocked.add(id);
-  }
-  return blocked;
-}
-
 /** Cash the rider has to physically collect, so it counts against their float. */
 function orderCollectsCash(order) {
   const method = String(order?.payment?.method || order?.paymentMethod || '').toLowerCase();
   return method === 'cash' || method === 'razorpay_qr';
 }
 
+/**
+ * Queue the next dispatch round for [orderId], ~[delayMs] from now.
+ *
+ * BullMQ is the preferred carrier, but addOrderJob is a documented no-op when
+ * Redis/BullMQ is disabled — which production runs with. That silently reduced
+ * dispatch to a SINGLE attempt: an order whose first hunt found no eligible
+ * rider (stale GPS, rider mid-reject, radius band still tight) was stranded
+ * as confirmed/unassigned until a human changed its status. The in-process
+ * timer is the fallback — lost on a process restart, which is far better than
+ * lost immediately.
+ *
+ * [vertical] must ride along: the timer fires outside any request scope, where
+ * currentVertical() falls back to the process default ('food'), and the order
+ * lookup inside tryAutoAssign would silently miss a quick order.
+ */
+function scheduleDispatchRetry(orderId, attempt, delayMs, vertical) {
+  return addOrderJob(
+    {
+      action: 'DISPATCH_TIMEOUT_CHECK',
+      orderMongoId: orderId,
+      orderId,
+      attempt,
+    },
+    { delay: delayMs },
+  )
+    .catch(() => null)
+    .then((job) => {
+      if (job) return;
+      const timer = setTimeout(() => {
+        runWithVertical(vertical || config.defaultVertical, () =>
+          tryAutoAssign(orderId, { attempt }),
+        ).catch((err) =>
+          logger.warn(
+            `In-process dispatch retry failed for order ${orderId}: ${err.message}`,
+          ),
+        );
+      }, delayMs);
+      // A pending rider hunt must never keep the process from exiting.
+      timer.unref?.();
+    });
+}
+
+/** Does a rider's chosen service cover this order's vertical? A missing choice
+ *  (riders registered before the field existed) means 'both'; 'none' means both
+ *  toggles are off — the rider receives nothing at all. */
+export function partnerServesVertical(serviceType, vertical) {
+  if (serviceType === 'none') return false;
+  if (!vertical) return true;
+  return !serviceType || serviceType === 'both' || serviceType === vertical;
+}
+
+/** Rider-facing source label for an order — used in every alert title so the
+ *  partner knows which brand the pickup is for before opening anything. */
+export function orderSourceTitle(order) {
+  return order?.vertical === 'quick'
+    ? 'New order from HiberMart'
+    : 'New order from Maava Food';
+}
+
 async function listNearbyOnlineDeliveryPartners(
   restaurantId,
-  { maxKm = 15, limit = 25 } = {},
+  { maxKm = 15, limit = 25, vertical = null } = {},
 ) {
   const rId = (restaurantId?._id || restaurantId).toString();
   const restaurant = await FoodRestaurant.findById(rId)
@@ -277,10 +323,10 @@ async function listNearbyOnlineDeliveryPartners(
   const allOnline = await FoodDeliveryPartner.find({
     availabilityStatus: "online",
   })
-    .select("_id status lastLat lastLng lastLocationAt name")
+    .select("_id status lastLat lastLng lastLocationAt name serviceType")
     .lean();
 
-  const scored = [];
+  let scored = [];
   const allowedStatuses = process.env.NODE_ENV === 'production' ? ['approved'] : ['approved', 'pending'];
 
   // A rider is only dropped for staleness after this long WITHOUT any GPS ping.
@@ -301,6 +347,7 @@ async function listNearbyOnlineDeliveryPartners(
   let droppedStale = 0;
   for (const p of allOnline) {
     if (!allowedStatuses.includes(p.status)) continue;
+    if (!partnerServesVertical(p.serviceType, vertical)) continue;
 
     // No coordinates at all â†’ genuinely unplaceable, must skip (never score as 999).
     if (p.lastLat == null || p.lastLng == null) {
@@ -324,6 +371,28 @@ async function listNearbyOnlineDeliveryPartners(
       `[Dispatch] ${droppedStale}/${allOnline.length} online riders skipped for missing/stale GPS ` +
         `(restaurant ${rId}, maxKm ${maxKm}). ${scored.length} eligible.`,
     );
+  }
+
+  // Riders under the admin-configured wallet floor are not offered new work.
+  //
+  // Filtered HERE rather than next to the cash-limit filter in tryAutoAssign so
+  // it covers every consumer of this candidate list — the first offer round and
+  // the "re-offer to everyone" fallback alike, which the cash filter misses.
+  // Unlike the cash ceiling this is not payment-method specific: an empty
+  // wallet blocks prepaid and cash orders equally, on Food and Mart.
+  if (scored.length > 0) {
+    const blocked = await partnersBelowMinWalletBalance(scored.map((s) => s.partnerId));
+    if (blocked.size > 0) {
+      const before = scored.length;
+      scored = scored.filter((s) => !blocked.has(String(s.partnerId)));
+      // Without this an order that finds nobody looks like "no riders online",
+      // and the real reason — every nearby rider is out of wallet balance —
+      // stays invisible.
+      logger.warn(
+        `[Dispatch] ${before - scored.length}/${before} nearby rider(s) skipped: ` +
+          `wallet balance below the configured minimum.`,
+      );
+    }
   }
 
   scored.sort((a, b) => a.distanceKm - b.distanceKm);
@@ -421,7 +490,7 @@ export async function tryAutoAssign(orderId, options = {}) {
     const radiusBands = await resolveDispatchRadiusBands();
     const maxKm = radiusBands[Math.min(Math.max(attempt, 1), radiusBands.length) - 1];
 
-    const searchOptions = { maxKm, limit: 15 };
+    const searchOptions = { maxKm, limit: 15, vertical: order.vertical };
     const { partners } = await listNearbyOnlineDeliveryPartners(order.restaurantId, searchOptions);
     const busyPartnerIds = await getBusyDeliveryPartnerIds();
 
@@ -434,8 +503,13 @@ export async function tryAutoAssign(orderId, options = {}) {
       logger.error(`[CRITICAL] Order ${order._id} unassigned for ${attempt} mins. Triggering Admin Alert (Phase 3).`);
       // Notify Admin via Push (Web/Mobile)
       try {
-        await notifyOwnersSafely(
-          [{ ownerType: 'ADMIN', ownerId: 'GLOBAL' }], // Use GLOBAL or specific admin group if defined
+        // Fans out to every active admin. This used to pass a literal 'GLOBAL'
+        // as the owner id -- a placeholder that was never implemented -- so
+        // listOwnerTokens called FoodAdmin.findById('GLOBAL'), which cannot
+        // cast to an ObjectId. Every escalation for a stranded order threw and
+        // was swallowed by the catch below, about once a minute per stuck
+        // order, and no admin was ever told.
+        await notifyAdminsSafely(
           {
             title: 'Unassigned Order Crisis!',
             body: `Order #${order.order_id || order._id} has not been picked up for 5+ minutes. Manual intervention required!`,
@@ -449,7 +523,7 @@ export async function tryAutoAssign(orderId, options = {}) {
 
     // Riders at their cash ceiling are skipped for cash-collect orders only.
     const cashBlockedIds = orderCollectsCash(order)
-      ? await getCashBlockedPartnerIds(partners.map((p) => p.partnerId))
+      ? await partnersAtCashLimit(partners.map((p) => p.partnerId))
       : new Set();
 
     const eligible = partners.filter((partner) => {
@@ -510,10 +584,10 @@ export async function tryAutoAssign(orderId, options = {}) {
             await notifyOwnersActionableAlert(
               [{ ownerType: 'DELIVERY_PARTNER', ownerId: p.partnerId }],
               {
-                title: 'New order available!',
+                title: orderSourceTitle(order),
                 body: `Order #${order.order_id || order._id} is still available. Tap to accept.`,
                 androidTag: `order_${order._id.toString()}`,
-                androidChannelId: 'new_orders_v2',
+                androidChannelId: 'new_orders_v3',
                 data: { ...basePush, pickupDistanceKm: s(p.distanceKm ?? '') },
               },
             );
@@ -524,12 +598,12 @@ export async function tryAutoAssign(orderId, options = {}) {
       }
 
       // Re-queue itself to keep trying, aligned to the client countdown.
-      await addOrderJob({
-        action: 'DISPATCH_TIMEOUT_CHECK',
-        orderMongoId: order._id.toString(),
-        orderId: order._id.toString(),
-        attempt: attempt + 1
-      }, { delay: DRIVER_ACCEPT_WINDOW_MS });
+      await scheduleDispatchRetry(
+        order._id.toString(),
+        attempt + 1,
+        DRIVER_ACCEPT_WINDOW_MS,
+        order.vertical,
+      );
 
       return order;
     }
@@ -564,7 +638,7 @@ export async function tryAutoAssign(orderId, options = {}) {
           await notifyOwnersActionableAlert(
             [{ ownerType: 'DELIVERY_PARTNER', ownerId: p.partnerId }],
             {
-              title: 'New order available!',
+              title: orderSourceTitle(order),
               body: `Order #${order.order_id || order._id} is available. You have ${Math.round(DRIVER_ACCEPT_WINDOW_MS / 1000)} seconds to accept!`,
               // Two messages â€” see notifyOwnersActionableAlert.
               //
@@ -581,7 +655,7 @@ export async function tryAutoAssign(orderId, options = {}) {
               // Must match a channel the delivery app actually creates: Android
               // silently demotes an unknown channel id to low importance, which
               // on the device looks exactly like the push never arriving.
-              androidChannelId: 'new_orders_v2',
+              androidChannelId: 'new_orders_v3',
               data: { ...basePush, pickupDistanceKm: s(p.distanceKm ?? '') },
             }
           );
@@ -622,12 +696,12 @@ export async function tryAutoAssign(orderId, options = {}) {
 
     // Re-check when the offer window closes, so the next round starts exactly as the
     // client countdown hits zero.
-    await addOrderJob({
-      action: 'DISPATCH_TIMEOUT_CHECK',
-      orderMongoId: order._id.toString(),
-      orderId: order._id.toString(),
-      attempt: attempt + 1
-    }, { delay: DRIVER_ACCEPT_WINDOW_MS });
+    await scheduleDispatchRetry(
+      order._id.toString(),
+      attempt + 1,
+      DRIVER_ACCEPT_WINDOW_MS,
+      order.vertical,
+    );
 
     return order;
   } finally {

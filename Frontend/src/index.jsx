@@ -8,6 +8,50 @@ import { setupSmoothScroll } from './shared/utils/smoothScroll.js'
 
 const NATIVE_LAST_ROUTE_KEY = 'native_last_route'
 
+/**
+ * A tab open across a deploy still holds the old index, whose lazy chunks were
+ * replaced by hashed new ones. The import then 404s and the screen stays blank
+ * until someone thinks to refresh. Reload once instead, and only once: the flag
+ * stops a genuinely missing chunk from becoming a reload loop.
+ */
+const RELOADED_FOR_CHUNK = 'mv.chunkReload'
+
+function reloadOnceForStaleChunk(event) {
+  try {
+    if (window.sessionStorage?.getItem(RELOADED_FOR_CHUNK)) return
+    window.sessionStorage?.setItem(RELOADED_FOR_CHUNK, String(Date.now()))
+  } catch {
+    // Storage refused; a single reload is still better than a blank screen.
+  }
+  event?.preventDefault?.()
+  window.location.reload()
+}
+
+window.addEventListener('vite:preloadError', reloadOnceForStaleChunk)
+window.addEventListener('unhandledrejection', (event) => {
+  const message = String(event?.reason?.message || '')
+  if (
+    message.includes('Failed to fetch dynamically imported module') ||
+    message.includes('error loading dynamically imported module') ||
+    message.includes('Importing a module script failed')
+  ) {
+    reloadOnceForStaleChunk(event)
+  }
+})
+
+// Clear the guard only once the tab has run a while without a chunk error --
+// clearing it at load would re-arm the reload immediately and let a chunk that
+// is genuinely gone bounce the page in a loop.
+window.addEventListener('load', () => {
+  window.setTimeout(() => {
+    try {
+      window.sessionStorage?.removeItem(RELOADED_FOR_CHUNK)
+    } catch {
+      // Nothing stored.
+    }
+  }, 15000)
+})
+
 // ─── Quick-spicy Food Module Initialization ───────────────────────────────────
 
 // Load food module business settings (favicon, title) — non-critical
@@ -62,7 +106,7 @@ function resolveNativeInitialRoute() {
     return storedRoute
   }
 
-  if (isModuleAuthenticated('restaurant')) return '/seller'
+  if (isModuleAuthenticated('restaurant')) return '/restaurant'
   if (isModuleAuthenticated('admin')) return '/admin'
 
   return '/admin'

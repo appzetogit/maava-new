@@ -102,7 +102,7 @@ export const initRazorpayPayment = async (options) => {
       order_id: options.order_id,
       name: options.name || 'Maava',
       description: options.description || 'Order Payment',
-      image: options.image || '/appzetologo.png',
+      image: options.image || '/maava-logo.png',
       prefill: options.prefill || {},
       notes: options.notes || {},
       theme: {

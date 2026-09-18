@@ -25,10 +25,10 @@ function BottomNavOrders() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
 
-  const basePath = pathname.startsWith("/seller")
-    ? "/seller"
+  const basePath = pathname.startsWith("/restaurant")
+    ? "/restaurant"
     : pathname.startsWith("/restaurant")
-      ? "/seller"
+      ? "/restaurant"
       : "/restaurant"
 
   const tabs = useMemo(() => getOrdersTabs(basePath), [basePath])

@@ -583,6 +583,39 @@ export const adminAPI = {
   /** Categories (admin) */
   getCategories: (params = {}) =>
     apiClient.get("/food/admin/categories", { params, contextModule: "admin" }),
+
+  /**
+   * Mart category screen themes.
+   *
+   * One campaign per header category carries that category's screen colours;
+   * the campaign with no categoryId is the default the app shows under "All".
+   * `contextModule: "admin"` is what puts these on the /quick/ mount when the
+   * panel's vertical selector is set to Quick Commerce — campaigns are
+   * vertical-scoped, so one written under Food is invisible to the Mart app.
+   */
+  getMartCampaigns: () =>
+    apiClient.get("/food/mart-sale-campaigns", { contextModule: "admin" }),
+  createMartCampaign: (body) =>
+    apiClient.post("/food/mart-sale-campaigns", body ?? {}, {
+      contextModule: "admin",
+    }),
+  updateMartCampaign: (id, body) =>
+    apiClient.patch(`/food/mart-sale-campaigns/${String(id)}`, body ?? {}, {
+      contextModule: "admin",
+    }),
+  deleteMartCampaign: (id) =>
+    apiClient.delete(`/food/mart-sale-campaigns/${String(id)}`, {
+      contextModule: "admin",
+    }),
+  /** The same flat category list the Mart app reads, so the rows match 1:1. */
+  getMartCategories: () =>
+    apiClient.get("/food/search/categories/admin", { contextModule: "admin" }),
+  /** Catalogue search, for picking the products the deal card rotates through. */
+  searchMartProducts: (search = "") =>
+    apiClient.get("/food/search/products", {
+      params: { search, limit: 20 },
+      contextModule: "admin",
+    }),
   /** Dining categories (admin) */
   getDiningCategories: (params = {}) =>
     apiClient.get("/food/admin/dining/categories", {
@@ -749,6 +782,13 @@ export const adminAPI = {
     apiClient.patch(
       `/food/admin/customers/${String(id)}/status`,
       { isActive: isActive !== false },
+      { contextModule: "admin" },
+    ),
+  /** Per-customer Cash on Delivery switch (Admin → COD Access). */
+  updateCustomerCodAccess: (id, codEnabled) =>
+    apiClient.patch(
+      `/food/admin/customers/${String(id)}/cod`,
+      { codEnabled: codEnabled === true },
       { contextModule: "admin" },
     ),
   /** Orders (admin) – list, get by id, assign delivery partner */
@@ -918,7 +958,8 @@ export const adminAPI = {
     }),
 
   /** Public env variables (safe subset). Used for runtime keys like Google Maps. */
-  // getPublicEnvVariables removed: rely on import.meta.env instead.
+  /** Public business settings -- company details and the Google Maps key. */
+  getBusinessSettingsPublic: () => api.get("/food/admin/business-settings/public"),
 
   /** Public categories (user app) - zone-aware */
   getPublicCategories: (params = {}, config = {}) =>
@@ -934,6 +975,10 @@ export const adminAPI = {
     apiClient.post("/food/admin/offers", body ?? {}, {
       contextModule: "admin",
     }),
+  /** Redemptions allowed per customer; 0 = unlimited. */
+  updateAdminOfferPerUserLimit: (offerId, perUserLimit) =>
+    apiClient.patch(`/food/admin/offers/${offerId}/per-user-limit`, { perUserLimit }),
+
   updateAdminOfferCartVisibility: (offerId, itemId, showInCart) =>
     apiClient.patch(
       `/food/admin/offers/${String(offerId)}/cart-visibility`,
@@ -1033,6 +1078,10 @@ export const adminAPI = {
     apiClient.patch(`/food/admin/delivery/withdrawals/${String(id)}`, body, {
       contextModule: "admin",
     }),
+  /** Approve or reject a rider's UPI settlement. Approval clears their dues. */
+  reviewCashSettlement: (id, body) =>
+    apiClient.post(`/food/admin/delivery/cash-settlements/${id}/review`, body),
+
   getCashLimitSettlements: (params = {}) =>
     apiClient.get("/food/admin/delivery/cash-limit-settlements", {
       params,
@@ -1107,8 +1156,14 @@ export const adminAPI = {
     ),
 
   /** Fee Settings (admin) */
-  getFeeSettings: () =>
-    apiClient.get("/food/admin/fee-settings", { contextModule: "admin" }),
+  /** Fee settings. params.zoneId reads that zone's own fees (omit for the default). */
+  getFeeSettings: (params = {}) =>
+    apiClient.get("/food/admin/fee-settings", { params, contextModule: "admin" }),
+  /** Remove a zone's own fees; that zone falls back to the default fees. */
+  deleteZoneFeeSettings: (zoneId) =>
+    apiClient.delete(`/food/admin/fee-settings/zone/${String(zoneId)}`, {
+      contextModule: "admin",
+    }),
   getPublicFeeSettings: (config = {}) =>
     publicConfigGetOnce("/food/admin/fee-settings/public", config),
   createOrUpdateFeeSettings: (body) =>
@@ -1210,13 +1265,12 @@ export const adminAPI = {
     const formData = new FormData();
     // Add JSON data
     formData.append("data", JSON.stringify(data));
-    // Add files
-    if (files.logo) formData.append("logo", files.logo);
-    if (files.favicon) formData.append("favicon", files.favicon);
-    if (files.restaurantLogo) formData.append("restaurantLogo", files.restaurantLogo);
-    if (files.restaurantFavicon) formData.append("restaurantFavicon", files.restaurantFavicon);
-    if (files.deliveryLogo) formData.append("deliveryLogo", files.deliveryLogo);
-    if (files.deliveryFavicon) formData.append("deliveryFavicon", files.deliveryFavicon);
+    // Every file the caller passed, keyed by the field name the upload
+    // middleware expects. Listing them one by one meant a new field was
+    // dropped here silently -- the panel reported success and no image moved.
+    for (const [field, file] of Object.entries(files || {})) {
+      if (file) formData.append(field, file);
+    }
 
     return apiClient.patch(API_ENDPOINTS.ADMIN.BUSINESS_SETTINGS, formData, {
       headers: { "Content-Type": "multipart/form-data" },

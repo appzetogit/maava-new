@@ -11,8 +11,13 @@ const schema = z.object({
     .max(15, "Phone must be at most 15 digits"),
   otp: z
     .string()
-    .length(4, "OTP must be exactly 4 digits")
-    .regex(/^\d{4}$/, "OTP must be numeric and exactly 4 digits"),
+    // 4-6 rather than exactly 6, matching the delivery and restaurant DTOs.
+    // Codes issued before the switch to six digits are still sitting in the
+    // database unexpired, and a hard `length(6)` would reject every customer
+    // holding one -- locking out exactly the people already mid-login.
+    .min(4, "OTP must be 4-6 digits")
+    .max(6, "OTP must be 4-6 digits")
+    .regex(/^\d{4,6}$/, "OTP must be numeric"),
   ref: z.string().trim().max(64).optional().or(z.literal("")),
   fcmToken: z.string().optional(),
   platform: z.preprocess(

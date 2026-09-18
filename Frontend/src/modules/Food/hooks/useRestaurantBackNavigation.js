@@ -6,16 +6,16 @@ const toRestaurantPath = (value) => {
   const trimmed = value.trim()
 
   if (!trimmed) return null
-  if (trimmed.startsWith("/seller")) return trimmed
-  if (trimmed === "/restaurant") return "/seller"
+  if (trimmed.startsWith("/restaurant")) return trimmed
+  if (trimmed === "/restaurant") return "/restaurant"
   if (trimmed.startsWith("/restaurant/")) return `/food${trimmed}`
 
   return null
 }
 
 const getNormalizedRestaurantPath = (pathname) => {
-  if (pathname.startsWith("/seller")) {
-    return pathname.slice("/seller".length) || "/"
+  if (pathname.startsWith("/restaurant")) {
+    return pathname.slice("/restaurant".length) || "/"
   }
 
   return pathname || "/"
@@ -26,11 +26,11 @@ const resolveRestaurantBackPath = ({ pathname, state }) => {
   const explicitBackPath = toRestaurantPath(state?.backTo) || toRestaurantPath(state?.from)
 
   if (normalizedPath === "/orders/all") {
-    return explicitBackPath || "/seller/explore"
+    return explicitBackPath || "/restaurant/explore"
   }
 
   if (/^\/orders\/[^/]+$/.test(normalizedPath)) {
-    return explicitBackPath || "/seller/orders/all"
+    return explicitBackPath || "/restaurant/orders/all"
   }
 
   if (
@@ -38,7 +38,7 @@ const resolveRestaurantBackPath = ({ pathname, state }) => {
     /^\/food\/[^/]+$/.test(normalizedPath) ||
     /^\/food\/[^/]+\/edit$/.test(normalizedPath)
   ) {
-    return explicitBackPath || "/seller"
+    return explicitBackPath || "/restaurant"
   }
 
   if (
@@ -46,7 +46,7 @@ const resolveRestaurantBackPath = ({ pathname, state }) => {
     /^\/advertisements\/[^/]+$/.test(normalizedPath) ||
     /^\/advertisements\/[^/]+\/edit$/.test(normalizedPath)
   ) {
-    return explicitBackPath || "/seller"
+    return explicitBackPath || "/restaurant"
   }
 
   if (
@@ -54,7 +54,7 @@ const resolveRestaurantBackPath = ({ pathname, state }) => {
     normalizedPath === "/coupon/new" ||
     /^\/coupon\/[^/]+\/edit$/.test(normalizedPath)
   ) {
-    return explicitBackPath || (normalizedPath === "/coupon" ? "/seller/explore" : "/seller/coupon")
+    return explicitBackPath || (normalizedPath === "/coupon" ? "/restaurant/explore" : "/restaurant/coupon")
   }
 
   if (
@@ -72,7 +72,7 @@ const resolveRestaurantBackPath = ({ pathname, state }) => {
     /^\/outlet-timings\/[^/]+$/.test(normalizedPath) ||
     normalizedPath === "/zone-setup"
   ) {
-    return explicitBackPath || "/seller/explore"
+    return explicitBackPath || "/restaurant/explore"
   }
 
   if (
@@ -87,7 +87,7 @@ const resolveRestaurantBackPath = ({ pathname, state }) => {
     normalizedPath === "/privacy" ||
     normalizedPath === "/terms"
   ) {
-    return explicitBackPath || "/seller/explore"
+    return explicitBackPath || "/restaurant/explore"
   }
 
   if (
@@ -96,32 +96,32 @@ const resolveRestaurantBackPath = ({ pathname, state }) => {
     normalizedPath === "/ratings-reviews" ||
     normalizedPath === "/dish-ratings"
   ) {
-    return explicitBackPath || "/seller/feedback"
+    return explicitBackPath || "/restaurant/feedback"
   }
 
   if (
     normalizedPath === "/help-centre/support" ||
     normalizedPath === "/share-feedback"
   ) {
-    return explicitBackPath || "/seller/feedback"
+    return explicitBackPath || "/restaurant/feedback"
   }
 
   if (
     normalizedPath === "/finance-details" ||
     normalizedPath === "/download-report"
   ) {
-    return explicitBackPath || "/seller/hub-finance"
+    return explicitBackPath || "/restaurant/hub-finance"
   }
 
   if (/^\/hub-menu\/item\/[^/]+$/.test(normalizedPath)) {
-    return explicitBackPath || "/seller/explore"
+    return explicitBackPath || "/restaurant/explore"
   }
 
   if (explicitBackPath && explicitBackPath !== pathname) {
     return explicitBackPath
   }
 
-  return "/seller"
+  return "/restaurant"
 }
 
 export default function useRestaurantBackNavigation() {

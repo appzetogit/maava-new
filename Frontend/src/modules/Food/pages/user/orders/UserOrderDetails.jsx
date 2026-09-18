@@ -195,6 +195,42 @@ export default function UserOrderDetails() {
       .filter(Boolean)
       .join(", ")
 
+  // Every charge after the item total, in bill order, zero charges left
+  // off. The screen and the PDF both read this, so they always agree -- and
+  // together with the item total the lines add up to what was paid.
+  const money2 = (n) => Number(n || 0).toFixed(2)
+  const deliveryFeeNote =
+    pricing.deliveryFeeMessage ||
+    (Number(pricing.distanceKm) > 0 ? `Distance: ${Number(pricing.distanceKm).toFixed(1)} km` : null)
+  const billLines = [
+    {
+      label: "Delivery fee",
+      amount: Number(pricing.deliveryFee || 0),
+      free: !Number(pricing.deliveryFee),
+      note: deliveryFeeNote,
+    },
+    Number(pricing.deliveryFeeGst) > 0 && {
+      label: `Delivery GST${Number(pricing.deliveryFeeGstRate) > 0 ? ` (${pricing.deliveryFeeGstRate}%)` : ""}`,
+      amount: Number(pricing.deliveryFeeGst),
+    },
+    Number(pricing.tax) > 0 && {
+      label: `GST${Number(pricing.gstRate) > 0 ? ` (${pricing.gstRate}%)` : ""}`,
+      amount: Number(pricing.tax),
+    },
+    Number(pricing.packagingFee) > 0 && { label: "Packing charges", amount: Number(pricing.packagingFee) },
+    Number(pricing.quickDeliveryFee) > 0 && { label: "Quick Mode", amount: Number(pricing.quickDeliveryFee), accent: true },
+    Math.max(0, Number(pricing.platformFee || 0) - Number(pricing.quickDeliveryFee || 0)) > 0 && {
+      label: "Platform fee",
+      amount: Math.max(0, Number(pricing.platformFee || 0) - Number(pricing.quickDeliveryFee || 0)),
+    },
+    Number(pricing.deliveryTip) > 0 && { label: "Delivery partner tip", amount: Number(pricing.deliveryTip) },
+    Number(pricing.discount) > 0 && {
+      label: pricing.couponCode ? `Coupon (${pricing.couponCode})` : "Discount",
+      amount: -Number(pricing.discount),
+      good: true,
+    },
+  ].filter(Boolean)
+
   const savings =
     (pricing.discount || 0) +
     (pricing.originalItemTotal || 0) -
@@ -321,11 +357,35 @@ export default function UserOrderDetails() {
       // Get final Y position after table (autoTable adds lastAutoTable property)
       const finalY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY : yPos + (tableData.length * 8) + 20
 
+      // Every charge between the items and the total, so the invoice adds up
+      // -- it used to jump from the items straight to a total that also held
+      // delivery, taxes and the tip. Same lines as the screen.
+      let lineY = finalY + 10
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'normal')
+      doc.text('Item total:', 145, lineY, { align: 'right' })
+      doc.text(`Rs. ${money2(itemSubtotal)}`, 195, lineY, { align: 'right' })
+      for (const line of billLines) {
+        lineY += 7
+        doc.text(`${line.label}:`, 145, lineY, { align: 'right' })
+        doc.text(
+          line.free ? 'FREE' : line.amount < 0 ? `- Rs. ${money2(-line.amount)}` : `Rs. ${money2(line.amount)}`,
+          195, lineY, { align: 'right' }
+        )
+        if (line.note) {
+          lineY += 5
+          doc.setFontSize(8)
+          doc.text(line.note.replace(/₹/g, 'Rs. ').replace(/×/g, 'x').replace(/·/g, '-'), 195, lineY, { align: 'right' })
+          doc.setFontSize(10)
+        }
+      }
+
       // Total
+      lineY += 10
       doc.setFontSize(12)
       doc.setFont('helvetica', 'bold')
-      doc.text('Total:', 145, finalY + 10, { align: 'right' })
-      doc.text(`Rs. ${Number(pricing.total || 0).toFixed(2)}`, 195, finalY + 10, { align: 'right' })
+      doc.text('Total:', 145, lineY, { align: 'right' })
+      doc.text(`Rs. ${Number(pricing.total || 0).toFixed(2)}`, 195, lineY, { align: 'right' })
 
       // Save PDF instantly
       const fileName = `Order_Summary_${orderIdDisplay}_${Date.now()}.pdf`
@@ -527,37 +587,29 @@ export default function UserOrderDetails() {
                 saleClassName="inline-flex items-center rounded-full border border-[#FA0272] bg-[#FA0272]/10 px-2 py-0.5 text-sm font-bold text-[#FA0272] tabular-nums"
               />
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500 dark:text-gray-400">GST (govt. taxes)</span>
-              <span className="text-gray-800 dark:text-gray-200">
-                ₹{Number(pricing.tax || 0).toFixed(2)}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400 dark:text-gray-500 font-medium">Delivery fee</span>
-              {pricing.deliveryFee === 0 && (
-                <span className="text-[#EB590E] text-[10px] font-bold border border-[#EB590E] px-1 rounded ml-1">
-                  FREE
-                </span>
-              )}
-              <span className="text-[#EB590E] font-medium uppercase">
-                {pricing.deliveryFee ? `₹${Number(pricing.deliveryFee).toFixed(2)}` : "Free"}
-              </span>
-            </div>
-            {Number(pricing.quickDeliveryFee || 0) > 0 && (
-              <div className="flex justify-between font-semibold">
-                <span className="text-[#FA0272]">Quick Mode</span>
-                <span className="text-[#FA0272]">
-                  ₹{Number(pricing.quickDeliveryFee).toFixed(2)}
-                </span>
+            {billLines.map((line) => (
+              <div key={line.label}>
+                <div className="flex justify-between gap-3">
+                  <span className={line.accent ? "font-semibold text-[#FA0272]" : "text-gray-500 dark:text-gray-400"}>
+                    {line.label}
+                  </span>
+                  <span
+                    className={
+                      line.free || line.good
+                        ? "font-medium text-green-600 dark:text-green-400 tabular-nums"
+                        : line.accent
+                          ? "font-semibold text-[#FA0272] tabular-nums"
+                          : "text-gray-800 dark:text-gray-200 tabular-nums"
+                    }
+                  >
+                    {line.free ? "FREE" : line.amount < 0 ? `−₹${money2(-line.amount)}` : `₹${money2(line.amount)}`}
+                  </span>
+                </div>
+                {line.note && (
+                  <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500 tabular-nums">{line.note}</p>
+                )}
               </div>
-            )}
-            <div className="flex justify-between">
-              <span className="text-gray-500 dark:text-gray-400">Platform fee</span>
-              <span className="text-gray-800 dark:text-gray-200">
-                ₹{Math.max(0, Number(pricing.platformFee || 0) - Number(pricing.quickDeliveryFee || 0)).toFixed(2)}
-              </span>
-            </div>
+            ))}
 
             <div className="border-t border-gray-100 dark:border-zinc-800 my-2 pt-2 flex justify-between items-start gap-3">
               <span className="font-bold text-gray-800 dark:text-white shrink-0">Paid</span>

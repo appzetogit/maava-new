@@ -46,7 +46,7 @@ export default function VerificationPending() {
 
         if (String(restaurant?.status || "").toLowerCase() === "approved") {
           clearRestaurantPendingPhone()
-          navigate("/seller", { replace: true })
+          navigate("/restaurant", { replace: true })
           return
         }
       } catch (_) {
@@ -121,7 +121,7 @@ export default function VerificationPending() {
               className="h-12 w-full rounded-xl bg-blue-600 text-base font-semibold hover:bg-blue-700"
               onClick={() => {
                 clearRestaurantPendingPhone()
-                navigate("/seller/login", { replace: true })
+                navigate("/restaurant/login", { replace: true })
               }}
             >
               Back to login

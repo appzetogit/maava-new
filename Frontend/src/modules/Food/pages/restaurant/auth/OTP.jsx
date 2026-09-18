@@ -79,7 +79,7 @@ export default function RestaurantOTP() {
         )
       }
     } else {
-      navigate("/seller/login")
+      navigate("/restaurant/login")
       return
     }
 
@@ -130,7 +130,9 @@ export default function RestaurantOTP() {
     setOtp(newOtp)
     setError("")
 
-    if (value && index < 3) inputRefs.current[index + 1]?.focus()
+    // Advance to the last box, not the fourth: this read `index < 3` while
+            // the code is six digits, so the fifth digit could never be typed.
+    if (value && index < OTP_LENGTH - 1) inputRefs.current[index + 1]?.focus()
 
     if (newOtp.every((digit) => digit !== "") && newOtp.length === OTP_LENGTH) {
       if (!hasSubmittedRef.current) {
@@ -205,7 +207,7 @@ export default function RestaurantOTP() {
         setRestaurantPendingPhone(normalizedPhone)
         sessionStorage.removeItem("restaurantAuthData")
         sessionStorage.removeItem("restaurantLoginPhone")
-        navigate("/seller/onboarding", { replace: true })
+        navigate("/restaurant/onboarding", { replace: true })
         return
       }
 
@@ -218,8 +220,8 @@ export default function RestaurantOTP() {
         window.dispatchEvent(new Event("restaurantAuthChanged"))
         sessionStorage.removeItem("restaurantAuthData")
         sessionStorage.removeItem("restaurantLoginPhone")
-        registerWebPushForCurrentModule("/seller", { force: true }).catch(() => {})
-        navigate("/seller", { replace: true })
+        registerWebPushForCurrentModule("/restaurant", { force: true }).catch(() => {})
+        navigate("/restaurant", { replace: true })
       }
     } catch (err) {
       const message =
@@ -232,7 +234,7 @@ export default function RestaurantOTP() {
         if (pendingPhone) setRestaurantPendingPhone(pendingPhone)
         sessionStorage.removeItem("restaurantAuthData")
         sessionStorage.removeItem("restaurantLoginPhone")
-        navigate("/seller/pending-verification", {
+        navigate("/restaurant/pending-verification", {
           replace: true,
           state: { phone: pendingPhone || "" },
         })
@@ -288,7 +290,7 @@ export default function RestaurantOTP() {
         <div className="relative shrink-0 overflow-hidden px-6 py-5 lg:hidden" style={{ backgroundColor: "#141018" }}>
           <button
             type="button"
-            onClick={() => navigate("/seller/login")}
+            onClick={() => navigate("/restaurant/login")}
             className="absolute left-5 top-5 flex h-9 w-9 items-center justify-center rounded-lg bg-white/10 text-white"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -310,7 +312,7 @@ export default function RestaurantOTP() {
         <div className="hidden shrink-0 px-8 pt-6 lg:block">
           <button
             type="button"
-            onClick={() => navigate("/seller/login")}
+            onClick={() => navigate("/restaurant/login")}
             className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition-colors hover:bg-gray-50"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -353,7 +355,10 @@ export default function RestaurantOTP() {
                   </div>
                 )}
 
-                <div className="flex justify-center gap-3">
+                {/* The boxes share the row rather than each taking a fixed
+                    width, so six of them fit the card instead of pushing the
+                    page sideways. */}
+                <div className="grid grid-cols-6 gap-2 sm:gap-3">
                   {otp.map((digit, index) => (
                     <input
                       key={index}
@@ -368,7 +373,7 @@ export default function RestaurantOTP() {
                       onFocus={() => setFocusedIndex(index)}
                       onBlur={() => setFocusedIndex(null)}
                       disabled={isLoading}
-                      className={`h-14 w-12 rounded-xl border-2 bg-white text-center text-xl font-bold text-gray-900 shadow-sm transition-all focus:outline-none sm:h-16 sm:w-14 sm:text-2xl ${
+                      className={`h-14 w-full min-w-0 rounded-xl border-2 bg-white text-center text-xl font-bold text-gray-900 shadow-sm transition-all focus:outline-none sm:h-16 sm:text-2xl ${
                         error
                           ? "border-red-300 bg-red-50"
                           : focusedIndex === index

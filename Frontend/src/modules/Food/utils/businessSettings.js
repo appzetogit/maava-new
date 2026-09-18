@@ -7,6 +7,7 @@ import apiClient from "@food/api/axios";
 import { API_ENDPOINTS } from "@food/api/config";
 import {
   getCachedBusinessSettings,
+  isPublicAppConfigFresh,
   loadCorePublicAppConfig,
   invalidatePublicAppConfig,
 } from "@food/services/publicAppConfig";
@@ -345,10 +346,15 @@ export const loadBusinessSettings = async ({ force = false } = {}) => {
       return cachedSettings;
     }
 
-    if (!force && cachedSettings) {
+    // The localStorage copy is for painting instantly on a cold start, not a
+    // reason to skip the network: it has no expiry, so returning it here meant
+    // a browser that had loaded the app once kept that day's branding for
+    // ever. Serve the shared config only while it is still fresh (15 min);
+    // otherwise fall through and refetch -- the loader below dedupes
+    // concurrent callers, so this costs one small request per page load.
+    if (!force && isPublicAppConfigFresh()) {
       const fromService = getCachedBusinessSettings();
       if (fromService) return fromService;
-      return cachedSettings;
     }
 
     if (inFlightSettingsPromise && !force) {

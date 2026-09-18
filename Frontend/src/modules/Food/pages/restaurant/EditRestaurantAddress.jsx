@@ -210,7 +210,7 @@ export default function EditRestaurantAddress() {
   const simplifiedAddress = getSimplifiedAddress(address)
 
   return (
-    <div className="h-screen bg-white overflow-hidden flex flex-col">
+    <div className="h-screen md:h-full bg-white overflow-hidden flex flex-col">
       {/* Sticky Header */}
       <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-50 flex items-center gap-3 shrink-0">
         <button

@@ -5,6 +5,10 @@ import { requireRoles } from '../../../../core/roles/role.middleware.js';
 import * as orderController from '../../orders/controllers/order.controller.js';
 import { registerDeliveryPartnerController, updateDeliveryPartnerProfileController, updateDeliveryPartnerBankDetailsController, listSupportTicketsController, createSupportTicketController, getSupportTicketByIdController, listOrderEmergencyRequestsController, createOrderEmergencyRequestController, getOrderEmergencyRequestController, updateDeliveryPartnerDetailsController, updateDeliveryPartnerProfilePhotoBase64Controller, updateAvailabilityController, getWalletController, createWithdrawalRequestController, createCashDepositOrderController, verifyCashDepositPaymentController, getEarningsController, getTripHistoryController, getPocketDetailsController, getEmergencyHelpController, getCashLimitController, getDeliveryReferralStatsController, getActiveEarningAddonsController, deleteDeliveryPartnerAccountController } from '../controllers/delivery.controller.js';
 import { getPublicFormSchemaController } from '../controllers/driverRegistrationField.controller.js';
+import {
+    listCashSettlementsController,
+    submitCashSettlementController
+} from '../controllers/delivery.controller.js';
 
 const router = express.Router();
 
@@ -99,6 +103,22 @@ router.get('/trip-history', authMiddleware, requireRoles('DELIVERY_PARTNER'), ge
 router.get('/pocket-details', authMiddleware, requireRoles('DELIVERY_PARTNER'), getPocketDetailsController);
 router.get('/emergency-help', authMiddleware, requireRoles('DELIVERY_PARTNER'), getEmergencyHelpController);
 router.get('/cash-limit', authMiddleware, requireRoles('DELIVERY_PARTNER'), getCashLimitController);
+
+// Settling COD by UPI: the rider files the UTR and a screenshot, and an admin
+// verifies it against the bank before any balance moves.
+router.post(
+    '/cash-settlements',
+    authMiddleware,
+    requireRoles('DELIVERY_PARTNER'),
+    upload.fields([{ name: 'proof', maxCount: 1 }]),
+    submitCashSettlementController
+);
+router.get(
+    '/cash-settlements',
+    authMiddleware,
+    requireRoles('DELIVERY_PARTNER'),
+    listCashSettlementsController
+);
 router.get('/referrals/stats', authMiddleware, requireRoles('DELIVERY_PARTNER'), getDeliveryReferralStatsController);
 
 export default router;

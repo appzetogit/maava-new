@@ -118,6 +118,7 @@ router.use('/addons', requireAdminPermission('food_management', 'view'));
 router.use('/foods', requireAdminPermission('food_management', 'view'));
 router.use('/offers', requireAdminPermission('promotions_management', 'view'));
 router.use('/delivery', requireAdminPermission('delivery_management', 'view'));
+router.use('/delivery-cash-limit', requireAdminPermission('delivery_management', 'view'));
 router.use('/withdrawals', requireAdminPermission('transaction_management', 'view'));
 router.use('/reports', requireAdminPermission('report_management', 'view'));
 router.use('/feature-settings', requireAdminPermission('system_settings', 'view'));
@@ -152,6 +153,7 @@ router.get(
 );
 router.get('/customers/:id', adminController.getCustomerById);
 router.patch('/customers/:id/status', adminController.updateCustomerStatus);
+router.patch('/customers/:id/cod', adminController.updateCustomerCodAccess);
 
 // ----- Safety / Emergency Reports -----
 router.get('/safety-emergency-reports', adminController.getSafetyEmergencyReports);
@@ -299,6 +301,12 @@ router.post('/foods/bulk-approve', adminController.bulkApproveFoodItems);
 router.get('/offers', adminController.getAllOffers);
 router.post('/offers', adminController.createAdminOffer);
 router.patch('/offers/:id/cart-visibility', adminController.updateAdminOfferCartVisibility);
+// Editing a live coupon's per-customer limit is a write, so it needs edit.
+router.patch(
+    '/offers/:id/per-user-limit',
+    requireAdminPermission('promotions_management', 'edit'),
+    adminController.updateAdminOfferPerUserLimit
+);
 router.delete('/offers/:id', adminController.deleteAdminOffer);
 
 // ----- Feedback Experience (Admin) -----
@@ -308,6 +316,7 @@ router.delete('/feedback-experiences/:id', feedbackExperienceController.deleteFe
 // ----- Fee Settings -----
 router.get('/fee-settings', adminController.getFeeSettings);
 router.put('/fee-settings', adminController.createOrUpdateFeeSettings);
+router.delete('/fee-settings/zone/:zoneId', adminController.deleteZoneFeeSettings);
 
 // ----- Driver Registration Fields (dynamic form builder) -----
 router.get('/driver-registration-fields', driverRegField.listFieldsController);
@@ -340,7 +349,9 @@ router.patch('/business-settings', upload.fields([
     { name: 'restaurantLogo', maxCount: 1 },
     { name: 'restaurantFavicon', maxCount: 1 },
     { name: 'deliveryLogo', maxCount: 1 },
-    { name: 'deliveryFavicon', maxCount: 1 }
+    { name: 'deliveryFavicon', maxCount: 1 },
+    { name: 'companyUpiQr', maxCount: 1 },
+    { name: 'adminLoginImage', maxCount: 1 }
 ]), businessSettingsController.updateBusinessSettings);
 router.get('/power-scanning', businessSettingsController.getPowerScanningSettings);
 router.patch('/power-scanning', businessSettingsController.updatePowerScanningSettings);
@@ -363,6 +374,13 @@ router.patch('/withdrawals/:id', adminController.updateWithdrawalStatus);
 router.get('/delivery/withdrawals', adminController.getDeliveryWithdrawals);
 router.patch('/delivery/withdrawals/:id', adminController.updateDeliveryWithdrawalStatus);
 router.get('/delivery/cash-limit-settlements', adminController.getCashLimitSettlements);
+// Verifying a UPI settlement moves money on the rider's account, so this one
+// needs edit rather than the view permission the listing runs under.
+router.post(
+    '/delivery/cash-settlements/:id/review',
+    requireAdminPermission('delivery_management', 'edit'),
+    adminController.reviewCashSettlement
+);
 
 // ----- Delivery partners & general -----
 router.get('/delivery/join-requests', adminController.getDeliveryJoinRequests);

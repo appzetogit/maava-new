@@ -110,7 +110,9 @@ export default function OTP() {
     setOtp(newOtp)
     setError("")
 
-    if (value && index < 3) {
+    // The code is six digits; stopping at the fourth box left the fifth
+    // unreachable.
+    if (value && index < OTP_LENGTH - 1) {
       inputRefs.current[index + 1]?.focus()
     }
 
@@ -157,7 +159,7 @@ export default function OTP() {
     const code = (otpValue || otp.join("")).replace(/\D/g, "")
     const code4 = code.slice(0, OTP_LENGTH)
     if (code4.length !== OTP_LENGTH) {
-      setError("OTP must be exactly 4 digits")
+      setError(`OTP must be exactly ${OTP_LENGTH} digits`)
       return
     }
 
@@ -340,14 +342,15 @@ export default function OTP() {
                 exit={{ opacity: 0, x: -20 }}
                 className="space-y-10"
               >
-                <div className="flex justify-center gap-4">
+                {/* Six boxes only fit if they share the row. */}
+                <div className="grid grid-cols-6 gap-2 sm:gap-3">
                   {otp.map((digit, index) => (
                     <motion.div
                       key={index}
                       initial={{ scale: 0.8, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
                       transition={{ delay: 0.1 * index }}
-                      className="relative"
+                      className="relative w-full"
                     >
                       <input
                         ref={(el) => (inputRefs.current[index] = el)}
@@ -360,7 +363,7 @@ export default function OTP() {
                         onKeyDown={(e) => handleKeyDown(index, e)}
                         onPaste={index === 0 ? handlePaste : undefined}
                         disabled={isLoading}
-                        className="w-16 h-20 text-center text-3xl font-black bg-zinc-100 dark:bg-zinc-900 border-2 border-transparent focus:border-[#FA0272] rounded-2xl text-zinc-900 dark:text-white transition-all outline-none shadow-sm"
+                        className="w-full min-w-0 h-16 sm:h-20 text-center text-2xl sm:text-3xl font-black bg-zinc-100 dark:bg-zinc-900 border-2 border-transparent focus:border-[#FA0272] rounded-2xl text-zinc-900 dark:text-white transition-all outline-none shadow-sm"
                       />
                       {digit && (
                         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-[#FA0272] rounded-full" />
@@ -463,7 +466,7 @@ export default function OTP() {
 
           <footer className="mt-auto pt-10 text-center">
             <p className="text-[9px] text-zinc-300 dark:text-zinc-700 font-black uppercase tracking-[0.4em]">
-              SwitchEats Secure Network
+              Maava Secure Network
             </p>
           </footer>
         </div>

@@ -58,7 +58,7 @@ export function requestUserOtp(phone) {
 
 /**
  * Verify OTP and login (user).
- * Validation: phone 10 digits, OTP required, exactly 4 digits numeric.
+ * Validation: phone 10 digits, OTP required, 4-6 digits numeric.
  * Backend returns { accessToken, refreshToken, user }.
  * @param {string} phone - Same format as request
  * @param {string} otp - 4-digit OTP only
@@ -82,14 +82,22 @@ export function verifyUserOtp(
   if (normalized.length !== USER_PHONE_LENGTH) {
     return Promise.reject(new Error("Phone number must be exactly 10 digits"));
   }
+  // 4-6 digits, matching the backend DTO and the restaurant/delivery paths.
+  //
+  // This used to slice(0, 4) and demand exactly 4. The server issues SIX digit
+  // codes, so a correct code was truncated to its first four before being sent
+  // and came back "Invalid OTP" -- with the six the customer typed still on
+  // screen, which is what made it look like the server was wrong. The other two
+  // logins already sliced to 6, which is why sellers and riders could sign in
+  // while customers could not.
   const otpStr = String(otp ?? "")
     .replace(/\D/g, "")
-    .slice(0, 4);
+    .slice(0, 6);
   if (!otpStr) {
     return Promise.reject(new Error("OTP is required"));
   }
-  if (otpStr.length !== 4) {
-    return Promise.reject(new Error("OTP must be exactly 4 digits"));
+  if (otpStr.length < 4 || otpStr.length > 6) {
+    return Promise.reject(new Error("OTP must be 4-6 digits"));
   }
   const refValue = typeof ref === "string" ? ref.trim() : "";
   return apiClient.post(AUTH.USER_VERIFY_OTP, {

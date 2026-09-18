@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { Check, ChevronDown, Search, X } from "lucide-react"
 import { adminAPI } from "@food/api"
+import { toast } from "sonner"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -197,6 +198,65 @@ function RestaurantMultiSelect({ restaurants, value, onChange, error }) {
   )
 }
 
+/**
+ * The per-customer limit on a live coupon, editable in place. Coupons have no
+ * edit screen, so without this the only way to change a limit was to delete
+ * the coupon and make it again. Saves on Enter or blur; null (a coupon made
+ * before the default existed) reads as unlimited, because that is how it is
+ * being enforced.
+ */
+function PerCustomerLimitCell({ offer, onSaved }) {
+  const stored = offer.perUserLimit
+  const initial = stored === null || stored === undefined ? "0" : String(stored)
+  const [value, setValue] = useState(initial)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setValue(initial)
+  }, [initial])
+
+  const save = async () => {
+    if (value === initial) return
+    const next = Number(value)
+    if (!Number.isInteger(next) || next < 0) {
+      toast.error("Enter a whole number, or 0 for unlimited")
+      setValue(initial)
+      return
+    }
+    try {
+      setSaving(true)
+      await adminAPI.updateAdminOfferPerUserLimit(offer.offerId, next)
+      toast.success(next === 0 ? `${offer.couponCode}: unlimited per customer` : `${offer.couponCode}: ${next} per customer`)
+      onSaved?.()
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Could not update the limit")
+      setValue(initial)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="number"
+        min="0"
+        step="1"
+        value={value}
+        disabled={saving}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur()
+        }}
+        aria-label={`Max uses per customer for ${offer.couponCode}`}
+        className="w-16 px-2 py-1 text-sm rounded-md border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+      <span className="text-xs text-slate-500">{Number(value) === 0 ? "∞" : "max"}</span>
+    </div>
+  )
+}
+
 export default function Coupons() {
   const [searchQuery, setSearchQuery] = useState("")
   const [offers, setOffers] = useState([])
@@ -217,12 +277,16 @@ export default function Coupons() {
     customerScope: "all",
     restaurantScope: "all",
     restaurantIds: [],
+    // Where the offer runs. "all" behaves exactly as before.
+    zoneScope: "all",
+    zoneIds: [],
     endDate: "",
     startDate: "",
     minOrderValue: "",
     maxDiscount: "",
     usageLimit: "",
-    perUserLimit: "",
+    // Once per customer unless the admin changes it.
+    perUserLimit: "1",
     isFirstOrderOnly: false,
     adminBearPercentage: "100",
     restaurantBearPercentage: "0",
@@ -250,6 +314,23 @@ export default function Coupons() {
   useEffect(() => {
     fetchOffers()
   }, [fetchOffers])
+
+  const [zones, setZones] = useState([])
+
+  useEffect(() => {
+    const fetchZones = async () => {
+      try {
+        const response = await adminAPI.getZones({ limit: 1000 })
+        const body = response?.data?.data ?? response?.data ?? {}
+        const list = Array.isArray(body) ? body : body.zones || body.data || []
+        setZones(list.filter((zone) => zone && zone._id))
+      } catch (err) {
+        debugError("Error fetching zones:", err)
+      }
+    }
+
+    fetchZones()
+  }, [])
 
   useEffect(() => {
     const fetchRestaurants = async () => {
@@ -293,7 +374,9 @@ export default function Coupons() {
     }
     if (f.minOrderValue !== "" && Number(f.minOrderValue) < 0) e.minOrderValue = "Min order cannot be negative"
     if (f.usageLimit !== "" && Number(f.usageLimit) < 1) e.usageLimit = "Usage limit must be at least 1"
-    if (f.perUserLimit !== "" && Number(f.perUserLimit) < 1) e.perUserLimit = "Per user limit must be at least 1"
+    if (f.perUserLimit !== "" && (!Number.isInteger(Number(f.perUserLimit)) || Number(f.perUserLimit) < 0)) {
+      e.perUserLimit = "Enter a whole number, or 0 for unlimited"
+    }
     const adminBear = Number(f.adminBearPercentage)
     const restaurantBear = Number(f.restaurantBearPercentage)
     if (!Number.isFinite(adminBear) || adminBear < 0 || adminBear > 100) e.adminBearPercentage = "Enter 0 to 100"
@@ -337,6 +420,15 @@ export default function Coupons() {
         return
       }
     }
+    if (field === "zoneScope" && value === "all") {
+      setFormData((prev) => {
+        const next = { ...prev, zoneScope: value, zoneIds: [] }
+        setErrors(validateForm(next))
+        return next
+      })
+      return
+    }
+
     if (field === "restaurantScope" && value === "all") {
       setFormData((prev) => {
         const next = { ...prev, restaurantScope: value, restaurantIds: [] }
@@ -395,13 +487,15 @@ export default function Coupons() {
       discountValue: "",
       customerScope: "all",
       restaurantScope: "all",
+      zoneScope: "all",
+      zoneIds: [],
       restaurantIds: [],
       endDate: "",
       startDate: "",
       minOrderValue: "",
       maxDiscount: "",
       usageLimit: "",
-      perUserLimit: "",
+      perUserLimit: "1",
       isFirstOrderOnly: false,
       adminBearPercentage: "100",
       restaurantBearPercentage: "0",
@@ -434,6 +528,11 @@ export default function Coupons() {
       return
     }
 
+    if (formData.zoneScope === "selected" && formData.zoneIds.length === 0) {
+      setSubmitError("Please select at least one zone")
+      return
+    }
+
     try {
       setIsSubmitting(true)
       const payload = {
@@ -443,6 +542,8 @@ export default function Coupons() {
         customerScope: formData.customerScope,
         restaurantScope: formData.restaurantScope,
         restaurantIds: formData.restaurantScope === "selected" ? formData.restaurantIds : undefined,
+        zoneScope: formData.zoneScope,
+        zoneIds: formData.zoneScope === "selected" ? formData.zoneIds : undefined,
         endDate: formData.endDate || undefined,
         startDate: formData.startDate || undefined,
         minOrderValue: formData.minOrderValue !== "" ? Number(formData.minOrderValue) : undefined,
@@ -609,6 +710,54 @@ export default function Coupons() {
                 </div>
 
                 <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Zone Scope</label>
+                  <StyledSelect
+                    value={formData.zoneScope}
+                    onChange={(value) => handleFormChange("zoneScope", value)}
+                    ariaLabel="Zone scope"
+                    options={[
+                      { value: "all", label: "All Zones" },
+                      { value: "selected", label: "Selected Zones" },
+                    ]}
+                  />
+                  {formData.zoneScope === "selected" && (
+                    <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-slate-300 bg-white p-2">
+                      {zones.length === 0 ? (
+                        <p className="px-1 py-2 text-xs text-slate-500">No zones found</p>
+                      ) : (
+                        zones.map((zone) => {
+                          const id = String(zone._id)
+                          const checked = formData.zoneIds.includes(id)
+                          return (
+                            <label key={id} className="flex items-center gap-2 px-1 py-1.5 text-sm text-slate-700 cursor-pointer hover:bg-slate-50 rounded">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) =>
+                                  handleFormChange(
+                                    "zoneIds",
+                                    e.target.checked
+                                      ? [...formData.zoneIds, id]
+                                      : formData.zoneIds.filter((value) => value !== id),
+                                  )
+                                }
+                                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                              />
+                              {zone.name || zone.zoneName || "Zone"}
+                            </label>
+                          )
+                        })
+                      )}
+                    </div>
+                  )}
+                  <p className="mt-1 text-xs text-slate-500">
+                    {formData.zoneScope === "selected"
+                      ? "Only customers delivering into these zones can use the code."
+                      : "Runs in every delivery zone."}
+                  </p>
+                </div>
+
+                <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Expiry Date (Optional)</label>
                   <input
                     type="date"
@@ -706,17 +855,21 @@ export default function Coupons() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Per User Limit</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Max uses per customer</label>
                 <input
                   type="number"
                   min="0"
                   step="1"
                   value={formData.perUserLimit}
                   onChange={(e) => handleFormChange("perUserLimit", e.target.value)}
-                  placeholder="e.g. 1"
+                  placeholder="1"
                   className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.perUserLimit ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
                 />
-                {errors.perUserLimit && <p className="mt-1 text-xs text-red-600">{errors.perUserLimit}</p>}
+                {errors.perUserLimit ? (
+                  <p className="mt-1 text-xs text-red-600">{errors.perUserLimit}</p>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500">1 = once per customer. 0 = unlimited.</p>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -813,11 +966,13 @@ export default function Coupons() {
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Dish</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Coupon Code</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Customer Scope</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Zones</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Discount</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Bear Split</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Price</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Min Order</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Usage</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Per Customer</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Status</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Show In Cart</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Valid Until</th>
@@ -854,6 +1009,18 @@ export default function Coupons() {
                           {offer.customerGroup === "new" ? "First-time Users" : "All Users"}
                         </span>
                       </td>
+                      <td className="px-6 py-4">
+                        <span
+                          className={`inline-block max-w-[220px] truncate px-2 py-1 rounded-full text-xs font-medium ${
+                            offer.zoneScope === "selected" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"
+                          }`}
+                          title={offer.zoneScope === "selected" ? (offer.zoneNames || []).join(", ") : "All zones"}
+                        >
+                          {offer.zoneScope === "selected"
+                            ? (offer.zoneNames || []).join(", ") || "Selected zones"
+                            : "All zones"}
+                        </span>
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm text-slate-700 whitespace-nowrap">
                           {offer.discountType === 'flat-price'
@@ -888,6 +1055,9 @@ export default function Coupons() {
                         <span className="text-sm text-slate-700">
                           {`${Number(offer.usedCount || 0)} / ${Number(offer.usageLimit || 0) > 0 ? Number(offer.usageLimit) : "∞"}`}
                         </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <PerCustomerLimitCell offer={offer} onSaved={fetchOffers} />
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {(() => {

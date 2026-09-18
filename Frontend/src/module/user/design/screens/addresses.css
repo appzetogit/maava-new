@@ -1,0 +1,120 @@
+/* Delivery addresses list + add/edit form. */
+.fa { display: flex; flex-direction: column; max-width: 640px; min-height: 100vh; margin: 0 auto; background: var(--mv-bg); color: var(--mv-text); }
+.fa-head { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--mv-divider); background: var(--mv-card); }
+.fa-head h1 { font: 700 17px/1.3 var(--mv-font); }
+.fa-head .mv-icon-btn svg { width: 22px; height: 22px; }
+.fa-body { flex: 1; padding: 16px 16px 120px; }
+.fa-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+
+.fa-card { overflow: hidden; border: 1px solid #e5e7eb; border-radius: 16px; background: var(--mv-card); box-shadow: 0 4px 16px rgb(15 16 22 / 0.07); }
+.dark .mv .fa-card { border-color: var(--mv-border); box-shadow: none; }
+.fa-card.is-selected { border: 1.6px solid var(--mv-brand); }
+.fa-card__main { display: grid; gap: 6px; width: 100%; padding: 16px 16px 8px; border: 0; background: none; color: inherit; text-align: left; cursor: pointer; }
+.fa-card__top { display: flex; align-items: center; gap: 8px; }
+.fa-card__top > svg:first-child { width: 17px; height: 17px; color: var(--mv-brand); }
+.fa-card__top b { font: 700 15px/1.2 var(--mv-font); }
+.fa-card__top em { padding: 1px 8px; border-radius: 8px; background: #e6f4ea; color: #2fb457; font: 700 10px/1.6 var(--mv-font); font-style: normal; letter-spacing: 0.4px; }
+.fa-card__check { width: 19px; height: 19px; margin-left: auto; color: var(--mv-brand); }
+.fa-card__line { color: var(--mv-text-2); font: 400 13.5px/1.45 var(--mv-font); }
+.fa-card__warn { color: #b45309; font: 500 12px/1.35 var(--mv-font); }
+.dark .mv .fa-card__warn { color: #fbbf24; }
+.fa-card__actions { display: flex; align-items: center; gap: 4px; padding: 0 8px 8px; }
+.fa-card__actions > button:not(.mv-icon-btn) { display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: var(--mv-brand); font: 700 13px/1 var(--mv-font); cursor: pointer; }
+.fa-card__actions > button:not(.mv-icon-btn):hover { background: var(--mv-brand-tint); }
+.fa-card__actions svg { width: 15px; height: 15px; }
+.fa-card__delete { margin-left: auto; color: #e04444; }
+.fa-card__delete svg { width: 19px; height: 19px; }
+
+.fa-empty { display: grid; justify-items: center; gap: 8px; padding: 72px 24px; text-align: center; }
+.fa-empty__icon { display: grid; place-items: center; width: 72px; height: 72px; margin-bottom: 6px; border-radius: 50%; background: var(--mv-brand-tint); color: var(--mv-brand); }
+.fa-empty__icon svg { width: 34px; height: 34px; }
+.fa-empty h2 { font: 700 17px/1.3 var(--mv-font); }
+.fa-empty p { max-width: 34ch; color: var(--mv-text-2); font: 400 13px/1.45 var(--mv-font); }
+
+.fa-foot { position: sticky; bottom: 0; z-index: 10; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--mv-divider); background: var(--mv-card); }
+.fa-foot .mv-btn svg { width: 18px; height: 18px; }
+.fa-sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+.fa-danger { height: 48px; border: 0; border-radius: 12px; background: #e04444; color: #fff; font: 700 15px/1 var(--mv-font); cursor: pointer; }
+
+/* ---------- form ---------- */
+.fa-form { display: grid; gap: 14px; padding: 16px 16px 40px; }
+.fa-map { position: relative; height: 260px; overflow: hidden; border-radius: 16px; background: #eceef1; }
+.dark .mv .fa-map { background: #1e1e1e; }
+.fa-map__canvas { position: absolute; inset: 0; }
+.fa-map__off { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px 24px 64px; color: var(--mv-text-2); font: 500 13px/1.45 var(--mv-font); text-align: center; }
+.fa-pin { position: absolute; left: 50%; top: 50%; z-index: 2; display: grid; justify-items: center; transform: translate(-50%, -100%); pointer-events: none; transition: transform 0.15s ease-out; }
+.fa-pin svg { width: 46px; height: 46px; color: var(--mv-brand); fill: var(--mv-brand); stroke: #fff; filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.38)); }
+.fa-pin i { width: 24px; height: 6px; margin-top: -4px; border-radius: 50%; background: rgb(0 0 0 / 0.25); transition: transform 0.15s; }
+.fa-pin.is-lifted { transform: translate(-50%, calc(-100% - 10px)); }
+.fa-pin.is-lifted i { transform: translateY(10px) scale(0.7); }
+.fa-map__chip {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--mv-card);
+  color: var(--mv-text);
+  font: 500 12.5px/1.2 var(--mv-font);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  box-shadow: 0 4px 16px rgb(15 16 22 / 0.12);
+}
+.fa-map__chip svg { width: 14px; height: 14px; flex: none; color: var(--mv-brand); }
+.fa-map__locate {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--mv-brand);
+  font: 700 12.5px/1 var(--mv-font);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.12);
+  cursor: pointer;
+}
+.fa-map__locate svg { width: 15px; height: 15px; }
+.fa-map__locate:disabled { opacity: 0.7; cursor: wait; }
+
+.fa-search { position: relative; display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 6px 0 12px; border: 1px solid var(--mv-border); border-radius: 12px; background: var(--mv-card); }
+.fa-search:focus-within { border-color: var(--mv-brand); }
+.fa-search > svg { width: 18px; height: 18px; flex: none; color: var(--mv-text-2); }
+.fa-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--mv-text); font: 400 14px/1 var(--mv-font); }
+.fa-suggest { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 20; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--mv-border); border-radius: 12px; background: var(--mv-card); box-shadow: 0 8px 24px rgb(0 0 0 / 0.12); }
+.fa-suggest button { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: none; color: var(--mv-text); text-align: left; cursor: pointer; }
+.fa-suggest button:hover, .fa-suggest button:focus-visible { background: var(--mv-brand-tint); }
+.fa-suggest svg { width: 16px; height: 16px; margin-top: 2px; flex: none; color: var(--mv-text-2); }
+.fa-suggest span { display: grid; gap: 2px; min-width: 0; }
+.fa-suggest b { font: 600 13.5px/1.3 var(--mv-font); }
+.fa-suggest small { overflow: hidden; color: var(--mv-text-2); font: 400 12px/1.3 var(--mv-font); text-overflow: ellipsis; white-space: nowrap; }
+
+.fa-labels { display: grid; gap: 8px; margin: 6px 0 0; padding: 0; border: 0; }
+.fa-labels legend { margin-bottom: 8px; font: 700 14px/1.3 var(--mv-font); }
+.fa-labels [role="radiogroup"] { display: flex; flex-wrap: wrap; gap: 8px; }
+.fa-labels button { display: inline-flex; align-items: center; gap: 6px; padding: 10px 16px; border: 1px solid var(--mv-border); border-radius: 999px; background: var(--mv-surface-2); color: var(--mv-text-2); font: 600 13px/1 var(--mv-font); cursor: pointer; }
+.fa-labels button svg { width: 15px; height: 15px; }
+.fa-labels button[aria-checked="true"] { border-color: var(--mv-brand); background: rgb(var(--mv-brand-rgb) / 0.1); color: var(--mv-brand); }
+.fa-note { color: #b45309; font: 500 12px/1.4 var(--mv-font); }
+.dark .mv .fa-note { color: #fbbf24; }
+
+.fa-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.fa-field { display: grid; gap: 6px; min-width: 0; }
+.fa-field label { color: var(--mv-text-2); font: 600 12.5px/1.2 var(--mv-font); }
+.fa-field input { width: 100%; height: 48px; padding: 0 14px; border: 1px solid var(--mv-border); border-radius: 12px; background: var(--mv-card); color: var(--mv-text); font: 400 14.5px/1 var(--mv-font); }
+.fa-field input:focus { border-color: var(--mv-brand); outline: 1px solid var(--mv-brand); }
+.fa-field.has-error input { border-color: #e04444; }
+.fa-error { color: #e04444; font: 500 12px/1.3 var(--mv-font); }
+.fa-spin { width: 16px; height: 16px; animation: fa-spin 0.8s linear infinite; }
+@keyframes fa-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .fa-spin { animation: none; } .fa-pin, .fa-pin i { transition: none; } }

@@ -12,6 +12,16 @@ const PLAY_STORE_URL =
     'https://play.google.com/store/apps/details?id=com.fooduser.app';
 const APP_STORE_URL = process.env.IOS_APP_STORE_URL || '';
 
+/**
+ * Consumer-facing brand for this public share page — the one thing on it that
+ * anyone who is not already a user will see. Named once rather than inlined
+ * seven times, which is how it stayed 'Suvio' long after the rename.
+ * The `suvio://` scheme below is deliberately NOT this: it is the URL scheme
+ * the installed app registered, and renaming it would break every link already
+ * shared.
+ */
+const BRAND = process.env.PUBLIC_BRAND_NAME || 'Maava';
+
 const escapeHtml = (value) =>
     String(value ?? '')
         .replace(/&/g, '&amp;')
@@ -49,11 +59,11 @@ const renderPage = ({ title, description, image, canonical, appUrl }) => `<!doct
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(title)} · Suvio</title>
+<title>${escapeHtml(title)} · ${BRAND}</title>
 <meta name="description" content="${escapeHtml(description)}" />
 <link rel="canonical" href="${escapeHtml(canonical)}" />
 <meta property="og:type" content="website" />
-<meta property="og:site_name" content="Suvio" />
+<meta property="og:site_name" content="${BRAND}" />
 <meta property="og:title" content="${escapeHtml(title)}" />
 <meta property="og:description" content="${escapeHtml(description)}" />
 <meta property="og:url" content="${escapeHtml(canonical)}" />
@@ -88,8 +98,8 @@ a.btn { display:block; padding:14px 20px; border-radius:999px; text-decoration:n
   ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(title)}" />` : ''}
   <h1>${escapeHtml(title)}</h1>
   <p>${escapeHtml(description)}</p>
-  <a class="btn primary" href="${escapeHtml(PLAY_STORE_URL)}">Get Suvio on Android</a>
-  ${APP_STORE_URL ? `<a class="btn secondary" href="${escapeHtml(APP_STORE_URL)}">Get Suvio on iPhone</a>` : ''}
+  <a class="btn primary" href="${escapeHtml(PLAY_STORE_URL)}">Get ${BRAND} on Android</a>
+  ${APP_STORE_URL ? `<a class="btn secondary" href="${escapeHtml(APP_STORE_URL)}">Get ${BRAND} on iPhone</a>` : ''}
   <a class="btn secondary" href="${escapeHtml(appUrl)}">Already have the app? Open it</a>
 </div>
 </body>
@@ -114,7 +124,7 @@ const notFoundPage = (req, res, what) =>
         renderPage({
             title: `This ${what} is unavailable`,
             description:
-                'The link may have expired, or the item is no longer being served. Browse everything else on Suvio.',
+                'The link may have expired, or the item is no longer being served. Browse everything else on ' + BRAND + '.',
             image: '',
             canonical: `${req.protocol}://${req.get('host')}${req.originalUrl}`,
             appUrl: PLAY_STORE_URL,
@@ -187,7 +197,7 @@ router.get('/restaurant-detail/:id', async (req, res, next) => {
             renderPage({
                 title: restaurant.restaurantName || 'Restaurant',
                 description: [cuisines, place].filter(Boolean).join(' · ') ||
-                    'Order food on Suvio.',
+                    `Order food on ${BRAND}.`,
                 image: absoluteUrl(
                     req,
                     firstOf(
@@ -236,7 +246,7 @@ router.get('/food-detail', async (req, res, next) => {
             res,
             renderPage({
                 title: food.name || 'Dish',
-                description: description || 'Order it on Suvio.',
+                description: description || `Order it on ${BRAND}.`,
                 image: absoluteUrl(req, firstOf(food.image, food.images || [])),
                 canonical: `${req.protocol}://${req.get('host')}/food-detail?${query}`,
                 appUrl: `suvio://food-detail?${query}`,

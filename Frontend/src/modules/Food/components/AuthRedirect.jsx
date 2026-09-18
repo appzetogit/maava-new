@@ -13,7 +13,7 @@ export default function AuthRedirect({ children, module, redirectTo = null }) {
   // login page was redirected into the Food module and only reached the panel
   // via its catch-all, which is a bug that happened to look like it worked.
   const moduleHomePages = {
-    restaurant: "/seller",
+    restaurant: "/restaurant",
     admin: "/admin",
   }
 

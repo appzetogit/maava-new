@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import * as adminService from '../services/admin.service.js';
+import { reviewCashSettlement as reviewCashSettlementService } from '../../delivery/services/cashSettlement.service.js';
 import * as featureSettingsService from '../services/featureSettings.service.js';
 import { validateCategoryListQuery, validateCategoryRejectDto, validateCategoryUpsertDto } from '../validators/category.validator.js';
 import { validateCreateOfferDto, validateUpdateOfferCartVisibilityDto } from '../validators/offer.validator.js';
@@ -52,6 +53,28 @@ export async function updateCustomerStatus(req, res, next) {
         const updated = await adminService.updateCustomerStatus(id, isActive);
         if (!updated) return res.status(404).json({ success: false, message: 'Customer not found' });
         res.status(200).json({ success: true, message: 'Customer status updated successfully', data: { user: updated, customer: updated } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function updateCustomerCodAccess(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid customer id' });
+        }
+        const codEnabled = req.body?.codEnabled;
+        if (typeof codEnabled !== 'boolean') {
+            return res.status(400).json({ success: false, message: 'codEnabled must be true or false' });
+        }
+        const updated = await adminService.updateCustomerCodAccess(id, codEnabled);
+        if (!updated) return res.status(404).json({ success: false, message: 'Customer not found' });
+        res.status(200).json({
+            success: true,
+            message: codEnabled ? 'Cash on Delivery enabled for this customer' : 'Cash on Delivery disabled for this customer',
+            data: { user: updated, customer: updated },
+        });
     } catch (error) {
         next(error);
     }
@@ -753,6 +776,26 @@ export async function createAdminOffer(req, res, next) {
     }
 }
 
+export async function updateAdminOfferPerUserLimit(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid offer id' });
+        }
+        const updated = await adminService.updateAdminOfferPerUserLimit(id, req.body?.perUserLimit);
+        if (!updated) {
+            return res.status(404).json({ success: false, message: 'Offer not found' });
+        }
+        res.status(200).json({
+            success: true,
+            message: 'Per-customer limit updated',
+            data: { offer: { id: String(updated._id), perUserLimit: updated.perUserLimit } }
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
 export async function updateAdminOfferCartVisibility(req, res, next) {
     try {
         const { id } = req.params;
@@ -1183,7 +1226,11 @@ export async function toggleDeliveryCommissionRuleStatus(req, res, next) {
 // ----- Fee Settings (admin) -----
 export async function getFeeSettings(req, res, next) {
     try {
-        const data = await adminService.getFeeSettings();
+        // The public route serves what a customer is actually charged in that zone
+        // (zone fees laid over the defaults); the admin route serves the zone's own
+        // record, so the panel can tell 'unset' from 'same as the default'.
+        const isPublic = String(req.path || '').includes('/public');
+        const data = await adminService.getFeeSettings({ ...(req.query || {}), effective: isPublic });
         res.status(200).json({ success: true, message: 'Fee settings fetched successfully', data });
     } catch (error) {
         next(error);
@@ -1196,6 +1243,15 @@ export async function createOrUpdateFeeSettings(req, res, next) {
         const body = validateFeeSettingsUpsertDto(req.body || {});
         const feeSettings = await adminService.upsertFeeSettings(body);
         res.status(200).json({ success: true, message: 'Fee settings saved successfully', data: { feeSettings } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function deleteZoneFeeSettings(req, res, next) {
+    try {
+        const data = await adminService.deleteZoneFeeSettings(req.params.zoneId);
+        res.status(200).json({ success: true, message: 'Zone fees removed; this zone now uses the default fees', data });
     } catch (error) {
         next(error);
     }
@@ -1698,6 +1754,28 @@ export async function getCashLimitSettlements(req, res, next) {
     try {
         const data = await adminService.getCashLimitSettlements(req.query || {});
         res.status(200).json({ success: true, message: 'Cash limit settlements fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Approve or reject a rider's UPI settlement claim. Approval is what actually
+ * clears their dues, so it is a write and needs the edit permission.
+ */
+export async function reviewCashSettlement(req, res, next) {
+    try {
+        const data = await reviewCashSettlementService(req.params.id, {
+            action: req.body?.action,
+            approvedAmount: req.body?.approvedAmount,
+            reason: req.body?.reason,
+            adminId: req.user?.userId
+        });
+        res.status(200).json({
+            success: true,
+            message: data.settlement.status === 'Completed' ? 'Settlement approved' : 'Settlement rejected',
+            data
+        });
     } catch (error) {
         next(error);
     }

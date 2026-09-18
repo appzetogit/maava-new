@@ -45,7 +45,7 @@ export default function LandingPage() {
   const [isRestaurantOpen, setIsRestaurantOpen] = useState(false);
   const [isDeliveryOpen, setIsDeliveryOpen] = useState(false);
   const [supportContact, setSupportContact] = useState({
-    email: "support@maava.in",
+    email: "support@switcheats.com",
     mobile: "1-800-123-4567"
   });
   const [leadForm, setLeadForm] = useState({
@@ -68,7 +68,7 @@ export default function LandingPage() {
         const data = response?.data?.data || response?.data;
         if (data && (data.email || data.mobile)) {
           setSupportContact({
-            email: data.email || "support@maava.in",
+            email: data.email || "support@switcheats.com",
             mobile: data.mobile || "1-800-123-4567"
           });
         }
@@ -248,7 +248,7 @@ export default function LandingPage() {
               </div>
               <div className="overflow-hidden pb-4">
                 <motion.div custom={2} initial="hidden" animate="visible" variants={textReveal} className="flex items-center gap-4 lg:gap-8">
-                  <span className="text-transparent bg-clip-text bg-gradient-to-br from-[#FA0272] to-pink-600">MAAVA?</span>
+                  <span className="text-transparent bg-clip-text bg-gradient-to-br from-[#FA0272] to-pink-600">SWITCHEATS?</span>
                 </motion.div>
               </div>
             </h1>
@@ -1004,7 +1004,7 @@ export default function LandingPage() {
                 {[
                   { Icon: Facebook, url: "https://www.facebook.com/share/1J8C8U4wnK/?mibextid=wwXIfr" },
                   { Icon: Youtube, url: "https://youtube.com/@switcheats?si=EzceIs61zBwz3SGO" },
-                  { Icon: Instagram, url: "https://www.instagram.com/maava?igsh=MTA3eXJnMTRlMTF5Zw%3D%3D&utm_source=qr" },
+                  { Icon: Instagram, url: "https://www.instagram.com/switcheats?igsh=MTA3eXJnMTRlMTF5Zw%3D%3D&utm_source=qr" },
                   { Icon: Linkedin, url: "https://www.linkedin.com/company/switcheats/" }
                 ].map(({ Icon, url }, i) => (
                   <a 

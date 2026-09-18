@@ -192,8 +192,28 @@ export const createOrUpdateOtp = async (phone) => {
     return otp;
 };
 
+/**
+ * Compare the submitted code to the stored one.
+ *
+ * Shared by the customer, restaurant and delivery logins, so anything wrong
+ * here locks all three out at once.
+ *
+ * The comparison used to be a strict `record.otp !== otp` against whatever the
+ * caller passed. That is correct only while both sides are guaranteed to be
+ * trimmed strings of identical type -- and a correct-looking six digit code was
+ * being rejected in production, which means that guarantee did not hold. Both
+ * sides are now normalised to a trimmed string before comparing. It cannot let
+ * a wrong code through: the DTO already restricts the input to 4-6 digits, so
+ * normalising only removes differences that were never meaningful.
+ *
+ * The record is also selected newest-first. Nothing enforces one OTP row per
+ * phone -- `phone` is indexed but not unique -- so if a second row ever exists,
+ * an unsorted findOne can return the older one and reject the code that was
+ * actually sent. Sorting makes that harmless, and deleting every row for the
+ * phone on success stops a stale row shadowing the next login.
+ */
 export const verifyOtp = async (phone, otp) => {
-    const record = await FoodOtp.findOne({ phone });
+    const record = await FoodOtp.findOne({ phone }).sort({ createdAt: -1 });
     if (!record) {
         return { valid: false, reason: 'OTP not found' };
     }
@@ -208,12 +228,19 @@ export const verifyOtp = async (phone, otp) => {
 
     record.attempts += 1;
 
-    if (record.otp !== otp) {
+    const sameCode = String(record.otp ?? '').trim() === String(otp ?? '').trim();
+    if (!sameCode) {
+        // OTP-DIAG (temporary): reports SHAPE only -- type, length and the
+        // digits masked -- so a rejection that should have matched can be
+        // diagnosed without ever writing a live code to the log.
+        const shape = (v) => `${typeof v}:${String(v).length}:${String(v).replace(/[0-9]/g, '#')}`;
+        console.log(`[OTP-DIAG] phone=${phone} stored=${shape(record.otp)} received=${shape(otp)}`);
         await record.save();
         return { valid: false, reason: 'Invalid OTP' };
     }
 
-    await record.deleteOne();
+    // Every row for this phone, not just the one that matched.
+    await FoodOtp.deleteMany({ phone });
     return { valid: true };
 };
 

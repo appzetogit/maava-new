@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { adminAPI } from '@/services/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@food/components/ui/card';
-import { Button } from '@food/components/ui/button';
 import { Switch } from '@food/components/ui/switch';
-import { Loader2, Save } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const FEATURE_KEYS = {
@@ -16,7 +15,7 @@ const FEATURE_KEYS = {
 
 export default function FeatureSettings() {
     const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
+    const [savingKey, setSavingKey] = useState(null);
     const [features, setFeatures] = useState([]);
 
     const restaurantSubscription = useMemo(
@@ -60,7 +59,7 @@ export default function FeatureSettings() {
         load();
     }, []);
 
-    const setToggle = (key, checked) => {
+    const applyLocally = (key, checked) => {
         setFeatures((prev) =>
             prev.map((row) =>
                 row.key === key ? { ...row, isEnabled: Boolean(checked) } : row
@@ -68,41 +67,39 @@ export default function FeatureSettings() {
         );
     };
 
-    const handleSave = async () => {
-        // Every toggle rendered below must appear here or Save silently skips it:
-        // the switch flips, the toast says success, and nothing is written.
-        const updates = [
-            restaurantSubscription,
-            adminAccessSection,
-            quickCommerce,
-            accountDeletion,
-            rootLandingAndUnregisteredControl,
-        ].filter(Boolean);
-        if (updates.length === 0) return;
+    /**
+     * Persist the moment the switch moves.
+     *
+     * This page used to hold every change in React state until a Save button at
+     * the very bottom of the page was pressed. Flipping Mart looked exactly like
+     * it had worked -- the switch moved and stayed moved -- while nothing was
+     * ever sent: the server logs for the session in question contain no PATCH to
+     * feature-settings at all. A switch that reports success without saving is
+     * worse than no switch.
+     *
+     * Optimistic: the UI moves first so it stays responsive, and reverts if the
+     * request fails, so the switch can never show a state the server does not
+     * hold.
+     */
+    const persistToggle = async (key, checked) => {
+        const next = Boolean(checked);
+        applyLocally(key, next);
+        setSavingKey(key);
         try {
-            setSaving(true);
-            await Promise.all(
-                updates.map((feature) =>
-                    adminAPI.updateFeatureSetting(feature.key, {
-                        isEnabled: Boolean(feature.isEnabled)
-                    })
-                )
-            );
-            updates.forEach((feature) => {
-                window.dispatchEvent(new CustomEvent('adminFeatureSettingUpdated', {
-                    detail: {
-                        key: feature.key,
-                        isEnabled: Boolean(feature.isEnabled)
-                    }
-                }));
-            });
-            toast.success('Feature setting updated successfully.');
+            await adminAPI.updateFeatureSetting(key, { isEnabled: next });
+            // The sidebar listens for this to show/hide its own sections.
+            window.dispatchEvent(new CustomEvent('adminFeatureSettingUpdated', {
+                detail: { key, isEnabled: next }
+            }));
+            toast.success(next ? 'Enabled.' : 'Disabled.');
         } catch (error) {
-            toast.error(error?.response?.data?.message || 'Failed to update feature setting.');
+            applyLocally(key, !next);
+            toast.error(error?.response?.data?.message || 'Could not save that change.');
         } finally {
-            setSaving(false);
+            setSavingKey(null);
         }
     };
+
 
     if (loading) {
         return (
@@ -134,7 +131,8 @@ export default function FeatureSettings() {
                     </div>
                     <Switch
                         checked={Boolean(restaurantSubscription?.isEnabled)}
-                        onCheckedChange={(checked) => setToggle(FEATURE_KEYS.RESTAURANT_SUBSCRIPTION, checked)}
+                        onCheckedChange={(checked) => persistToggle(FEATURE_KEYS.RESTAURANT_SUBSCRIPTION, checked)}
+                        disabled={savingKey === FEATURE_KEYS.RESTAURANT_SUBSCRIPTION}
                     />
                 </CardContent>
             </Card>
@@ -154,7 +152,8 @@ export default function FeatureSettings() {
                     </div>
                     <Switch
                         checked={Boolean(adminAccessSection?.isEnabled)}
-                        onCheckedChange={(checked) => setToggle(FEATURE_KEYS.ADMIN_ACCESS_SECTION, checked)}
+                        onCheckedChange={(checked) => persistToggle(FEATURE_KEYS.ADMIN_ACCESS_SECTION, checked)}
+                        disabled={savingKey === FEATURE_KEYS.ADMIN_ACCESS_SECTION}
                     />
                 </CardContent>
             </Card>
@@ -176,7 +175,8 @@ export default function FeatureSettings() {
                     </div>
                     <Switch
                         checked={Boolean(quickCommerce?.isEnabled)}
-                        onCheckedChange={(checked) => setToggle(FEATURE_KEYS.QUICK_COMMERCE, checked)}
+                        onCheckedChange={(checked) => persistToggle(FEATURE_KEYS.QUICK_COMMERCE, checked)}
+                        disabled={savingKey === FEATURE_KEYS.QUICK_COMMERCE}
                     />
                 </CardContent>
             </Card>
@@ -198,7 +198,8 @@ export default function FeatureSettings() {
                     </div>
                     <Switch
                         checked={Boolean(accountDeletion?.isEnabled)}
-                        onCheckedChange={(checked) => setToggle(FEATURE_KEYS.ACCOUNT_DELETION, checked)}
+                        onCheckedChange={(checked) => persistToggle(FEATURE_KEYS.ACCOUNT_DELETION, checked)}
+                        disabled={savingKey === FEATURE_KEYS.ACCOUNT_DELETION}
                     />
                 </CardContent>
             </Card>
@@ -218,17 +219,15 @@ export default function FeatureSettings() {
                     </div>
                     <Switch
                         checked={Boolean(rootLandingAndUnregisteredControl?.isEnabled)}
-                        onCheckedChange={(checked) => setToggle(FEATURE_KEYS.ROOT_LANDING_AND_UNREGISTERED_CONTROL, checked)}
+                        onCheckedChange={(checked) => persistToggle(FEATURE_KEYS.ROOT_LANDING_AND_UNREGISTERED_CONTROL, checked)}
+                        disabled={savingKey === FEATURE_KEYS.ROOT_LANDING_AND_UNREGISTERED_CONTROL}
                     />
                 </CardContent>
             </Card>
 
-            <div className="flex justify-end">
-                <Button onClick={handleSave} disabled={saving || (!restaurantSubscription && !adminAccessSection && !rootLandingAndUnregisteredControl)}>
-                    {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-                    Save Changes
-                </Button>
-            </div>
+            {/* No Save button: each switch writes on change. Keeping one would
+                re-introduce the ambiguity that caused this bug -- a moved switch
+                that has not been saved looks identical to a saved one. */}
         </div>
     );
 }

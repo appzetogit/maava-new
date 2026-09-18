@@ -8,6 +8,7 @@ import { FoodOrder } from '../../orders/models/order.model.js';
 import { uploadImageBuffer } from '../../../../services/cloudinary.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { getDeliveryCashLimitSettings } from '../../admin/services/admin.service.js';
+import { checkWalletMinimum, checkCashLimit } from './deliveryFinance.service.js';
 import { upsertFirebaseDeviceToken } from '../../../../core/notifications/firebase.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { collectDynamicRegistration } from './driverRegistrationField.service.js';
@@ -27,10 +28,10 @@ const savePartnerFcmToken = async (partnerId, fcmToken, platform) => {
 };
 
 export const registerDeliveryPartner = async (payload, files, rawBody = {}) => {
-    const { 
-        name, phone, email, countryCode, address, city, state, 
+    const {
+        name, phone, email, countryCode, address, city, state,
         vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
-        fcmToken, platform 
+        serviceType, fcmToken, platform
     } = payload;
     const refRaw = typeof payload?.ref === 'string' ? String(payload.ref).trim() : '';
 
@@ -145,6 +146,7 @@ export const registerDeliveryPartner = async (payload, files, rawBody = {}) => {
         drivingLicenseNumber,
         panNumber,
         aadharNumber,
+        serviceType: serviceType || 'both',
         status: 'pending',
         ...images,
         ...(Object.keys(customFields).length ? { customFields } : {}),
@@ -174,7 +176,7 @@ export const registerDeliveryPartner = async (payload, files, rawBody = {}) => {
     try {
         const { notifyAdminsSafely } = await import('../../../../core/notifications/firebase.service.js');
         void notifyAdminsSafely({
-            title: 'New Delivery Partner Registration 🚲',
+            title: 'New Delivery Partner Registration ð²',
             body: `A new delivery partner "${partner.name}" has signed up and is pending approval.`,
             data: {
                 type: 'new_registration',
@@ -199,8 +201,10 @@ export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
     const {
         name, countryCode, address, city, state,
         vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
-        fcmToken, platform
+        serviceType, fcmToken, platform
     } = payload;
+
+    if (serviceType !== undefined) partner.serviceType = serviceType;
 
     if (name) partner.name = name;
     if (countryCode !== undefined) partner.countryCode = countryCode;
@@ -251,6 +255,7 @@ export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
 
 export const updateDeliveryPartnerDetails = async (userId, payload) => {
     const partner = await FoodDeliveryPartner.findById(userId);
+
     if (!partner) {
         throw new ValidationError('Delivery partner not found');
     }
@@ -272,6 +277,7 @@ export const updateDeliveryPartnerDetails = async (userId, payload) => {
                 // Clean up rejected records with this vehicle
                 await FoodDeliveryPartner.deleteMany({ 
                     vehicleNumber: vNum, 
+
                     status: 'rejected' 
                 });
             }
@@ -421,7 +427,35 @@ export const updateDeliveryAvailability = async (userId, payload) => {
     if (rawStatus === 'online' || rawStatus === true || rawStatus === 'true') validStatus = 'online';
     else if (rawStatus === 'offline' || rawStatus === false || rawStatus === 'false') validStatus = 'offline';
 
+    // The admin's cash ceiling and minimum wallet balance are both enforced
+    // here too, not just in dispatch: without this a blocked rider can flip
+    // themselves online and sit in the candidate pool looking available. Both
+    // thresholds come from the admin settings (0 = rule off) — never from the
+    // app. Cash checked first: it is the more actionable of the two ("go
+    // deposit what you're holding"), and a rider over the cash ceiling is
+    // usually also the rider whose wallet balance the same cash pulled down.
+    let blockedGate = null;
+    let blockedReason = null;
+    if (validStatus === 'online') {
+        const cashGate = await checkCashLimit(userId);
+        if (cashGate.blocked) {
+            validStatus = 'offline';
+            blockedGate = cashGate;
+            blockedReason = 'cash';
+        } else {
+            const walletGate = await checkWalletMinimum(userId);
+            if (walletGate.blocked) {
+                validStatus = 'offline';
+                blockedGate = walletGate;
+                blockedReason = 'wallet';
+            }
+        }
+    }
+
     partner.availabilityStatus = validStatus;
+    // Location is still recorded on a refused request. The rider is offline,
+    // not gone, and a stale last-fix would keep them out of dispatch for a
+    // while even after they top up.
     if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
         partner.lastLocation = {
             type: 'Point',
@@ -432,138 +466,55 @@ export const updateDeliveryAvailability = async (userId, payload) => {
         partner.lastLocationAt = new Date();
     }
     await partner.save();
-    return { availabilityStatus: partner.availabilityStatus };
-};
+    if (!blockedGate) return { availabilityStatus: partner.availabilityStatus };
 
-// ----- Delivery partner wallet (Pocket / requests page) -----
-export const getDeliveryPartnerWallet = async (deliveryPartnerId) => {
-    if (!deliveryPartnerId || !mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
-        throw new ValidationError('Delivery partner not found');
-    }
-    const partner = await FoodDeliveryPartner.findById(deliveryPartnerId).lean();
-    if (!partner) {
-        throw new ValidationError('Delivery partner not found');
-    }
-
-    const cashLimitSettings = await getDeliveryCashLimitSettings();
-    const totalCashLimit = Number(cashLimitSettings.deliveryCashLimit) || 0;
-    const deliveryWithdrawalLimit = Number(cashLimitSettings.deliveryWithdrawalLimit) || 100;
-
-    const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
-
-    // Earnings paid to rider through completed deliveries
-    const [earningsAgg, cashAgg] = await Promise.all([
-        FoodOrder.aggregate([
-            {
-                $match: {
-                    'dispatch.deliveryPartnerId': partnerId,
-                    orderStatus: 'delivered',
-                }
-            },
-            {
-                $group: {
-                    _id: null,
-                    totalEarned: { $sum: { $ifNull: ['$riderEarning', 0] } }
-                }
-            }
-        ]),
-        FoodOrder.aggregate([
-            {
-                $match: {
-                    'dispatch.deliveryPartnerId': partnerId,
-                    orderStatus: 'delivered',
-                    'payment.method': 'cash',
-                    'payment.status': 'paid'
-                }
-            },
-            {
-                $group: {
-                    _id: null,
-                    cashInHand: { $sum: { $ifNull: ['$riderEarning', 0] } }
-                }
-            }
-        ])
-    ]);
-
-    const totalEarned = Number(earningsAgg?.[0]?.totalEarned) || 0;
-    const cashInHand = Number(cashAgg?.[0]?.cashInHand) || 0;
-
-    // Admin-set delivery bonuses / earning addons
-    const bonusAgg = await DeliveryBonusTransaction.aggregate([
-        { $match: { deliveryPartnerId: partnerId } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
-    const totalBonus = bonusAgg?.[0] ? Number(bonusAgg[0].total) : 0;
-
-    // Keep transactions list reasonably small (UI only needs recent data for charts)
-    const [paymentTxList, bonusTxList] = await Promise.all([
-        FoodOrder.find({
-            'dispatch.deliveryPartnerId': partnerId,
-            orderStatus: 'delivered',
-        })
-            .sort({ 'deliveryState.deliveredAt': -1, createdAt: -1 })
-            .select('orderId riderEarning payment orderStatus deliveryState createdAt deliveryState.deliveredAt')
-            .limit(2000)
-            .lean(),
-        DeliveryBonusTransaction.find({ deliveryPartnerId: partnerId })
-            .sort({ createdAt: -1 })
-            .limit(1000)
-            .lean(),
-    ]);
-
-    const paymentTransactions = (paymentTxList || []).map((o) => {
-        const deliveredAt = o?.deliveryState?.deliveredAt || o?.deliveredAt || null;
-        const date = deliveredAt || o?.createdAt || new Date();
-        return {
-            _id: o._id,
-            type: 'payment',
-            amount: Number(o.riderEarning) || 0,
-            status: 'Completed',
-            date,
-            createdAt: date,
-            orderId: o.orderId || String(o._id),
-            paymentMethod: o?.payment?.method || '',
-            metadata: { orderId: o.orderId || String(o._id) },
-            description: o?.payment?.method === 'cash' ? 'COD delivery earning' : 'Online delivery earning'
-        };
-    });
-
-    // Frontend weekly earnings expects bonus transactions as `earning_addon`.
-    const bonusTransactions = (bonusTxList || []).map((t) => ({
-        _id: t._id,
-        type: 'earning_addon',
-        amount: Number(t.amount) || 0,
-        status: 'Completed',
-        date: t.createdAt,
-        createdAt: t.createdAt,
-        metadata: { reference: t.reference || '' },
-        description: t.reference ? `Bonus - ${t.reference}` : 'Bonus'
-    }));
-
-    const totalWithdrawn = 0;
-    const totalBalance = totalEarned + totalBonus;
-    const availableCashLimit = Math.max(0, totalCashLimit - cashInHand);
+    const message =
+        blockedReason === 'cash'
+            ? `You are holding Rs.${Math.floor(blockedGate.cashInHand || 0)} in cash, which is at your Rs.${blockedGate.limit} limit. ` +
+              'Deposit your cash to go online and receive new orders.'
+            : `Your wallet balance is Rs.${Math.floor(blockedGate.balance || 0)}. ` +
+              `You need at least Rs.${blockedGate.minimum} to go online and receive new orders. ` +
+              'Top up your wallet to continue.';
 
     return {
-        totalBalance,
-        pocketBalance: totalBalance,
-        cashInHand,
-        totalWithdrawn,
-        totalEarned,
-        totalCashLimit,
-        availableCashLimit,
-        deliveryWithdrawalLimit,
-        transactions: [...paymentTransactions, ...bonusTransactions].sort((a, b) => {
-            const ad = a?.date ? new Date(a.date).getTime() : 0;
-            const bd = b?.date ? new Date(b.date).getTime() : 0;
-            return bd - ad;
-        }),
-        joiningBonusClaimed: false,
-        joiningBonusAmount: 0
+        availabilityStatus: partner.availabilityStatus,
+        walletBlocked: true,
+        blockedReason,
+        minWalletBalanceForOrders: blockedReason === 'wallet' ? blockedGate.minimum : undefined,
+        walletBalance: blockedReason === 'wallet' ? blockedGate.balance : undefined,
+        deliveryCashLimit: blockedReason === 'cash' ? blockedGate.limit : undefined,
+        cashInHand: blockedReason === 'cash' ? blockedGate.cashInHand : undefined,
+        message
     };
 };
 
 // ----- Delivery partner earnings summary (Pocket / requests page) -----
+/**
+ * Folds the per-vertical aggregation rows into Food/Mart buckets plus totals.
+ *
+ * Anything that is not explicitly 'quick' counts as Food -- including the null
+ * bucket for pre-merge orders -- so a stray vertical value can never silently
+ * vanish from the totals. The totals are derived from the buckets rather than
+ * summed separately, which is what guarantees total === food + mart for every
+ * input the rider app can ever be shown.
+ */
+export const summarizeEarningsByVertical = (rows = []) => {
+    const byVertical = {
+        food: { earnings: 0, orders: 0 },
+        quick: { earnings: 0, orders: 0 }
+    };
+    for (const row of rows || []) {
+        const bucket = row?._id === 'quick' ? byVertical.quick : byVertical.food;
+        bucket.earnings += Number(row?.earnings) || 0;
+        bucket.orders += Number(row?.orders) || 0;
+    }
+    return {
+        byVertical,
+        totalEarnings: byVertical.food.earnings + byVertical.quick.earnings,
+        totalOrders: byVertical.food.orders + byVertical.quick.orders
+    };
+};
+
 export const getDeliveryPartnerEarnings = async (deliveryPartnerId, query = {}) => {
     if (!deliveryPartnerId || !mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
         throw new ValidationError('Delivery partner not found');
@@ -597,24 +548,33 @@ export const getDeliveryPartnerEarnings = async (deliveryPartnerId, query = {}) 
         match['deliveryState.deliveredAt'] = { $gte: range.start, $lte: range.end };
     }
 
+    // Grouped by vertical so the rider app can show Food and Mart separately.
+    // The counts come from the same pipeline rather than a second
+    // countDocuments, which is what keeps the split and the total consistent by
+    // construction: the total is literally food + quick, never an independently
+    // computed number that could disagree with its own parts.
+    //
+    // Delivery routes run CROSS_VERTICAL and the vertical plugin does not touch
+    // aggregations, so both verticals are present here -- which is also why the
+    // incentive total spans both without naming one.
+    //
     // Incentives are credited against the period they were RELEASED in, which is
     // the only date the rider can reconcile against their wallet.
-    //
-    // Delivery routes run CROSS_VERTICAL, so this spans both verticals without
-    // naming one -- the same scope the order totals above are computed in.
     const incentiveMatch = { deliveryPartnerId: partnerId, status: 'credited' };
     if (range) {
         incentiveMatch.creditedAt = { $gte: range.start, $lte: range.end };
     }
 
-    const [totalOrders, agg, incentiveAgg] = await Promise.all([
-        FoodOrder.countDocuments(match),
+    const [agg, incentiveAgg] = await Promise.all([
         FoodOrder.aggregate([
             { $match: match },
             {
                 $group: {
-                    _id: null,
-                    totalEarnings: { $sum: { $ifNull: ['$riderEarning', 0] } }
+                    // Orders predating the vertical field are Food -- that is the
+                    // same assumption orderSourceTitle() makes for their push title.
+                    _id: { $ifNull: ['$vertical', 'food'] },
+                    earnings: { $sum: { $ifNull: ['$riderEarning', 0] } },
+                    orders: { $sum: 1 }
                 }
             }
         ]),
@@ -624,15 +584,21 @@ export const getDeliveryPartnerEarnings = async (deliveryPartnerId, query = {}) 
         ])
     ]);
 
-    const orderEarning = Number(agg?.[0]?.totalEarnings) || 0;
+    const { byVertical, totalEarnings: orderEarning, totalOrders } = summarizeEarningsByVertical(agg);
     // Was hardcoded to 0, so incentives never showed in the rider's breakdown
     // even once the money had reached their wallet.
     const incentive = Number(incentiveAgg?.[0]?.total) || 0;
 
-    // Frontend only strongly relies on totalEarnings + totalOrders.
+    // totalEarnings/totalOrders keep their existing meaning and position so
+    // older app builds are unaffected; byVertical is additive.
     const summary = {
         totalEarnings: orderEarning + incentive,
         totalOrders,
+        foodEarnings: byVertical.food.earnings,
+        martEarnings: byVertical.quick.earnings,
+        foodOrders: byVertical.food.orders,
+        martOrders: byVertical.quick.orders,
+        byVertical,
         totalHours: 0,
         totalMinutes: 0,
         orderEarning,
@@ -740,6 +706,9 @@ const toTripDto = (order) => {
         id: order?._id,
         _id: order?._id,
         orderId: order?.orderId || order?._id,
+        // Lets each row in trip history and the wallet ledger say which brand it
+        // came from. Absent on pre-merge orders, which were all Food.
+        vertical: order?.vertical === 'quick' ? 'quick' : 'food',
         status,
         restaurantName,
         restaurant: restaurantName,

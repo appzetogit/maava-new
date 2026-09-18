@@ -10,10 +10,21 @@ const foodOfferSchema = new mongoose.Schema(
         restaurantScope: { type: String, enum: ['all', 'selected'], default: 'all', index: true },
         restaurantId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodRestaurant' },
         restaurantIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'FoodRestaurant' }],
+        // Where the offer runs. 'all' is every zone, as before; 'selected'
+        // limits it to zoneIds, matched against the zone the order is
+        // delivered into. With both scopes set, zone and restaurant must match.
+        zoneScope: { type: String, enum: ['all', 'selected'], default: 'all', index: true },
+        zoneIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'FoodZone' }],
         minOrderValue: { type: Number, default: 0, min: 0 },
         maxDiscount: { type: Number, default: null, min: 0 },
         usageLimit: { type: Number, default: null, min: 0 },
-        perUserLimit: { type: Number, default: null, min: 0 },
+        /**
+         * Redemptions allowed per customer. 1 by default -- a blank field used
+         * to save null, which the pricing check reads as unlimited, and that is
+         * how one customer ended up using the same code again and again.
+         * 0 is the deliberate way to allow unlimited.
+         */
+        perUserLimit: { type: Number, default: 1, min: 0 },
         usedCount: { type: Number, default: 0, min: 0 },
         startDate: { type: Date },
         isFirstOrderOnly: { type: Boolean, default: false },

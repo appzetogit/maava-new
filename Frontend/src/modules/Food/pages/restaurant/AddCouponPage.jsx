@@ -31,7 +31,8 @@ export default function AddCouponPage(props) {
     minOrderValue: "",
     maxDiscount: "",
     usageLimit: "",
-    perUserLimit: "",
+    // Once per customer unless the restaurant changes it; 0 = unlimited.
+    perUserLimit: "1",
     startDate: "",
     endDate: "",
   })
@@ -264,14 +265,17 @@ export default function AddCouponPage(props) {
               />
             </div>
             <div>
-              <FieldLabel>Per User</FieldLabel>
+              <FieldLabel>Per Customer</FieldLabel>
               <input
                 type="number"
+                min="0"
+                step="1"
                 value={formData.perUserLimit}
                 onChange={(e) => set("perUserLimit", e.target.value)}
-                placeholder="Unlimited"
+                placeholder="1"
                 className={inputCls("perUserLimit")}
               />
+              <p className="mt-1 text-xs text-gray-500">1 = once per customer. 0 = unlimited.</p>
             </div>
           </div>
         </div>

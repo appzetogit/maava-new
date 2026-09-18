@@ -48,6 +48,47 @@ const DEFAULT_FEATURES = [
     }
 ];
 
+/**
+ * Flags that describe the customer app rather than one catalogue.
+ *
+ * Feature settings are vertical-scoped, so every key exists twice: once under
+ * food, once under quick. That is right for a flag governing a catalogue's own
+ * behaviour, and wrong for one governing the app shell.
+ *
+ * quick_commerce is the clearest case. Whether a Mart section exists at all is
+ * a property of the app, not of either catalogue -- and the customer app only
+ * ever reads the FOOD copy (ApiPaths.featureSettings points at /food/...).
+ * Turning Mart off from the Mart admin panel wrote the QUICK copy, which
+ * nothing reads: the switch flipped, the toast said saved, the value persisted,
+ * and Mart stayed exactly where it was.
+ *
+ * The rule for spotting these: admin writes follow the panel, because the API
+ * client rewrites contextModule 'admin' calls to whichever vertical is on
+ * screen (see axios.js applyVerticalToPath). Reads from the customer app and
+ * the public web config do NOT -- they are pinned to /food/. So any flag read
+ * from a fixed vertical but writable from either panel can be set somewhere
+ * nobody reads. root_landing_and_unregistered_control is the third of those:
+ * it governs one root URL, and publicAppConfig only ever reads the food row.
+ *
+ * The other three keys stay per-vertical and are correct that way. They are
+ * read back through the same admin client that wrote them, so read and write
+ * agree on the vertical by construction.
+ *
+ * account_deletion has the same shape. The vertical plugin deliberately does
+ * not scope customers -- one login and one balance across both verticals is the
+ * point of merging them -- so a per-vertical answer to "may this person delete
+ * their account" does not mean anything.
+ */
+const GLOBAL_FEATURE_KEYS = new Set([
+    FEATURE_KEYS.QUICK_COMMERCE,
+    FEATURE_KEYS.ACCOUNT_DELETION,
+    FEATURE_KEYS.ROOT_LANDING_AND_UNREGISTERED_CONTROL,
+    // Read by the customer app from /food/ to decide whether to offer COD at
+    // checkout, but a Mart order is CREATED under the quick vertical -- so the
+    // row the app shows and the row the order checks must be one answer.
+    FEATURE_KEYS.COD_CONTROL
+]);
+
 export async function ensureDefaultFeatureSettings() {
     for (const feature of DEFAULT_FEATURES) {
         await FoodFeatureSetting.updateOne(
@@ -72,9 +113,21 @@ export async function listFeatureSettings() {
 
 export async function updateFeatureSetting(key, payload = {}) {
     await ensureDefaultFeatureSettings();
+    const cleanKey = String(key || '').trim();
     const nextEnabled = Boolean(payload?.isEnabled);
+
+    // A global flag is written across every vertical, so its value cannot
+    // depend on which admin panel the switch happened to be flipped in.
+    // skipVerticalScope is the plugin's documented opt-out for exactly this.
+    if (GLOBAL_FEATURE_KEYS.has(cleanKey)) {
+        await FoodFeatureSetting.updateMany(
+            { key: cleanKey },
+            { $set: { isEnabled: nextEnabled } }
+        ).setOptions({ skipVerticalScope: true });
+    }
+
     const updated = await FoodFeatureSetting.findOneAndUpdate(
-        { key: String(key || '').trim() },
+        { key: cleanKey },
         { $set: { isEnabled: nextEnabled } },
         { new: true }
     ).lean();

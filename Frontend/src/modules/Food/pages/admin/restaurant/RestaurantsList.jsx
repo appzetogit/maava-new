@@ -1,11 +1,13 @@
 import { useState, useMemo, useEffect, useRef } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { Search, Download, ChevronDown, ChevronLeft, ChevronRight, Eye, Settings, ArrowUpDown, Loader2, X, MapPin, Phone, Mail, Clock, Star, Building2, User, FileText, FileSpreadsheet, CreditCard, Calendar, Image as ImageIcon, ExternalLink, ShieldX, AlertTriangle, Trash2, Plus } from "lucide-react"
+import { Search, Download, ChevronDown, ChevronLeft, ChevronRight, Eye, Settings, ArrowUpDown, Loader2, X, MapPin, Phone, Mail, Clock, Star, Building2, User, FileText, FileSpreadsheet, CreditCard, Calendar, Image as ImageIcon, ExternalLink, ShieldX, AlertTriangle, Trash2, Plus, Percent } from "lucide-react"
 import { adminAPI, restaurantAPI, uploadAPI } from "@food/api"
 import { clearModuleAuth } from "@food/utils/auth"
 import { resolveMediaUrl } from "../../../../../shared/utils/mediaUrl.js"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
+import { getAdminVertical } from "@food/utils/adminVertical"
+import { verticalNouns } from "@food/utils/adminVerticalLabels"
 
 // Import icons from Dashboard-icons
 import locationIcon from "@food/assets/Dashboard-icons/image1.png"
@@ -62,6 +64,23 @@ const mapRawRestaurant = (restaurant, index, zones) => ({
   originalData: restaurant,
 })
 
+/**
+ * The commission the platform earns on this restaurant, as shown in the list.
+ *
+ * Returns null when no rule is configured, which is NOT the same as 0%: a
+ * restaurant with no row is never charged anything, and the column says so
+ * rather than showing a rate nobody set.
+ */
+const formatCommission = (rule) => {
+  if (!rule) return null
+  const type = rule?.defaultCommission?.type || "percentage"
+  const value = Number(rule?.defaultCommission?.value ?? 0) || 0
+  return {
+    label: type === "amount" ? `₹${value}` : `${value}%`,
+    inactive: rule?.status === false,
+  }
+}
+
 const getSortByParam = (sortConfig) => {
   if (!sortConfig.key || sortConfig.key === "zone") return "created-desc"
   const dir = sortConfig.direction === "asc" ? "asc" : "desc"
@@ -70,6 +89,7 @@ const getSortByParam = (sortConfig) => {
     name: "name",
     owner: "owner",
     rating: "rating",
+    commission: "commission",
     status: "active",
   }
   const field = fieldMap[sortConfig.key]
@@ -163,6 +183,10 @@ const getPrimaryRestaurantImage = (restaurant, fallback = "") => {
 
 export default function RestaurantsList() {
   const navigate = useNavigate()
+  // One page serves both verticals, so the wording follows the active one.
+  // Read on render like AdminSidebar does -- switching verticals remounts this
+  // page, so there is nothing to subscribe to.
+  const noun = verticalNouns(getAdminVertical())
   const [searchQuery, setSearchQuery] = useState("")
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("")
   const [restaurants, setRestaurants] = useState([])
@@ -266,6 +290,34 @@ export default function RestaurantsList() {
 
     return `REST${lastDigits}`
   }
+
+  // Per-restaurant commission, keyed by restaurant id.
+  //
+  // Fetched on its own rather than joined server-side: the seller list is
+  // paginated but the commission table holds one row per CONFIGURED
+  // restaurant, so a single request covers every page of the list.
+  const [commissionByRestaurant, setCommissionByRestaurant] = useState(() => new Map())
+
+  useEffect(() => {
+    let cancelled = false
+    adminAPI.getRestaurantCommissions({})
+      .then((res) => {
+        if (cancelled) return
+        const body = res?.data
+        const list = body?.data?.commissions || body?.commissions || []
+        const next = new Map()
+        if (Array.isArray(list)) {
+          list.forEach((row) => {
+            if (row?.restaurantId) next.set(String(row.restaurantId), row)
+          })
+        }
+        setCommissionByRestaurant(next)
+      })
+      // A failed lookup must not blank out the seller list; the column just
+      // reads "Not set" for everyone until the next load.
+      .catch(() => { if (!cancelled) setCommissionByRestaurant(new Map()) })
+    return () => { cancelled = true }
+  }, [])
 
   // Fetch restaurants from backend API
   useEffect(() => {
@@ -1225,7 +1277,7 @@ export default function RestaurantsList() {
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-slate-900">Restaurants List</h1>
+              <h1 className="text-2xl font-bold text-slate-900">{noun.Many} List</h1>
             </div>
 
           </div>
@@ -1237,7 +1289,7 @@ export default function RestaurantsList() {
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Total restaurants</p>
+                <p className="text-sm font-medium text-slate-600 mb-1">Total {noun.many}</p>
                 <p className="text-2xl font-bold text-slate-900">{restaurantStats.total || totalRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
@@ -1250,7 +1302,7 @@ export default function RestaurantsList() {
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Active restaurants</p>
+                <p className="text-sm font-medium text-slate-600 mb-1">Active {noun.many}</p>
                 <p className="text-2xl font-bold text-slate-900">{activeRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
@@ -1263,7 +1315,7 @@ export default function RestaurantsList() {
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Inactive restaurants</p>
+                <p className="text-sm font-medium text-slate-600 mb-1">Inactive {noun.many}</p>
                 <p className="text-2xl font-bold text-slate-900">{inactiveRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-red-100 flex items-center justify-center">
@@ -1277,7 +1329,7 @@ export default function RestaurantsList() {
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold text-slate-900">Restaurants List</h2>
+              <h2 className="text-xl font-bold text-slate-900">{noun.Many} List</h2>
               <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
                 {totalRestaurants}
               </span>
@@ -1289,12 +1341,12 @@ export default function RestaurantsList() {
                 className="px-4 py-2.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2 transition-all"
               >
                 <Plus className="w-4 h-4" />
-                <span>Add Restaurant</span>
+                <span>Add {noun.One}</span>
               </button>
               <div className="relative flex-1 sm:flex-initial min-w-[250px]">
                 <input
                   type="text"
-                  placeholder="Ex: search by Restaurant name, owner, or phone"
+                  placeholder={`Ex: search by ${noun.One} name, owner, or phone`}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -1337,7 +1389,7 @@ export default function RestaurantsList() {
           <div className="text-sm text-slate-600 mb-4">
             {loading
               ? "Loading..."
-              : `Showing ${showingFrom}-${showingTo} of ${totalRestaurants} restaurants`}
+              : `Showing ${showingFrom}-${showingTo} of ${totalRestaurants} ${noun.many}`}
           </div>
 
           {/* Table */}
@@ -1377,7 +1429,7 @@ export default function RestaurantsList() {
                       onClick={() => handleSort('name')}
                     >
                       <div className="flex items-center gap-1">
-                        <span>Restaurant Info</span>
+                        <span>{noun.One} Info</span>
                         <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === 'name' ? 'text-blue-600' : 'text-slate-400'}`} />
                       </div>
                     </th>
@@ -1408,6 +1460,20 @@ export default function RestaurantsList() {
                         <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === 'rating' ? 'text-blue-600' : 'text-slate-400'}`} />
                       </div>
                     </th>
+                    {/* Sorted server-side via a lookup into the commission
+                        collection, so it orders the whole result set rather
+                        than just the page on screen. Restaurants with no rule
+                        sort last in both directions -- "Not set" is an absent
+                        rate, not a low one. */}
+                    <th
+                      className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => handleSort('commission')}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Commission</span>
+                        <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === 'commission' ? 'text-blue-600' : 'text-slate-400'}`} />
+                      </div>
+                    </th>
                     <th
                       className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
                       onClick={() => handleSort('status')}
@@ -1423,7 +1489,7 @@ export default function RestaurantsList() {
                 <tbody className="bg-white divide-y divide-slate-100">
                   {filteredRestaurants.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-20 text-center">
+                      <td colSpan={8} className="px-6 py-20 text-center">
                         <div className="flex flex-col items-center justify-center">
                           <p className="text-lg font-semibold text-slate-700 mb-1">No Data Found</p>
                           <p className="text-sm text-slate-500">No restaurants match your search</p>
@@ -1482,6 +1548,22 @@ export default function RestaurantsList() {
                               {(Number(restaurant.rating) || 0).toFixed(1)}
                             </span>
                           </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {(() => {
+                            const commission = formatCommission(commissionByRestaurant.get(String(restaurant._id)))
+                            if (!commission) {
+                              return <span className="text-xs text-slate-400">Not set</span>
+                            }
+                            return (
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-sm font-semibold text-slate-900">{commission.label}</span>
+                                {commission.inactive && (
+                                  <span className="text-[11px] text-slate-500">Disabled</span>
+                                )}
+                              </div>
+                            )
+                          })()}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex flex-col gap-1">
@@ -1991,6 +2073,31 @@ export default function RestaurantsList() {
                           <Building2 className="w-4 h-4" />
                           <span className="text-xs font-bold tracking-wider">{formatRestaurantId(r?.restaurantId || r?._id)}</span>
                         </div>
+                        {/* Commission the platform earns on this seller. Read
+                            from the same map the list column uses, so the two
+                            views cannot disagree about a rate. */}
+                        {(() => {
+                          const commission = formatCommission(
+                            commissionByRestaurant.get(String(r?._id || selectedRestaurant?._id || ""))
+                          )
+                          if (!commission) {
+                            return (
+                              <div className="flex items-center gap-2 text-slate-400 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
+                                <Percent className="w-4 h-4" />
+                                <span className="text-xs font-bold tracking-wider">Commission not set</span>
+                              </div>
+                            )
+                          }
+                          return (
+                            <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-xl border border-emerald-100">
+                              <Percent className="w-4 h-4 text-emerald-600" />
+                              <span className="text-sm font-bold text-emerald-700">{commission.label}</span>
+                              <span className="text-xs text-emerald-600/70 ml-1 font-medium">
+                                {commission.inactive ? "commission (disabled)" : "commission"}
+                              </span>
+                            </div>
+                          )
+                        })()}
                       </div>
                     </div>
                   </div>

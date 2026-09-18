@@ -32,6 +32,8 @@ const foodTransactionSchema = new mongoose.Schema({
         platformFee: { type: Number, default: 0, min: 0 },
         restaurantCommission: { type: Number, default: 0, min: 0 },
         discount: { type: Number, default: 0, min: 0 },
+        /** Rider tip. Inside riderShare, and inside total; never platform income. */
+        deliveryTip: { type: Number, default: 0, min: 0 },
         couponCode: { type: String, default: null, trim: true, uppercase: true },
         total: { type: Number, default: 0, min: 0 },
         currency: { type: String, default: 'INR', trim: true },

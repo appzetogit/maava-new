@@ -38,6 +38,8 @@ export default function AdminLogin() {
   const [error, setError] = useState("")
   const [successMessage, setSuccessMessage] = useState("")
   const [logoUrl, setLogoUrl] = useState(quickSpicyLogo)
+  // Set in Admin -> Settings -> Business Setup; empty keeps the illustration.
+  const [heroImageUrl, setHeroImageUrl] = useState("")
   const [themeColor, setThemeColor] = useState(THEME)
   const submittingRef = useRef(false)
 
@@ -52,13 +54,18 @@ export default function AdminLogin() {
   useEffect(() => {
     const initBranding = async () => {
       try {
-        const settings = await loadBusinessSettings()
+        // Forced: the cache has no expiry, so a browser that loaded the app
+        // once would show that day's branding for ever -- an operator uploads
+        // new sign-in artwork and nobody ever sees it. One small public
+        // request, on the screen where the branding is the point.
+        const settings = await loadBusinessSettings({ force: true })
         applyModulePowerScanning("user", settings)
         const { themeColor: color } = getModulePowerScanning("user", settings)
         setThemeColor(color)
         if (settings?.logo?.url) {
           setLogoUrl(settings.logo.url)
         }
+        setHeroImageUrl(settings?.adminLoginImage?.url || "")
       } catch (err) {
         debugWarn("Failed to load business settings:", err)
       }
@@ -66,13 +73,15 @@ export default function AdminLogin() {
     initBranding()
 
     const handleSettingsUpdate = async () => {
-      const settings = await loadBusinessSettings()
+      // Fired when settings change, so the cached copy is exactly what is stale.
+      const settings = await loadBusinessSettings({ force: true })
       applyModulePowerScanning("user", settings)
       const { themeColor: color } = getModulePowerScanning("user", settings)
       setThemeColor(color)
       if (settings?.logo?.url) {
         setLogoUrl(settings.logo.url)
       }
+      setHeroImageUrl(settings?.adminLoginImage?.url || "")
     }
     window.addEventListener("businessSettingsUpdated", handleSettingsUpdate)
     return () => window.removeEventListener("businessSettingsUpdated", handleSettingsUpdate)
@@ -147,7 +156,7 @@ export default function AdminLogin() {
     <div className="flex h-[100dvh] overflow-hidden bg-white">
       {/* Left — hero */}
       <div className="hidden h-full lg:block lg:w-1/2">
-        <AdminAuthHero themeColor={themeColor} logoUrl={logoUrl} />
+        <AdminAuthHero themeColor={themeColor} logoUrl={logoUrl} imageUrl={heroImageUrl} />
       </div>
 
       {/* Right — form */}
@@ -171,7 +180,7 @@ export default function AdminLogin() {
             <div>
               <p className="text-[10px] font-medium text-white/50">Admin Portal</p>
               <p className="text-sm font-semibold text-white">
-                Suvio <span style={{ color: themeColor }}>Quick Commerce</span>
+                {companyName || "Maava"}
               </p>
             </div>
           </div>
@@ -310,7 +319,7 @@ export default function AdminLogin() {
             </div>
 
             <p className="mt-5 text-center text-xs text-gray-400">
-              Protected admin access &middot; Suvio Quick Commerce
+              Protected admin access &middot; {companyName || "Maava"}
             </p>
           </motion.div>
         </div>

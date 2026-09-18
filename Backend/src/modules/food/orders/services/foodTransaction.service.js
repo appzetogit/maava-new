@@ -24,6 +24,9 @@ async function getActiveRestaurantCommissionRules() {
   return restaurantCommissionRulesCache;
 }
 
+/** Commission charged to a restaurant that has no rule of its own. */
+export const DEFAULT_RESTAURANT_COMMISSION_PERCENT = 10;
+
 export function computeRestaurantCommissionAmount(baseAmount, rule) {
   const safeBase = Math.max(0, Number(baseAmount) || 0);
   if (!Number.isFinite(safeBase) || safeBase < 0) return 0;
@@ -69,13 +72,12 @@ export async function getRestaurantCommissionSnapshot(orderDoc) {
     rules.find((r) => String(r.restaurant || r.restaurant_id || '') === String(restaurantIdRaw)) ||
     null;
 
+  // No rule of its own (e.g. a restaurant added after rates were set): the
+  // default rate, never 0%.
   if (!rule) {
-    return {
-      commissionAmount: 0,
-      commissionType: 'percentage',
-      commissionValue: 0,
-      baseAmount,
-    };
+    return computeRestaurantCommissionAmount(baseAmount, {
+      defaultCommission: { type: 'percentage', value: DEFAULT_RESTAURANT_COMMISSION_PERCENT },
+    });
   }
 
   return computeRestaurantCommissionAmount(baseAmount, rule);
@@ -109,8 +111,16 @@ export async function createInitialTransaction(order) {
     const deliveryFeeGst = Number(order.pricing?.deliveryFeeGst) || 0;
     const tax = Number(order.pricing?.tax) || 0;
 
+    // The tip is pure pass-through: the customer paid it and the rider gets
+    // it, so it belongs on both sides of the profit line. riderShare already
+    // contains it (order.riderEarning is base + tip), so without the matching
+    // term on the revenue side every tipped order would book a loss exactly
+    // the size of the tip.
+    const deliveryTip = Number(order.pricing?.deliveryTip) || 0;
+
     let restaurantNet = subtotal + packagingFee - restaurantCommission;
-    let platformNetProfit = platformFee + deliveryFee + deliveryFeeGst + restaurantCommission - riderShare;
+    let platformNetProfit =
+        platformFee + deliveryFee + deliveryFeeGst + restaurantCommission + deliveryTip - riderShare;
     let adminDiscountShare = 0;
     let restaurantDiscountShare = 0;
     let discountAdminBearPercentage = 0;
@@ -166,6 +176,7 @@ export async function createInitialTransaction(order) {
             platformFee: platformFee,
             restaurantCommission: restaurantCommission,
             discount: discount,
+            deliveryTip: deliveryTip,
             couponCode: couponCode ? String(couponCode).toUpperCase() : null,
             total: totalCustomerPaid,
             currency: String(order.pricing?.currency || order.currency || 'INR'),

@@ -8,6 +8,8 @@ const createOfferSchema = z.object({
     discountValue: z.number().positive('Discount value must be greater than 0'),
     customerScope: z.enum(['all', 'first-time']).default('all'),
     restaurantScope: z.enum(['all', 'selected']).default('all'),
+    zoneScope: z.enum(['all', 'selected']).default('all'),
+    zoneIds: z.array(z.string()).optional(),
     restaurantId: z.string().optional(),
     restaurantIds: z.array(z.string()).optional(),
     endDate: z.string().optional().or(z.literal('')).or(z.undefined()),
@@ -29,6 +31,10 @@ export const validateCreateOfferDto = (body) => {
         discountValue: Number(body?.discountValue),
         customerScope: body?.customerScope,
         restaurantScope: body?.restaurantScope,
+        zoneScope: body?.zoneScope,
+        zoneIds: Array.isArray(body?.zoneIds)
+            ? body.zoneIds.map((id) => String(id)).filter(Boolean)
+            : undefined,
         restaurantId: body?.restaurantId ? String(body.restaurantId) : undefined,
         restaurantIds: Array.isArray(body?.restaurantIds)
             ? body.restaurantIds.map((id) => String(id)).filter(Boolean)
@@ -47,6 +53,13 @@ export const validateCreateOfferDto = (body) => {
     const result = createOfferSchema.safeParse(normalized);
     if (!result.success) {
         throw new ValidationError(result.error.errors[0].message);
+    }
+
+    if (result.data.zoneScope === 'selected') {
+        const zoneIds = result.data.zoneIds || [];
+        if (zoneIds.length === 0 || zoneIds.some((id) => !mongoose.Types.ObjectId.isValid(id))) {
+            throw new ValidationError('Select at least one zone for a zone-limited offer');
+        }
     }
 
     if (result.data.restaurantScope === 'selected') {

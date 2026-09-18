@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodUserCart } from '../models/userCart.model.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
-import { calculateOrderPricing } from '../../orders/services/order-pricing.service.js';
+import { calculateOrderPricing, DELIVERY_FEE_GST_RATE } from '../../orders/services/order-pricing.service.js';
 
 const toPositiveInt = (value, fallback = 1) => {
     const parsed = Number(value);
@@ -21,7 +21,10 @@ const resolveStoredDeliveryFeeGst = (deliveryFee, deliveryFeeGst) => {
     if (base <= 0) return 0;
     const stored = toNonNegativeNumber(deliveryFeeGst, 0);
     if (stored > 0) return stored;
-    return Math.round(base * 0.18 * 100) / 100;
+    // Was its own literal 0.18, independent of order-pricing.service.js's
+    // DELIVERY_FEE_GST_RATE — a rate change there would silently not reach
+    // this admin cart-preview fallback.
+    return Math.round(base * DELIVERY_FEE_GST_RATE * 100) / 100;
 };
 
 const normalizeCartItems = (items = []) => {

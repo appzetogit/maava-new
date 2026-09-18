@@ -10,7 +10,7 @@ import QuickCommerceArt from "./QuickCommerceArt"
  * figures below are the ones a quick-commerce operator actually watches —
  * delivery time, stock, and how many sellers are trading.
  */
-export default function AdminAuthHero({ themeColor, logoUrl }) {
+export default function AdminAuthHero({ themeColor, logoUrl, imageUrl }) {
   const companyName = useCompanyName()
   const prefersReducedMotion = useReducedMotion()
 
@@ -35,6 +35,33 @@ export default function AdminAuthHero({ themeColor, logoUrl }) {
     { icon: Boxes, label: "In stock", value: "1,240 SKUs" },
     { icon: Store, label: "Sellers live", value: "24" },
   ]
+
+  // An uploaded image replaces the illustration outright rather than sitting
+  // behind it: the panels and stat cards were composed against the artwork,
+  // and over a photograph they read as clutter over someone's branding.
+  if (imageUrl) {
+    return (
+      <div className="relative h-full w-full overflow-hidden bg-[#0B1410]">
+        <img
+          src={imageUrl}
+          alt=""
+          className="h-full w-full object-cover"
+          // Decorative: the sign-in form beside it carries the real content.
+          aria-hidden="true"
+        />
+        {/* Keeps the wordmark legible whatever was uploaded. */}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-black/30" />
+        <div className="absolute inset-x-0 bottom-0 z-10 flex items-center gap-3 p-8 xl:p-10">
+          {logoUrl ? (
+            <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl bg-white/95 shadow-sm">
+              <img src={logoUrl} alt={`${companyName} logo`} className="h-full w-full object-contain p-1" />
+            </div>
+          ) : null}
+          <p className="text-lg font-semibold tracking-tight text-white drop-shadow">{companyName}</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-[#0B1410]">
@@ -79,7 +106,7 @@ export default function AdminAuthHero({ themeColor, logoUrl }) {
               Admin Portal
             </p>
             <p className="text-lg font-bold leading-tight text-white">
-              Suvio <span style={{ color: themeColor }}>Quick Commerce</span>
+              {companyName || "Maava"}
             </p>
           </div>
         </motion.div>
@@ -124,7 +151,7 @@ export default function AdminAuthHero({ themeColor, logoUrl }) {
         </div>
 
         <motion.p {...fadeUp(0.32)} className="text-[11px] text-white/30">
-          &copy; {new Date().getFullYear()} {companyName || "Suvio Quick Commerce"}
+          &copy; {new Date().getFullYear()} {companyName || "Maava"}
         </motion.p>
       </div>
     </div>

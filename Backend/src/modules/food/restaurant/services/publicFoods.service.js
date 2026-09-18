@@ -3,6 +3,7 @@ import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodRestaurant } from '../models/restaurant.model.js';
 import { getFoodDisplayOtherPrice, getFoodDisplayPrice, serializeFoodVariants } from '../../admin/services/foodVariant.service.js';
 import { restoreExpiredFoodAvailability } from './foodAvailability.service.js';
+import { isValidZoneId } from '../../shared/zoneServiceability.js';
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -24,14 +25,22 @@ export async function listPublicFoods(query = {}) {
     const promo = String(query.promo || query.promoSlug || '').trim().toLowerCase();
     const isSwitch99Promo = promo === 'switch99' || promo === 'under-250' || promo === 'under250';
 
+    const restaurantSelect = '_id restaurantName slug zoneId profileImage rating totalRatings ratingCount estimatedDeliveryTime estimatedDeliveryTimeMinutes location coverImages menuImages isActive isAcceptingOrders outletTimings openDays deliveryTimings openingTime closingTime';
     const restaurantFilter = { status: 'approved' };
-    if (zoneIdRaw && mongoose.Types.ObjectId.isValid(zoneIdRaw)) {
+    const hasZoneFilter = isValidZoneId(zoneIdRaw);
+    if (hasZoneFilter) {
         restaurantFilter.zoneId = new mongoose.Types.ObjectId(zoneIdRaw);
     }
 
-    const restaurants = await FoodRestaurant.find(restaurantFilter)
-        .select('_id restaurantName slug zoneId profileImage rating totalRatings ratingCount estimatedDeliveryTime estimatedDeliveryTimeMinutes location coverImages menuImages isActive isAcceptingOrders outletTimings openDays deliveryTimings openingTime closingTime')
-        .lean();
+    let restaurants = await FoodRestaurant.find(restaurantFilter).select(restaurantSelect).lean();
+
+    if (!restaurants.length && hasZoneFilter) {
+        // Zone-scoped query came up empty — most likely because these
+        // restaurants haven't been assigned a zone yet, not because there's
+        // genuinely nothing to show. Fall back to the unscoped catalogue.
+        delete restaurantFilter.zoneId;
+        restaurants = await FoodRestaurant.find(restaurantFilter).select(restaurantSelect).lean();
+    }
 
     if (!restaurants.length) {
         return { foods: [], total: 0 };

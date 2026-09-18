@@ -21,6 +21,26 @@ const businessSettingsSchema = new mongoose.Schema(
             url: { type: String, default: '' },
             publicId: { type: String, default: '' }
         },
+        /**
+         * The company's static UPI QR, shown to riders settling COD cash.
+         * Here rather than bundled in the rider app so changing the receiving
+         * account is an upload, not a release. [companyUpiId] is shown beside
+         * it for anyone whose app cannot scan.
+         */
+        companyUpiQr: {
+            url: { type: String, default: '' },
+            publicId: { type: String, default: '' }
+        },
+        companyUpiId: { type: String, default: '', trim: true },
+        /**
+         * Artwork filling the left half of the admin sign-in screen. Empty
+         * keeps the built-in illustration, so an install that uploads nothing
+         * looks exactly as it did.
+         */
+        adminLoginImage: {
+            url: { type: String, default: '' },
+            publicId: { type: String, default: '' }
+        },
         restaurantLogo: {
             url: { type: String, default: '' },
             publicId: { type: String, default: '' }
@@ -49,9 +69,33 @@ const businessSettingsSchema = new mongoose.Schema(
             delivery: {
                 themeColor: { type: String, default: '#00B761' },
                 fontFamily: { type: String, default: 'Poppins' }
+            },
+            /** Mart (quick-commerce) section of the customer app. */
+            mart: {
+                themeColor: { type: String, default: '#068483' },
+                fontFamily: { type: String, default: 'Poppins' }
             }
         },
         orderAcceptanceTimeMinutes: { type: Number, default: 4, min: 1, max: 20 },
+        /**
+         * Reasons a seller may pick from when rejecting an order.
+         *
+         * Editable here rather than built into the apps so the list can change
+         * without a release. Vertical-scoped like the rest of this document, so
+         * Food and Mart keep separate lists. An empty array is respected -- the
+         * apps fall back to a free-text reason -- but the seller is always
+         * offered "Other reason" regardless of what is stored here.
+         */
+        restaurantRejectionReasons: {
+            type: [String],
+            default: [
+                'Restaurant is too busy',
+                'Item not available',
+                'Outside delivery area',
+                'Kitchen closing soon',
+                'Technical issue',
+            ],
+        },
         /**
          * Google Maps browser key, set once here instead of baked into each
          * build's environment.

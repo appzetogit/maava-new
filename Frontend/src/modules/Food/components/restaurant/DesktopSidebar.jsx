@@ -27,7 +27,7 @@ import { restaurantAPI } from "@food/api"
 import { getCompanyName, getModuleLogoUrl, getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
 import { logoutRestaurantSession } from "@food/utils/restaurantLogout"
 
-const BASE = "/seller"
+const BASE = "/restaurant"
 
 const extractRestaurantPayload = (response) =>
   response?.data?.data?.restaurant ||
@@ -216,7 +216,7 @@ export default function DesktopSidebar() {
       await logoutRestaurantSession({ navigate })
     } catch (error) {
       console.error("Logout failed:", error)
-      navigate("/seller/login", { replace: true })
+      navigate("/restaurant/login", { replace: true })
     }
   }
 

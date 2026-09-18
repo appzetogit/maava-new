@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ValidationError } from '../../../../core/auth/errors.js';
+import { MAX_DELIVERY_TIP } from '../services/order-pricing.service.js';
 
 const orderItemSchema = z.object({
     itemId: z.string().min(1, 'Item id required'),
@@ -87,6 +88,11 @@ export function validateCalculateOrderDto(body) {
         couponCode: z.string().optional(),
         deliveryFleet: z.string().optional(),
         deliveryMode: z.enum(['basic', 'quick']).optional(),
+        // Customer-chosen rider tip. Capped because this is a number straight
+        // off the client: uncapped, a bad request could mint an arbitrary
+        // rider payout. The pricing service clamps it again -- this bound is
+        // the trust boundary, that one is the calculation's own guarantee.
+        deliveryTip: z.number().min(0).max(MAX_DELIVERY_TIP).optional(),
         deliveryAddress: z
             .object({
                 location: z
@@ -122,6 +128,11 @@ export function validateCreateOrderDto(body) {
         note: z.string().optional(),
         deliveryInstructions: z.string().optional(),
         deliveryMode: z.enum(['basic', 'quick']).optional(),
+        // Customer-chosen rider tip. Capped because this is a number straight
+        // off the client: uncapped, a bad request could mint an arbitrary
+        // rider payout. The pricing service clamps it again -- this bound is
+        // the trust boundary, that one is the calculation's own guarantee.
+        deliveryTip: z.number().min(0).max(MAX_DELIVERY_TIP).optional(),
         sendCutlery: z.boolean().optional(),
         // 'cash' is true COD, collected as notes at the door.
         // 'razorpay_qr' is the same pay-at-delivery flow, collected by QR instead.
@@ -178,7 +189,11 @@ export function validateOrderStatusDto(body) {
             'delivered',
             'cancelled_by_restaurant'
         ]),
-        note: z.string().optional()
+        note: z.string().optional(),
+        // Optional: sent by the seller card's preparation-time stepper when the
+        // order is accepted. Bounded because this becomes the customer's
+        // promised ETA.
+        packingMinutes: z.coerce.number().int().min(1).max(180).optional()
     });
     const result = schema.safeParse(body);
     if (!result.success) {
