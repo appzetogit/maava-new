@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Search, Shield, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
+import { toast } from "sonner";
 import { adminAPI } from "@food/api";
+import AccessPicker from "./AccessPicker";
 
 const SUBADMIN_EMAIL_REGEX = /^(?!.*\.\.)([A-Za-z0-9]+[._%+-]?)*[A-Za-z0-9]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}$/;
 const INDIAN_MOBILE_REGEX = /^[6-9]\d{9}$/;
@@ -24,6 +26,8 @@ export default function EmployeeList() {
   const [form, setForm] = useState({ name: "", email: "", phone: "", password: "" });
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
+  // Sidebar options for the new sub-admin: { key: "view" | "edit" }.
+  const [access, setAccess] = useState({});
 
   const validateForm = (payload) => {
     const nextErrors = {};
@@ -97,12 +101,21 @@ export default function EmployeeList() {
     setErrors(validationErrors);
     if (Object.keys(validationErrors).length > 0) return;
 
+    if (Object.keys(access).length === 0) {
+      toast.error("Pick at least one sidebar option they can open.");
+      return;
+    }
+
     setSaving(true);
     try {
-      await adminAPI.createSubAdmin(normalizedForm);
+      await adminAPI.createSubAdmin({ ...normalizedForm, access });
+      toast.success("Sub admin created");
       setForm({ name: "", email: "", phone: "", password: "" });
+      setAccess({});
       setErrors({});
       await load();
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Could not create sub admin");
     } finally {
       setSaving(false);
     }
@@ -123,7 +136,7 @@ export default function EmployeeList() {
     <div className="p-4 lg:p-6 bg-slate-50 min-h-screen space-y-6">
       <div className="bg-white border border-slate-200 rounded-xl p-5">
         <h1 className="text-2xl font-bold text-slate-900">Sub Admin Management</h1>
-        <p className="text-sm text-slate-600 mt-1">Create, disable, and delete sub admins. Permissions are managed per admin.</p>
+        <p className="text-sm text-slate-600 mt-1">Super admins see everything. A sub admin sees only the sidebar options you give them here.</p>
       </div>
 
       <form onSubmit={handleCreate} className="bg-white border border-slate-200 rounded-xl p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -178,6 +191,10 @@ export default function EmployeeList() {
           />
           {errors.password ? <p className="mt-1 text-xs text-red-600">{errors.password}</p> : null}
         </div>
+        <div className="md:col-span-2 border-t border-slate-200 pt-4">
+          <h2 className="text-base font-semibold text-slate-900 mb-2">What they can open</h2>
+          <AccessPicker value={access} onChange={setAccess} />
+        </div>
         <div className="md:col-span-2">
           <button disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg">
             <Plus className="w-4 h-4" /> Create Sub Admin
@@ -201,10 +218,15 @@ export default function EmployeeList() {
                 <div>
                   <p className="font-semibold text-slate-900">{item.name || "Unnamed"}</p>
                   <p className="text-sm text-slate-600">{item.email} {item.phone ? `• ${item.phone}` : ""}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {Object.keys(item.access || {}).length} sidebar option(s)
+                    {Object.values(item.access || {}).includes("edit") ? " · can edit" : " · view only"}
+                    {item.isActive ? "" : " · disabled"}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <Link to={`/admin/store/employee-role?id=${item._id}`} className="inline-flex items-center gap-1 px-3 py-2 border rounded-lg text-sm">
-                    <Shield className="w-4 h-4" /> Permissions
+                    <Shield className="w-4 h-4" /> Access
                   </Link>
                   <button onClick={() => toggleStatus(item)} className="px-3 py-2 border rounded-lg text-sm inline-flex items-center gap-1">
                     {item.isActive ? <ToggleRight className="w-4 h-4 text-green-600" /> : <ToggleLeft className="w-4 h-4 text-slate-500" />}

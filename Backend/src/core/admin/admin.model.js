@@ -54,6 +54,12 @@ const adminSchema = new mongoose.Schema(
             type: adminPermissionsSchema,
             default: () => ({})
         },
+        /** Sub-admin access per sidebar option: { orders: 'view', fee_settings: 'edit' }.
+         *  See constants/adminAccess.js. Ignored for super admins. */
+        access: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({})
+        },
         isActive: {
             type: Boolean,
             default: true

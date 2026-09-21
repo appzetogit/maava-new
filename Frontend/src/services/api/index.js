@@ -408,10 +408,11 @@ export const adminAPI = {
     apiClient.get(`/food/admin/sub-admins/${String(id)}`, { contextModule: "admin" }),
   updateSubAdmin: (id, body = {}) =>
     apiClient.patch(`/food/admin/sub-admins/${String(id)}`, body ?? {}, { contextModule: "admin" }),
-  updateSubAdminPermissions: (id, permissions = {}) =>
+  // access: { orders: "view", fee_settings: "edit", ... }
+  updateSubAdminPermissions: (id, access = {}) =>
     apiClient.patch(
       `/food/admin/sub-admins/${String(id)}/permissions`,
-      { permissions },
+      { access },
       { contextModule: "admin" },
     ),
   updateSubAdminStatus: (id, isActive) =>

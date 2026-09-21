@@ -48,6 +48,7 @@ import { FoodAdmin } from '../../../../core/admin/admin.model.js';
 import { getAdminRestaurantSubscriptionHistory as getAdminRestaurantSubscriptionHistoryFromRestaurant } from '../../restaurant/services/subscriptionHistory.service.js';
 import { FoodRestaurantSubscriptionHistory } from '../../restaurant/models/subscriptionHistory.model.js';
 import { ADMIN_FULL_PERMISSIONS, isValidPermissionPayload, sanitizeAdminPermissions } from '../../../../constants/permissions.js';
+import { ACCESS_LEVELS, ADMIN_ACCESS_GROUPS, sanitizeAccess } from '../../../../constants/adminAccess.js';
 import {
     backfillLegacyCategoryWorkflow,
     categoryAllowsFoodType,
@@ -2085,10 +2086,15 @@ export async function updateSupportTicket(id, body = {}) {
 export async function getRestaurantCommissions() {
     const list = await FoodRestaurantCommission.find({})
         .sort({ createdAt: -1 })
-        .populate({ path: 'restaurantId', select: 'restaurantName' })
+        .populate({ path: 'restaurantId', select: 'restaurantName status' })
         .lean();
 
-    const commissions = list.map((c, index) => ({
+    // Rejected and still-pending signups keep their rule (it applies if they
+    // are approved later) but are not listed: hundreds of them share names or
+    // use a phone number, which read as the same restaurant many times.
+    const live = list.filter((c) => c.restaurantId?._id && !['rejected', 'pending'].includes(c.restaurantId.status));
+
+    const commissions = live.map((c, index) => ({
         _id: c._id,
         sl: index + 1,
         restaurantId: c.restaurantId?._id ? String(c.restaurantId._id) : String(c.restaurantId),
@@ -6757,6 +6763,8 @@ export async function createSubAdmin(payload = {}, actorId) {
         role: 'ADMIN',
         adminType: 'sub_admin',
         permissions: {},
+        // Sidebar options chosen on the create screen: { key: 'view' | 'edit' }.
+        access: sanitizeAccess(payload.access),
         isActive: true,
         isDeleted: false,
         createdBy: actorId || null,
@@ -6817,17 +6825,17 @@ export async function updateSubAdminProfile(id, payload = {}, actorId) {
     return updated;
 }
 
-export async function updateSubAdminPermissions(id, rawPermissions = {}, actorId) {
+export async function updateSubAdminPermissions(id, rawAccess = {}, actorId) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) {
         throw new ValidationError('Invalid sub-admin id');
     }
-    if (!isValidPermissionPayload(rawPermissions)) {
-        throw new ValidationError('Invalid permissions payload');
+    if (!rawAccess || typeof rawAccess !== 'object' || Array.isArray(rawAccess)) {
+        throw new ValidationError('Invalid access payload');
     }
-    const permissions = sanitizeAdminPermissions(rawPermissions);
+    const access = sanitizeAccess(rawAccess);
     const updated = await FoodAdmin.findOneAndUpdate(
         { _id: id, adminType: 'sub_admin', isDeleted: false },
-        { $set: { permissions, updatedBy: actorId || null } },
+        { $set: { access, updatedBy: actorId || null } },
         { new: true }
     ).select('-password').lean();
     if (!updated) throw new ValidationError('Sub-admin not found');
@@ -6861,11 +6869,6 @@ export async function deleteSubAdmin(id, actorId) {
 }
 
 export function getAdminPermissionCatalog() {
-    return {
-        actions: ['view', 'create', 'edit', 'delete', 'export'],
-        sections: Object.keys(ADMIN_FULL_PERMISSIONS).map((section) => ({
-            key: section,
-            actions: ADMIN_FULL_PERMISSIONS[section],
-        })),
-    };
+    // One entry per sidebar option, grouped as in the sidebar.
+    return { levels: ACCESS_LEVELS, groups: ADMIN_ACCESS_GROUPS };
 }

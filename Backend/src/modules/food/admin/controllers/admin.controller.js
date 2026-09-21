@@ -355,8 +355,8 @@ export async function updateSubAdminProfile(req, res, next) {
 export async function updateSubAdminPermissions(req, res, next) {
     try {
         if (!ensureSuperAdmin(req, res)) return;
-        const normalized = normalizePermissionPayload(req.body?.permissions || {});
-        const data = await adminService.updateSubAdminPermissions(req.params.id, normalized, req.user?.userId);
+        // { access: { orders: 'view', fee_settings: 'edit', ... } }
+        const data = await adminService.updateSubAdminPermissions(req.params.id, req.body?.access || {}, req.user?.userId);
         res.status(200).json({ success: true, message: 'Sub-admin permissions updated', data: { subAdmin: data } });
     } catch (error) {
         next(error);
@@ -386,24 +386,10 @@ export async function deleteSubAdmin(req, res, next) {
 export async function getAdminPermissionCatalog(req, res, next) {
     try {
         if (!ensureSuperAdmin(req, res)) return;
-        const data = adminService.getAdminPermissionCatalog();
-        const visibleActions = ADMIN_ACTIONS.filter((action) => action !== 'export');
-        const sections = Array.isArray(data?.sections)
-            ? data.sections.map((section) => ({
-                  ...section,
-                  actions: Array.isArray(section?.actions)
-                      ? section.actions.filter((action) => action !== 'export')
-                      : visibleActions,
-              }))
-            : [];
         res.status(200).json({
             success: true,
             message: 'Permission catalog fetched successfully',
-            data: {
-                actions: visibleActions,
-                sections,
-                supportedSections: ADMIN_PERMISSION_SECTIONS,
-            },
+            data: adminService.getAdminPermissionCatalog(),
         });
     } catch (error) {
         next(error);

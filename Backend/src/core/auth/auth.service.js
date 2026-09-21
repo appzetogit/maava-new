@@ -19,6 +19,7 @@ import mongoose from "mongoose";
 import { creditReferralReward } from "../../modules/food/user/services/userWallet.service.js";
 import { findReferrerByRef, generateUniqueReferralCode } from "./referralCode.js";
 import { ADMIN_FULL_PERMISSIONS, sanitizeAdminPermissions } from '../../constants/permissions.js';
+import { FULL_ACCESS, sanitizeAccess } from '../../constants/adminAccess.js';
 import { isMobilePlatform } from "../../utils/platform.js";
 import {
   detachFirebaseDeviceTokenEverywhere,
@@ -332,6 +333,7 @@ export const adminLogin = async (email, password) => {
   const effectivePermissions = admin.adminType === "super_admin"
     ? ADMIN_FULL_PERMISSIONS
     : sanitizeAdminPermissions(admin.permissions || {});
+  const effectiveAccess = admin.adminType === "super_admin" ? FULL_ACCESS : sanitizeAccess(admin.access);
 
   const payload = {
     userId: admin._id.toString(),
@@ -354,6 +356,7 @@ export const adminLogin = async (email, password) => {
   const userObj = admin.toObject();
   delete userObj.password;
   userObj.effectivePermissions = effectivePermissions;
+  userObj.effectiveAccess = effectiveAccess;
   return { accessToken, refreshToken, user: userObj };
 };
 
@@ -595,6 +598,8 @@ export const getProfile = async (userId, role) => {
         profile.effectivePermissions = profile.adminType === "super_admin"
           ? ADMIN_FULL_PERMISSIONS
           : sanitizeAdminPermissions(profile.permissions || {});
+        // What the sidebar and pages read: { key: 'view' | 'edit' }.
+        profile.effectiveAccess = profile.adminType === "super_admin" ? FULL_ACCESS : sanitizeAccess(profile.access);
       }
       break;
     case ROLES.RESTAURANT:

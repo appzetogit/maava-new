@@ -1,4 +1,5 @@
 import express from 'express';
+import { requireLandingAdminAccess } from '../../../../core/roles/adminPermission.middleware.js';
 import { upload } from '../../../../middleware/upload.js';
 import { authMiddleware } from '../../../../core/auth/auth.middleware.js';
 import { requireRoles } from '../../../../core/roles/role.middleware.js';
@@ -116,7 +117,11 @@ const requireAdminForLandingWrites = (req, res, next) => {
 
     return authMiddleware(req, res, (err) => {
         if (err) return next(err);
-        return requireRoles('ADMIN')(req, res, next);
+        return requireRoles('ADMIN')(req, res, (roleErr) => {
+            if (roleErr) return next(roleErr);
+            // Sub-admins need the matching banner option.
+            return requireLandingAdminAccess(req, res, next);
+        });
     });
 };
 

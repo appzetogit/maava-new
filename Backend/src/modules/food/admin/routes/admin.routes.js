@@ -18,7 +18,7 @@ import {
     uploadAdminBulkMenuController,
 } from '../../restaurant/controllers/bulkUpload.controller.js';
 import { FoodAdmin } from '../../../../core/admin/admin.model.js';
-import { requireAdminPermission, requireAnyAdminPermission } from '../../../../core/roles/adminPermission.middleware.js';
+import { requireAdminPermission, requireAnyAdminPermission, requireAdminAccess } from '../../../../core/roles/adminPermission.middleware.js';
 import * as driverRegField from '../../delivery/controllers/driverRegistrationField.controller.js';
 import * as cashbackSettings from '../controllers/cashbackSettings.controller.js';
 import * as restaurantAppBanner from '../controllers/restaurantAppBanner.controller.js';
@@ -42,64 +42,9 @@ const requireAdmin = (req, _res, next) => {
 };
 
 router.use(requireAdmin);
-router.use(async (req, _res, next) => {
-    try {
-        const admin = await FoodAdmin.findById(req.user?.userId)
-            .select('adminType permissions isActive isDeleted')
-            .lean();
-        req.adminAccess = admin;
-        return next();
-    } catch (error) {
-        return next(error);
-    }
-});
-
-const resolveSectionFromRequest = (path = '', method = '') => {
-    if (path.startsWith('/sub-admins')) return 'sub_admin_management';
-    if (path === '/customers' && String(method).toUpperCase() === 'GET') return null;
-    if (path.startsWith('/customers') || path.startsWith('/support-tickets')) return 'customer_management';
-    if (path === '/zones' && String(method).toUpperCase() === 'GET') return null;
-    if (/^\/zones\/[^/]+$/.test(path) && String(method).toUpperCase() === 'GET') return null;
-    if (path === '/restaurants' && String(method).toUpperCase() === 'GET') return null;
-    if (/^\/restaurants\/[^/]+$/.test(path) && String(method).toUpperCase() === 'GET') return null;
-    if (/^\/restaurants\/[^/]+\/analytics$/.test(path) && String(method).toUpperCase() === 'GET') return null;
-    if (path === '/orders' && String(method).toUpperCase() === 'GET') return null;
-    if (path === '/orders/user-carts' && String(method).toUpperCase() === 'GET') return null;
-    if (
-        path.startsWith('/restaurants') ||
-        path.startsWith('/restaurant-settings') ||
-        path.startsWith('/restaurant-subscription-settings') ||
-        path.startsWith('/restaurant-subscriptions') ||
-        path.startsWith('/zones')
-    ) return 'restaurant_management';
-    if (path.startsWith('/categories') || path.startsWith('/addons') || path.startsWith('/foods')) return 'food_management';
-    if (path.startsWith('/offers')) return 'promotions_management';
-    if (path.startsWith('/orders') || path.startsWith('/order-detect-delivery')) return 'order_management';
-    if (path.startsWith('/delivery')) return 'delivery_management';
-    if (path.startsWith('/withdrawals')) return 'transaction_management';
-    if (path.startsWith('/feedback-experiences')) return 'report_management';
-    if (path.startsWith('/reports')) return 'report_management';
-    if (path.startsWith('/feature-settings') || path.startsWith('/business-settings') || path.startsWith('/power-scanning') || path.startsWith('/notifications')) return 'system_settings';
-    if (path.startsWith('/pages-social-media')) return 'pages_social_media';
-    if (path.startsWith('/sidebar-badges') || path.startsWith('/dashboard-stats')) return 'dashboard';
-    return null;
-};
-
-const resolveActionByMethod = (method = '') => {
-    const normalized = String(method).toUpperCase();
-    if (normalized === 'GET') return 'view';
-    if (normalized === 'POST') return 'create';
-    if (normalized === 'DELETE') return 'delete';
-    if (normalized === 'PATCH' || normalized === 'PUT') return 'edit';
-    return 'view';
-};
-
-router.use((req, res, next) => {
-    const section = resolveSectionFromRequest(req.path, req.method);
-    if (!section) return next();
-    const action = resolveActionByMethod(req.method);
-    return requireAdminPermission(section, action)(req, res, next);
-});
+// Super admins pass; sub-admins need access to the sidebar option that owns
+// the path (constants/adminAccess.js). Unowned paths are refused.
+router.use(requireAdminAccess);
 
 router.use('/sub-admins', requireAdminPermission('sub_admin_management', 'view'));
 router.use(

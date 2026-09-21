@@ -22,43 +22,6 @@ const apiClient = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-const ADMIN_PERMISSION_PATH_MAP = [
-  { prefix: "/food/admin/sub-admins", section: "sub_admin_management" },
-  { prefix: "/food/admin/customers", section: "customer_management" },
-  { prefix: "/food/admin/support-tickets", section: "customer_management" },
-  { prefix: "/food/admin/restaurants", section: "restaurant_management" },
-  { prefix: "/food/admin/restaurant-settings", section: "restaurant_management" },
-  { prefix: "/food/admin/restaurant-subscription-settings", section: "restaurant_management" },
-  { prefix: "/food/admin/restaurant-subscriptions", section: "restaurant_management" },
-  { prefix: "/food/admin/zones", section: "restaurant_management" },
-  { prefix: "/food/admin/categories", section: "food_management" },
-  { prefix: "/food/admin/addons", section: "food_management" },
-  { prefix: "/food/admin/foods", section: "food_management" },
-  { prefix: "/food/admin/offers", section: "promotions_management" },
-  { prefix: "/food/admin/orders", section: "order_management" },
-  { prefix: "/food/admin/order-detect-delivery", section: "order_management" },
-  { prefix: "/food/admin/sidebar-badges", section: "dashboard" },
-  { prefix: "/food/admin/dashboard-stats", section: "dashboard" },
-  { prefix: "/food/admin/referral-settings", section: "referral_rewards" },
-  { prefix: "/food/admin/delivery", section: "delivery_management" },
-  { prefix: "/food/admin/fee-settings", section: "delivery_management" },
-  { prefix: "/food/admin/delivery-cash-limit", section: "delivery_management" },
-  { prefix: "/food/admin/cash-limit-settlements", section: "delivery_management" },
-  { prefix: "/food/admin/cash-limit-settlement", section: "delivery_management" },
-  { prefix: "/food/admin/withdrawals", section: "transaction_management" },
-  { prefix: "/food/admin/reports", section: "report_management" },
-  { prefix: "/food/admin/feedback-experiences", section: "report_management" },
-  { prefix: "/food/hero-banners", section: "banner_management" },
-  { prefix: "/food/mart-sale-campaigns", section: "banner_management" },
-  { prefix: "/food/admin/contact-messages", section: "support_management" },
-  { prefix: "/food/admin/safety-emergency-reports", section: "support_management" },
-  { prefix: "/food/admin/feature-settings", section: "system_settings" },
-  { prefix: "/food/admin/business-settings", section: "system_settings" },
-  { prefix: "/food/admin/power-scanning", section: "system_settings" },
-  { prefix: "/food/admin/notifications", section: "system_settings" },
-  { prefix: "/food/admin/pages-social-media", section: "pages_social_media" },
-];
-
 const normalizePath = (url) => {
   const raw = String(url || "");
   const noQuery = raw.split("?")[0].split("#")[0];
@@ -71,50 +34,6 @@ const normalizePath = (url) => {
     }
   }
   return noQuery.startsWith("/") ? noQuery : `/${noQuery}`;
-};
-
-const resolveAdminSectionByApiPath = (url, method = "GET") => {
-  const path = normalizePath(url).toLowerCase();
-  const normalizedMethod = String(method || "GET").toUpperCase();
-  if (path === "/food/admin/zones" && normalizedMethod === "GET") {
-    return "restaurant_management";
-  }
-  const match = ADMIN_PERMISSION_PATH_MAP.find((item) => path.startsWith(item.prefix));
-  return match?.section || null;
-};
-
-const resolveActionByMethod = (method) => {
-  const normalized = String(method || "get").toUpperCase();
-  if (normalized === "GET") return "view";
-  if (normalized === "POST") return "create";
-  if (normalized === "DELETE") return "delete";
-  if (normalized === "PATCH" || normalized === "PUT") return "edit";
-  return "view";
-};
-
-const getAdminUser = () => {
-  try {
-    const raw = localStorage.getItem("admin_user");
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-};
-
-const isAdminAllowedForAction = (section, action) => {
-  const adminUser = getAdminUser();
-  const adminType = String(adminUser?.adminType || "").trim().toLowerCase();
-  if (adminType === "super_admin") return true;
-  if (!section) return false;
-  const permissions = adminUser?.effectivePermissions || adminUser?.permissions || {};
-  const actions = Array.isArray(permissions?.[section]) ? permissions[section] : [];
-  return actions.includes(action);
-};
-
-const hasAdminAction = (adminUser, section, action = "view") => {
-  const permissions = adminUser?.effectivePermissions || adminUser?.permissions || {};
-  const actions = Array.isArray(permissions?.[section]) ? permissions[section] : [];
-  return actions.includes(action);
 };
 
 function getModuleFromUrl(url = "") {
@@ -239,117 +158,8 @@ apiClient.interceptors.request.use(
   (config) => {
     config.contextModule = getModuleFromConfig(config);
 
-    // Client-side RBAC safety net for sub-admins across all admin APIs.
-    if (config.contextModule === "admin") {
-      const path = normalizePath(config?.url);
-      const normalizedPath = String(path || "").toLowerCase();
-      const isPublicAdminEndpoint =
-        (normalizedPath.startsWith("/food/admin/") &&
-          normalizedPath.endsWith("/public")) ||
-        // The catalogue reads the customer apps use. They need no permission,
-        // but admin pages still call them through here so the vertical rewrite
-        // below points them at the same catalogue the app is showing.
-        normalizedPath === "/food/search/categories/admin" ||
-        normalizedPath === "/food/search/products";
-      const isAuthEndpoint =
-        path.includes("/food/auth/admin/login") ||
-        path.includes("/food/auth/me") ||
-        path.includes("/food/auth/refresh-token") ||
-        path.includes("/food/auth/logout");
-
-      if (!isAuthEndpoint && !isPublicAdminEndpoint) {
-        const action = resolveActionByMethod(config?.method);
-        const isRestaurantListRead = normalizedPath === "/food/admin/restaurants" && action === "view";
-        const isRestaurantDetailRead =
-          /^\/food\/admin\/restaurants\/[^/]+$/.test(normalizedPath) && action === "view";
-        const isRestaurantAnalyticsRead =
-          /^\/food\/admin\/restaurants\/[^/]+\/analytics$/.test(normalizedPath) && action === "view";
-        const isOrdersRead = normalizedPath === "/food/admin/orders" && action === "view";
-        const isCustomersRead = normalizedPath === "/food/admin/customers" && action === "view";
-        const isZonesRead = normalizedPath === "/food/admin/zones" && action === "view";
-        const isZoneDetailRead =
-          /^\/food\/admin\/zones\/[^/]+$/.test(normalizedPath) && action === "view";
-
-        // POS dropdown needs restaurant list read access.
-        if (isRestaurantListRead || isRestaurantDetailRead || isRestaurantAnalyticsRead) {
-          const adminUser = getAdminUser();
-          const adminType = String(adminUser?.adminType || "").trim().toLowerCase();
-          const isAllowed =
-            adminType === "super_admin" ||
-            hasAdminAction(adminUser, "restaurant_management", "view") ||
-            hasAdminAction(adminUser, "point_of_sale", "view") ||
-            hasAdminAction(adminUser, "report_management", "view") ||
-            hasAdminAction(adminUser, "banner_management", "view");
-          if (!isAllowed) {
-            const error = new Error("Insufficient permissions for this action");
-            error.response = {
-              status: 403,
-              data: { message: "Insufficient permissions for this action" },
-            };
-            return Promise.reject(error);
-          }
-        } else if (isZonesRead || isZoneDetailRead) {
-          const adminUser = getAdminUser();
-          const adminType = String(adminUser?.adminType || "").trim().toLowerCase();
-          const isAllowed =
-            adminType === "super_admin" ||
-            hasAdminAction(adminUser, "dashboard", "view") ||
-            hasAdminAction(adminUser, "restaurant_management", "view") ||
-            hasAdminAction(adminUser, "point_of_sale", "view") ||
-            hasAdminAction(adminUser, "food_management", "view") ||
-            hasAdminAction(adminUser, "delivery_management", "view") ||
-            hasAdminAction(adminUser, "report_management", "view");
-          if (!isAllowed) {
-            const error = new Error("Insufficient permissions for this action");
-            error.response = {
-              status: 403,
-              data: { message: "Insufficient permissions for this action" },
-            };
-            return Promise.reject(error);
-          }
-        } else if (isOrdersRead) {
-          const adminUser = getAdminUser();
-          const adminType = String(adminUser?.adminType || "").trim().toLowerCase();
-          const isAllowed =
-            adminType === "super_admin" ||
-            hasAdminAction(adminUser, "order_management", "view") ||
-            hasAdminAction(adminUser, "report_management", "view");
-          if (!isAllowed) {
-            const error = new Error("Insufficient permissions for this action");
-            error.response = {
-              status: 403,
-              data: { message: "Insufficient permissions for this action" },
-            };
-            return Promise.reject(error);
-          }
-        } else if (isCustomersRead) {
-          const adminUser = getAdminUser();
-          const adminType = String(adminUser?.adminType || "").trim().toLowerCase();
-          const isAllowed =
-            adminType === "super_admin" ||
-            hasAdminAction(adminUser, "customer_management", "view") ||
-            hasAdminAction(adminUser, "report_management", "view");
-          if (!isAllowed) {
-            const error = new Error("Insufficient permissions for this action");
-            error.response = {
-              status: 403,
-              data: { message: "Insufficient permissions for this action" },
-            };
-            return Promise.reject(error);
-          }
-        } else {
-          const section = resolveAdminSectionByApiPath(path, config?.method);
-          if (!isAdminAllowedForAction(section, action)) {
-            const error = new Error("Insufficient permissions for this action");
-            error.response = {
-              status: 403,
-              data: { message: "Insufficient permissions for this action" },
-            };
-            return Promise.reject(error);
-          }
-        }
-      }
-    }
+    // Sub-admin access is enforced by the server (constants/adminAccess.js);
+    // a refused call comes back as a 403 with a readable message.
 
     // If sending FormData, let the browser set proper multipart boundary.
     if (config.data instanceof FormData) {

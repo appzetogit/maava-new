@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router-dom"
 import AdminSidebar from "./AdminSidebar"
 import AdminNavbar from "./AdminNavbar"
 import AdminPageErrorBoundary from "./AdminPageErrorBoundary"
+import ViewOnlyGuard from "./ViewOnlyGuard"
 import { API_BASE_URL } from "@food/api/config"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -65,12 +66,14 @@ export default function AdminLayout() {
         />
       )}
 
-      {/* Sidebar */}
-      <AdminSidebar
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        onCollapseChange={handleCollapseChange}
-      />
+      {/* Sidebar. data-admin-chrome: the view-only guard leaves it alone. */}
+      <div data-admin-chrome className="contents">
+        <AdminSidebar
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          onCollapseChange={handleCollapseChange}
+        />
+      </div>
 
       {/* Main Content Area */}
       <div className={`
@@ -78,7 +81,12 @@ export default function AdminLayout() {
         ${isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-80'}
       `}>
         {/* Top Navbar */}
-        <AdminNavbar onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
+        <div data-admin-chrome className="contents">
+          <AdminNavbar onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
+        </div>
+
+        {/* Sub-admin with View only on this page: banner, edit controls hidden. */}
+        <ViewOnlyGuard />
 
         {/* Backend disconnected banner */}
         {!API_BASE_URL && (
