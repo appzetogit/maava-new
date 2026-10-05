@@ -12,20 +12,25 @@ const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
-export default function AddMoneyModal({ open, onOpenChange, onSuccess }) {
+const inr = (n) => Number(n).toLocaleString("en-IN")
+
+/** minAmount / maxAmount come from the wallet's topupLimits (admin Wallet Settings). */
+export default function AddMoneyModal({ open, onOpenChange, onSuccess, minAmount = 100, maxAmount = 50000 }) {
   const [amount, setAmount] = useState("")
   const [loading, setLoading] = useState(false)
   const [processing, setProcessing] = useState(false)
 
-  const quickAmounts = [100, 250, 500, 1000, 2000, 5000]
+  const quickAmounts = [100, 250, 500, 1000, 2000, 5000].filter((a) => a >= minAmount && a <= maxAmount)
 
   const handleAmountSelect = (selectedAmount) => {
     setAmount(selectedAmount.toString())
   }
 
+  // Typing is allowed from 1 so "150" can be entered digit by digit; the
+  // button stays disabled below the minimum.
   const handleAmountChange = (e) => {
     const value = e.target.value.replace(/[^0-9.]/g, "")
-    if (value === "" || (parseFloat(value) >= 1 && parseFloat(value) <= 50000)) {
+    if (value === "" || (parseFloat(value) >= 1 && parseFloat(value) <= maxAmount)) {
       setAmount(value)
     }
   }
@@ -33,13 +38,13 @@ export default function AddMoneyModal({ open, onOpenChange, onSuccess }) {
   const handleAddMoney = async () => {
     const amountNum = parseFloat(amount)
 
-    if (!amount || isNaN(amountNum) || amountNum < 100) {
-      toast.error("Minimum amount is \u20B9100")
+    if (!amount || isNaN(amountNum) || amountNum < minAmount) {
+      toast.error(`Minimum amount is \u20B9${inr(minAmount)}`)
       return
     }
 
-    if (amountNum > 50000) {
-      toast.error("Maximum amount is \u20B950,000")
+    if (amountNum > maxAmount) {
+      toast.error(`Maximum amount is \u20B9${inr(maxAmount)}`)
       return
     }
 
@@ -204,7 +209,7 @@ export default function AddMoneyModal({ open, onOpenChange, onSuccess }) {
                 />
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Minimum: {"\u20B9"}1 | Maximum: {"\u20B9"}50,000
+                Minimum: {"\u20B9"}{inr(minAmount)} | Maximum: {"\u20B9"}{inr(maxAmount)}
               </p>
             </div>
 
@@ -230,7 +235,7 @@ export default function AddMoneyModal({ open, onOpenChange, onSuccess }) {
 
             <Button
               onClick={handleAddMoney}
-              disabled={!amount || loading || processing || parseFloat(amount) < 100}
+              disabled={!amount || loading || processing || parseFloat(amount) < minAmount}
               className="w-full h-12 text-white font-semibold text-base"
               style={{
                 background:
