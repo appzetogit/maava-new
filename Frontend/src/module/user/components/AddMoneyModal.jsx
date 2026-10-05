@@ -30,8 +30,8 @@ export default function AddMoneyModal({ open, onOpenChange, onSuccess }) {
   const handleAddMoney = async () => {
     const amountNum = parseFloat(amount)
     
-    if (!amount || isNaN(amountNum) || amountNum < 1) {
-      toast.error("Please enter a valid amount (minimum ₹1)")
+    if (!amount || isNaN(amountNum) || amountNum < 100) {
+      toast.error("Minimum amount is ₹100")
       return
     }
 
@@ -232,7 +232,7 @@ export default function AddMoneyModal({ open, onOpenChange, onSuccess }) {
           {/* Add Money Button */}
           <Button
             onClick={handleAddMoney}
-            disabled={!amount || loading || processing || parseFloat(amount) < 1}
+            disabled={!amount || loading || processing || parseFloat(amount) < 100}
             className="w-full h-12 bg-green-600 hover:bg-green-700 text-white font-semibold text-base"
           >
             {loading || processing ? (

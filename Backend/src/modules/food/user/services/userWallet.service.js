@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { FoodUserWallet } from '../models/userWallet.model.js';
-import { createRazorpayOrder, getRazorpayKeyId, isRazorpayConfigured, verifyPaymentSignature } from '../../orders/helpers/razorpay.helper.js';
+import { createRazorpayOrder, fetchRazorpayOrder, fetchRazorpayPayment, getRazorpayKeyId, isRazorpayConfigured, verifyPaymentSignature } from '../../orders/helpers/razorpay.helper.js';
 
 const ensureWallet = async (userId) => {
     const id = String(userId || '');
@@ -62,10 +62,14 @@ export const getUserWallet = async (userId) => {
     };
 };
 
+// Enforced here, not only in the apps: the website allowed 1, and users were
+// topping up 1 at a time from many different UPI IDs.
+export const MIN_WALLET_TOPUP_INR = 100;
+
 export const createWalletTopupOrder = async (userId, amountInr) => {
     const amount = Number(amountInr);
-    if (!Number.isFinite(amount) || amount <= 0) {
-        throw new ValidationError('Amount must be greater than 0');
+    if (!Number.isFinite(amount) || amount < MIN_WALLET_TOPUP_INR) {
+        throw new ValidationError(`Minimum amount is ₹${MIN_WALLET_TOPUP_INR}`);
     }
     if (amount > 50000) {
         throw new ValidationError('Maximum amount is 50,000');
@@ -103,12 +107,10 @@ export const verifyWalletTopupPayment = async (userId, payload) => {
     const orderId = String(payload?.razorpayOrderId || '').trim();
     const paymentId = String(payload?.razorpayPaymentId || '').trim();
     const signature = String(payload?.razorpaySignature || '').trim();
-    const amount = Number(payload?.amount);
 
     if (!orderId) throw new ValidationError('razorpayOrderId is required');
     if (!paymentId) throw new ValidationError('razorpayPaymentId is required');
     if (!signature) throw new ValidationError('razorpaySignature is required');
-    if (!Number.isFinite(amount) || amount <= 0) throw new ValidationError('amount is required');
 
     const wallet = await ensureWallet(userId);
     const existing = wallet.transactions.find((t) => String(t.razorpayOrderId || '') === orderId);
@@ -116,28 +118,61 @@ export const verifyWalletTopupPayment = async (userId, payload) => {
         return { wallet: await getUserWallet(userId) };
     }
 
-    // If razorpay not configured (dev), accept and credit wallet.
-    const ok = isRazorpayConfigured()
-        ? verifyPaymentSignature(orderId, paymentId, signature)
-        : true;
-    if (!ok) {
+    // The amount is never taken from the client: the signature only covers
+    // orderId|paymentId, so a client-sent amount could be anything (pay 1, claim 100).
+    let amount;
+    if (isRazorpayConfigured()) {
+        if (!verifyPaymentSignature(orderId, paymentId, signature)) {
+            throw new ValidationError('Payment verification failed');
+        }
+        const [order, payment] = await Promise.all([
+            fetchRazorpayOrder(orderId),
+            fetchRazorpayPayment(paymentId)
+        ]);
+        const receiptPrefix = `wallet_topup_${String(userId).slice(-8)}_`;
+        if (!String(order?.receipt || '').startsWith(receiptPrefix)) {
+            throw new ValidationError('Payment verification failed');
+        }
+        if (String(payment?.order_id || '') !== orderId) {
+            throw new ValidationError('Payment verification failed');
+        }
+        if (!['captured', 'authorized'].includes(String(payment?.status || '').toLowerCase())) {
+            throw new ValidationError('Payment not completed');
+        }
+        amount = Math.min(Number(payment.amount) || 0, Number(order.amount) || 0) / 100;
+    } else {
+        // Dev fallback only (no Razorpay keys): accept the client amount.
+        amount = Number(payload?.amount);
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
         throw new ValidationError('Payment verification failed');
     }
 
-    // Store ONLY after payment is verified.
-    wallet.transactions.unshift({
-        type: 'addition',
-        amount,
-        status: 'Completed',
-        description: isRazorpayConfigured() ? 'Wallet top-up' : 'Wallet top-up (dev)',
-        metadata: { source: 'wallet_topup', mode: isRazorpayConfigured() ? 'razorpay' : 'dev' },
-        razorpayOrderId: orderId,
-        razorpayPaymentId: paymentId,
-        razorpaySignature: signature
-    });
-
-    wallet.balance = Number(wallet.balance || 0) + amount;
-    await wallet.save();
+    // Store ONLY after payment is verified. Atomic so two concurrent verify
+    // calls for the same order cannot both credit the wallet.
+    // A null result means a concurrent request already credited it; either way return the wallet.
+    await FoodUserWallet.findOneAndUpdate(
+        { _id: wallet._id, 'transactions.razorpayOrderId': { $ne: orderId } },
+        {
+            $push: {
+                transactions: {
+                    $each: [{
+                        type: 'addition',
+                        amount,
+                        status: 'Completed',
+                        description: isRazorpayConfigured() ? 'Wallet top-up' : 'Wallet top-up (dev)',
+                        metadata: { source: 'wallet_topup', mode: isRazorpayConfigured() ? 'razorpay' : 'dev' },
+                        razorpayOrderId: orderId,
+                        razorpayPaymentId: paymentId,
+                        razorpaySignature: signature
+                    }],
+                    $position: 0
+                }
+            },
+            $inc: { balance: amount }
+        },
+        { new: true }
+    );
 
     return { wallet: await getUserWallet(userId) };
 };

@@ -70,6 +70,29 @@ export async function fetchRazorpayPayment(paymentId) {
 }
 
 /**
+ * Fetch a Razorpay order (server-side): its amount, receipt and status.
+ * @param {string} orderId
+ */
+export async function fetchRazorpayOrder(orderId) {
+    const instance = getRazorpayInstance();
+    if (!instance) throw new Error('Razorpay not configured');
+    if (!orderId) throw new Error('orderId is required');
+    return instance.orders.fetch(String(orderId));
+}
+
+/**
+ * Fetch a refund: its status (pending / processed / failed) and, once the bank
+ * acknowledges it, the reference in acquirer_data.arn.
+ * @param {string} refundId
+ */
+export async function fetchRazorpayRefund(refundId) {
+    const instance = getRazorpayInstance();
+    if (!instance) throw new Error('Razorpay not configured');
+    if (!refundId) throw new Error('refundId is required');
+    return instance.refunds.fetch(String(refundId));
+}
+
+/**
  * Fetch Razorpay payment-link to check status (used for Razorpay QR auto verification).
  * @param {string} paymentLinkId
  */
