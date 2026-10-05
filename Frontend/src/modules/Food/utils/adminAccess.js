@@ -1,3 +1,4 @@
+import { vt } from "./adminVerticalLabels";
 /**
  * Sidebar options a sub-admin can be given, and the admin pages each one owns.
  * Same keys as Backend/src/constants/adminAccess.js (a backend test checks).
@@ -8,7 +9,7 @@ export const ADMIN_ACCESS_GROUPS = [
   { group: "General", items: [
     { key: "dashboard", label: "Dashboard", pages: ["=/admin/store"] },
     { key: "point_of_sale", label: "Point of Sale", pages: ["/admin/store/point-of-sale"] },
-    { key: "restaurant_commission", label: "Restaurant Commission", pages: ["/admin/store/sellers/commission"] },
+    { key: "restaurant_commission", label: vt("Seller Commission"), pages: ["/admin/store/sellers/commission"] },
   ] },
   { group: "Catalog", items: [
     { key: "product_approval", label: "Product Approval", pages: ["/admin/store/food-approval"] },
@@ -30,6 +31,7 @@ export const ADMIN_ACCESS_GROUPS = [
   { group: "Customers", items: [
     { key: "customers", label: "Customers", pages: ["/admin/store/customers"] },
     { key: "cod_access", label: "COD Access", pages: ["/admin/store/cod-access"] },
+    { key: "wallet_settings", label: "Customer Wallet Settings", pages: ["/admin/store/wallet-settings"] },
     { key: "support_tickets", label: "Support Tickets (User & Seller)", pages: ["/admin/store/support-tickets"] },
   ] },
   { group: "Delivery", items: [
@@ -51,9 +53,9 @@ export const ADMIN_ACCESS_GROUPS = [
     { key: "transaction_report", label: "Transaction Report", pages: ["/admin/store/transaction-report"] },
     { key: "order_report", label: "Order Report", pages: ["/admin/store/order-report"] },
     { key: "tax_report", label: "Tax Report", pages: ["/admin/store/tax-report"] },
-    { key: "restaurant_report", label: "Restaurant Report", pages: ["/admin/store/restaurant-report"] },
+    { key: "restaurant_report", label: vt("Seller Report"), pages: ["/admin/store/restaurant-report"] },
     { key: "customer_report", label: "Customer Report", pages: ["/admin/store/customer-report"] },
-    { key: "restaurant_withdraws", label: "Restaurant Withdraws", pages: ["/admin/store/restaurant-withdraws"] },
+    { key: "restaurant_withdraws", label: vt("Seller Withdraws"), pages: ["/admin/store/restaurant-withdraws"] },
   ] },
   { group: "Banners & Pages", items: [
     { key: "landing_page", label: "Landing Page Management", pages: ["/admin/store/hero-banner-management"] },

@@ -306,6 +306,8 @@ export default function Wallet() {
         open={addMoneyModalOpen}
         onOpenChange={setAddMoneyModalOpen}
         onSuccess={fetchWalletData}
+        minAmount={wallet?.topupLimits?.min}
+        maxAmount={wallet?.topupLimits?.max}
       />
     </AnimatedPage>
   )

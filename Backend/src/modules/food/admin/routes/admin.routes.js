@@ -21,7 +21,12 @@ import { FoodAdmin } from '../../../../core/admin/admin.model.js';
 import { requireAdminPermission, requireAnyAdminPermission, requireAdminAccess } from '../../../../core/roles/adminPermission.middleware.js';
 import * as driverRegField from '../../delivery/controllers/driverRegistrationField.controller.js';
 import * as cashbackSettings from '../controllers/cashbackSettings.controller.js';
+import * as walletSettings from '../controllers/walletSettings.controller.js';
 import * as restaurantAppBanner from '../controllers/restaurantAppBanner.controller.js';
+import {
+    getOutletTimingsByRestaurantIdController,
+    upsertOutletTimingsByRestaurantIdController,
+} from '../../restaurant/controllers/outletTimings.controller.js';
 
 const router = express.Router();
 
@@ -175,6 +180,9 @@ router.get('/restaurants/:id/menu', adminController.getRestaurantMenuById);
 router.post('/restaurants', adminController.createRestaurant);
 router.patch('/restaurants/:id', adminController.updateRestaurantById);
 router.patch('/restaurants/:id/status', adminController.updateRestaurantStatus);
+// Store hours, set by an admin on the seller's behalf.
+router.get('/restaurants/:id/outlet-timings', getOutletTimingsByRestaurantIdController);
+router.put('/restaurants/:id/outlet-timings', upsertOutletTimingsByRestaurantIdController);
 router.patch('/restaurants/:id/location', adminController.updateRestaurantLocation);
 router.patch('/restaurants/:id/menu', adminController.updateRestaurantMenuById);
 router.patch('/restaurants/:id/approve', adminController.approveRestaurant);
@@ -280,6 +288,10 @@ router.delete('/restaurant-app-banners/:id', restaurantAppBanner.deleteBannerCon
 // ----- Cashback Settings -----
 router.get('/cashback-settings', cashbackSettings.getCashbackSettingsController);
 router.put('/cashback-settings', cashbackSettings.upsertCashbackSettingsController);
+
+// ----- Customer Wallet Settings (top-up limits) -----
+router.get('/wallet-settings', walletSettings.getWalletSettingsController);
+router.put('/wallet-settings', walletSettings.updateWalletSettingsController);
 
 // ----- Referral Settings -----
 router.get('/referral-settings', adminController.getReferralSettings);

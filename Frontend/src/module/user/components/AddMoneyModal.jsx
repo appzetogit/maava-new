@@ -8,13 +8,16 @@ import { initRazorpayPayment } from "@/lib/utils/razorpay"
 import { toast } from "sonner"
 import { getCompanyNameAsync } from "@/lib/utils/businessSettings"
 
-export default function AddMoneyModal({ open, onOpenChange, onSuccess }) {
+const inr = (n) => Number(n).toLocaleString("en-IN")
+
+/** minAmount / maxAmount come from the wallet's topupLimits (admin Wallet Settings). */
+export default function AddMoneyModal({ open, onOpenChange, onSuccess, minAmount = 100, maxAmount = 50000 }) {
   const [amount, setAmount] = useState("")
   const [loading, setLoading] = useState(false)
   const [processing, setProcessing] = useState(false)
 
   // Quick amount buttons
-  const quickAmounts = [100, 250, 500, 1000, 2000, 5000]
+  const quickAmounts = [100, 250, 500, 1000, 2000, 5000].filter((a) => a >= minAmount && a <= maxAmount)
 
   const handleAmountSelect = (selectedAmount) => {
     setAmount(selectedAmount.toString())
@@ -22,21 +25,21 @@ export default function AddMoneyModal({ open, onOpenChange, onSuccess }) {
 
   const handleAmountChange = (e) => {
     const value = e.target.value.replace(/[^0-9.]/g, "")
-    if (value === "" || (parseFloat(value) >= 1 && parseFloat(value) <= 50000)) {
+    if (value === "" || (parseFloat(value) >= 1 && parseFloat(value) <= maxAmount)) {
       setAmount(value)
     }
   }
 
   const handleAddMoney = async () => {
     const amountNum = parseFloat(amount)
-    
-    if (!amount || isNaN(amountNum) || amountNum < 100) {
-      toast.error("Minimum amount is ₹100")
+
+    if (!amount || isNaN(amountNum) || amountNum < minAmount) {
+      toast.error(`Minimum amount is ₹${inr(minAmount)}`)
       return
     }
 
-    if (amountNum > 50000) {
-      toast.error("Maximum amount is ₹50,000")
+    if (amountNum > maxAmount) {
+      toast.error(`Maximum amount is ₹${inr(maxAmount)}`)
       return
     }
 
@@ -204,7 +207,7 @@ export default function AddMoneyModal({ open, onOpenChange, onSuccess }) {
               />
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Minimum: ₹1 | Maximum: ₹50,000
+              Minimum: ₹{inr(minAmount)} | Maximum: ₹{inr(maxAmount)}
             </p>
           </div>
 
@@ -232,7 +235,7 @@ export default function AddMoneyModal({ open, onOpenChange, onSuccess }) {
           {/* Add Money Button */}
           <Button
             onClick={handleAddMoney}
-            disabled={!amount || loading || processing || parseFloat(amount) < 100}
+            disabled={!amount || loading || processing || parseFloat(amount) < minAmount}
             className="w-full h-12 bg-green-600 hover:bg-green-700 text-white font-semibold text-base"
           >
             {loading || processing ? (

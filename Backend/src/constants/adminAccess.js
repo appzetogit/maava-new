@@ -35,6 +35,7 @@ export const ADMIN_ACCESS_GROUPS = [
     { group: 'Customers', items: [
         { key: 'customers', label: 'Customers' },
         { key: 'cod_access', label: 'COD Access' },
+        { key: 'wallet_settings', label: 'Customer Wallet Settings' },
         { key: 'support_tickets', label: 'Support Tickets (User & Seller)' },
     ] },
     { group: 'Delivery', items: [
@@ -113,6 +114,7 @@ const RULES = [
     [/^\/offers/, ['coupons']],
     [/^\/(referral-settings|cashback-settings)/, ['referral_settings']],
 
+    [/^\/wallet-settings/, ['wallet_settings']],
     [/^\/customers\/[^/]+\/cod/, ['cod_access']],
     [/^\/customers/, ['customers', 'cod_access', 'customer_report']],
     [/^\/support-tickets/, ['support_tickets']],

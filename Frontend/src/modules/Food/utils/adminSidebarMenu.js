@@ -13,7 +13,7 @@ export const adminSidebarMenu = [
   },
   {
     type: "link",
-    label: "Restaurant Commission",
+    label: "Seller Commission",
     path: "/admin/store/sellers/commission",
     icon: "Percent",
   },
@@ -138,6 +138,12 @@ export const adminSidebarMenu = [
       },
       {
         type: "link",
+        label: "Wallet Settings",
+        path: "/admin/store/wallet-settings",
+        icon: "Wallet",
+      },
+      {
+        type: "link",
         label: "Support Tickets (User & Seller)",
         path: "/admin/store/support-tickets",
         icon: "MessageSquare",
@@ -190,9 +196,9 @@ export const adminSidebarMenu = [
       { type: "link", label: "Tax Report", path: "/admin/store/tax-report", icon: "Receipt" },
       {
         type: "expandable",
-        label: "Restaurant Report",
+        label: "Seller Report",
         icon: "FileText",
-        subItems: [{ label: "Restaurant Report", path: "/admin/store/restaurant-report" }],
+        subItems: [{ label: "Seller Report", path: "/admin/store/restaurant-report" }],
       },
       {
         type: "expandable",
@@ -206,7 +212,7 @@ export const adminSidebarMenu = [
     type: "section",
     label: "TRANSACTION MANAGEMENT",
     items: [
-      { type: "link", label: "Restaurant Withdraws", path: "/admin/store/restaurant-withdraws", icon: "CreditCard" },
+      { type: "link", label: "Seller Withdraws", path: "/admin/store/restaurant-withdraws", icon: "CreditCard" },
     ],
   },
   {

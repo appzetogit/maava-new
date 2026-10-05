@@ -251,11 +251,18 @@ export const adminAPI = {
     apiClient.patch("/auth/admin/profile", body ?? {}, {
       contextModule: "admin",
     }),
-  /** POST /auth/admin/change-password */
-  changePassword: (currentPassword, newPassword) =>
+  /** POST /auth/admin/change-password/request-otp - checks the current password, texts a super admin's code */
+  requestPasswordChangeOtp: (currentPassword, newPassword) =>
+    apiClient.post(
+      "/auth/admin/change-password/request-otp",
+      { currentPassword, newPassword },
+      { contextModule: "admin" },
+    ),
+  /** POST /auth/admin/change-password - otp is required for a super admin */
+  changePassword: (currentPassword, newPassword, otp) =>
     apiClient.post(
       "/auth/admin/change-password",
-      { currentPassword, newPassword },
+      { currentPassword, newPassword, ...(otp ? { otp: String(otp) } : {}) },
       { contextModule: "admin" },
     ),
   logout: async (refreshToken) => {
@@ -695,6 +702,18 @@ export const adminAPI = {
     apiClient.patch(`/food/admin/restaurants/${String(id)}`, body ?? {}, {
       contextModule: "admin",
     }),
+  /** Store hours an admin sets for a seller. */
+  getRestaurantOutletTimings: (id) =>
+    apiClient.get(`/food/admin/restaurants/${String(id)}/outlet-timings`, {
+      contextModule: "admin",
+    }),
+  /** outletTimings: { Monday: { isOpen, openingTime, closingTime }, ... } */
+  updateRestaurantOutletTimings: (id, outletTimings) =>
+    apiClient.put(
+      `/food/admin/restaurants/${String(id)}/outlet-timings`,
+      { outletTimings },
+      { contextModule: "admin" },
+    ),
   /** Update restaurant status (admin). Body: { status: boolean } */
   updateRestaurantStatus: (id, status) =>
     apiClient.patch(
@@ -1177,6 +1196,14 @@ export const adminAPI = {
     apiClient.get("/food/admin/referral-settings", { contextModule: "admin" }),
   createOrUpdateReferralSettings: (body) =>
     apiClient.put("/food/admin/referral-settings", body ?? {}, {
+      contextModule: "admin",
+    }),
+
+  /** Customer wallet top-up limits (admin). One setting for both verticals. */
+  getWalletSettings: () =>
+    apiClient.get("/food/admin/wallet-settings", { contextModule: "admin" }),
+  updateWalletSettings: (body) =>
+    apiClient.put("/food/admin/wallet-settings", body ?? {}, {
       contextModule: "admin",
     }),
 

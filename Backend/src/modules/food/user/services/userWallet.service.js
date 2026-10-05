@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { FoodUserWallet } from '../models/userWallet.model.js';
+import { getWalletTopupLimits } from './walletSettings.service.js';
 import { createRazorpayOrder, fetchRazorpayOrder, fetchRazorpayPayment, getRazorpayKeyId, isRazorpayConfigured, verifyPaymentSignature } from '../../orders/helpers/razorpay.helper.js';
 
 const ensureWallet = async (userId) => {
@@ -39,14 +40,20 @@ export const getUserWallet = async (userId) => {
         throw new ValidationError('User not found');
     }
     const oid = new mongoose.Types.ObjectId(id);
-    const wallet = await FoodUserWallet.findOne({ userId: oid });
+    const [wallet, limits] = await Promise.all([
+        FoodUserWallet.findOne({ userId: oid }),
+        getWalletTopupLimits()
+    ]);
+    // The apps read the add-money limits from here instead of hard-coding them.
+    const topupLimits = { min: limits.minTopup, max: limits.maxTopup };
     if (!wallet) {
-        return { balance: 0, referralEarnings: 0, transactions: [] };
+        return { balance: 0, referralEarnings: 0, topupLimits, transactions: [] };
     }
     // Return newest first (UI expects recent transactions on top)
     const tx = Array.isArray(wallet.transactions) ? [...wallet.transactions].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)) : [];
     return {
         balance: Number(wallet.balance) || 0,
+        topupLimits,
         referralEarnings: Number(wallet.referralEarnings) || 0,
         transactions: tx.map((t) => ({
             id: String(t._id),
@@ -63,16 +70,17 @@ export const getUserWallet = async (userId) => {
 };
 
 // Enforced here, not only in the apps: the website allowed 1, and users were
-// topping up 1 at a time from many different UPI IDs.
-export const MIN_WALLET_TOPUP_INR = 100;
-
+// topping up 1 at a time from many different UPI IDs. Limits come from the
+// admin's Customer Wallet Settings. Verify only credits orders created here,
+// so this is the one gate every top-up passes.
 export const createWalletTopupOrder = async (userId, amountInr) => {
+    const { minTopup, maxTopup } = await getWalletTopupLimits();
     const amount = Number(amountInr);
-    if (!Number.isFinite(amount) || amount < MIN_WALLET_TOPUP_INR) {
-        throw new ValidationError(`Minimum amount is ₹${MIN_WALLET_TOPUP_INR}`);
+    if (!Number.isFinite(amount) || amount < minTopup) {
+        throw new ValidationError(`Minimum amount is ₹${minTopup.toLocaleString('en-IN')}`);
     }
-    if (amount > 50000) {
-        throw new ValidationError('Maximum amount is 50,000');
+    if (amount > maxTopup) {
+        throw new ValidationError(`Maximum amount is ₹${maxTopup.toLocaleString('en-IN')}`);
     }
 
     const amountPaise = Math.round(amount * 100);
