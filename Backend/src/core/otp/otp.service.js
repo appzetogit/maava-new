@@ -117,14 +117,29 @@ const sendSmsViaIndiaHub = async (phone, otp) => {
     }
 };
 
+/** Send [otp] by SMS on the same DLT template as the app logins. Never throws. */
+export const sendOtpSms = (phone, otp) => sendSmsViaIndiaHub(phone, otp);
+
+/**
+ * App Store / Play review login: these numbers always get REVIEW_OTP, no SMS
+ * is sent, and the per-phone request limit does not apply (reviewers log in
+ * repeatedly). Six digits because the apps' OTP screens only submit six.
+ * Anyone who knows the number can sign in to it, so keep no real money or
+ * personal data on that account, and remove it here once review is done.
+ */
+const REVIEW_PHONES = new Set(['9301988718']);
+const REVIEW_OTP = '123456';
+const isReviewPhone = (phone) => REVIEW_PHONES.has(String(phone ?? '').replace(/\D/g, '').slice(-10));
+
 export const createOrUpdateOtp = async (phone) => {
     const existing = await FoodOtp.findOne({ phone });
     const now = new Date();
+    const reviewLogin = isReviewPhone(phone);
 
     const windowMs = (config.otpRateWindow || 600) * 1000;
     const decision = evaluateOtpRateWindow(existing, now, {
         windowMs,
-        limit: config.otpRateLimit || 3,
+        limit: reviewLogin ? Number.MAX_SAFE_INTEGER : (config.otpRateLimit || 3),
     });
     const windowStartedAt = decision.windowStartedAt;
 
@@ -143,7 +158,10 @@ export const createOrUpdateOtp = async (phone) => {
     }
 
     let otp;
-    if (config.useDefaultOtp) {
+    if (reviewLogin) {
+        otp = REVIEW_OTP;
+        logger.info(`Review login OTP issued for ${phone}`);
+    } else if (config.useDefaultOtp) {
         otp = '123456';
         logger.info(`Default OTP mode enabled – OTP is ${otp} for phone ${phone}`);
     } else {
@@ -184,8 +202,8 @@ export const createOrUpdateOtp = async (phone) => {
         });
     }
 
-    // Only send SMS if not in default OTP mode
-    if (!config.useDefaultOtp) {
+    // Only send SMS if not in default OTP mode (and never to the review number)
+    if (!config.useDefaultOtp && !reviewLogin) {
         await sendSmsViaIndiaHub(phone, otp);
     }
 

@@ -1,8 +1,6 @@
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import { AppShellSkeleton } from '@food/components/ui/loading-skeletons'
-import LandingPage from './LandingPage'
-import { isFeatureEnabled, loadCorePublicAppConfig } from '@food/services/publicAppConfig'
 
 const NATIVE_LAST_ROUTE_KEY = 'native_last_route'
 
@@ -47,32 +45,8 @@ const RedirectToShop = () => {
   return <Navigate to={`/food${location.pathname}${location.search}`} replace />;
 };
 
-const RootEntryRoute = () => {
-  const [loading, setLoading] = useState(true)
-  const [showLandingAtRoot, setShowLandingAtRoot] = useState(true)
-
-  useEffect(() => {
-    const loadFeatureSettings = async () => {
-      try {
-        await loadCorePublicAppConfig()
-        setShowLandingAtRoot(
-          isFeatureEnabled("root_landing_and_unregistered_control", true),
-        )
-      } catch (_error) {
-        // fallback to landing page when API is unavailable
-      } finally {
-        setLoading(false)
-      }
-    }
-    loadFeatureSettings()
-  }, [])
-
-  if (loading) return <PageLoader />
-  // With the customer storefront restored, the root belongs to shoppers. The
-  // marketing landing page still shows when the feature flag asks for it.
-  if (!showLandingAtRoot) return <Navigate to="/food/user" replace />
-  return <LandingPage />
-}
+// The root belongs to shoppers: straight to the storefront.
+const RootEntryRoute = () => <Navigate to="/food/user/" replace />
 
 
 const PublicCmsPage = lazy(() => import('./PublicCmsPage'))
@@ -153,6 +127,15 @@ const AppRoutes = () => {
         element={
           <Suspense fallback={<PageLoader />}>
             <PublicCmsPage />
+          </Suspense>
+        }
+      />
+      {/* The Mart (quick-commerce) app's own copies, e.g. /mart/pages/privacy. */}
+      <Route
+        path="/mart/pages/:slug"
+        element={
+          <Suspense fallback={<PageLoader />}>
+            <PublicCmsPage vertical="quick" />
           </Suspense>
         }
       />
