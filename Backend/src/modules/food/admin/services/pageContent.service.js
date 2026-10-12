@@ -3,6 +3,9 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 
 const normalizeKey = (key) => String(key || '').trim().toLowerCase();
 
+/** Pages stored as { title, content (HTML), email, mobile }. 'about' has its own shape. */
+export const LEGAL_PAGE_KEYS = ['terms', 'privacy', 'refund', 'shipping', 'cancellation', 'support', 'contact', 'products'];
+
 const decodeHtmlEntities = (value) => {
     if (value === null || value === undefined) return value;
     let s = String(value);
@@ -59,7 +62,7 @@ export const getAdminPageByKey = async (key, module = 'ALL') => getPublicPageByK
 export const upsertLegalPage = async (key, payload, updatedBy, module = 'ALL') => {
     const k = normalizeKey(key);
     const m = String(module || 'ALL').toUpperCase();
-    if (!['terms', 'privacy', 'refund', 'shipping', 'cancellation', 'support'].includes(k)) {
+    if (!LEGAL_PAGE_KEYS.includes(k)) {
         throw new ValidationError('Invalid page key');
     }
     const title = String(payload?.title || '').trim();

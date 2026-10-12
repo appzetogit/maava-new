@@ -33,6 +33,13 @@ const PAGES = {
     refund: { key: "refund", title: "Refund Policy" },
     shipping: { key: "shipping", title: "Shipping Policy" },
     cancellation: { key: "cancellation", title: "Cancellation Policy" },
+    contact: { key: "contact", title: "Contact Us" },
+    products: { key: "products", title: "Product Details" },
+    // Longer spellings people (and payment-gateway checklists) tend to use.
+    "about-us": { key: "about", title: "About Us" },
+    "contact-us": { key: "contact", title: "Contact Us" },
+    "product-details": { key: "products", title: "Product Details" },
+    "privacy-policy": { key: "privacy", title: "Privacy Policy" },
 };
 
 /**
