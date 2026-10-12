@@ -21,6 +21,13 @@ import { evaluateOtpRateWindow } from './otp.rateWindow.js';
  */
 const generateOtpCode = () => String(crypto.randomInt(100000, 1000000));
 
+/** [text] with every occurrence of [otp] replaced by asterisks, for logging. */
+export const maskOtp = (text, otp) => {
+    const s = String(text ?? '');
+    const code = String(otp ?? '');
+    return code ? s.split(code).join('*'.repeat(code.length)) : s;
+};
+
 /**
  * Sends SMS via SMS India Hub API
  * @param {string} phone - 10-digit mobile number (will be prefixed with 91)
@@ -74,7 +81,11 @@ const sendSmsViaIndiaHub = async (phone, otp) => {
         logger.info(`[SMS] Sending OTP to ${msisdn} via SMS India Hub...`);
         const response = await fetch(url.toString());
         const resultText = await response.text();
-        logger.info(`[SMS] Raw response for ${msisdn}: ${resultText}`);
+        // The gateway echoes the delivered message, code included, so nothing it
+        // returns is logged as-is: anyone reading the logs could otherwise sign
+        // in to an account that just requested a code.
+        const safeText = maskOtp(resultText, otp);
+        logger.info(`[SMS] Response for ${msisdn}: ${safeText}`);
 
         // SMS India Hub often returns HTTP 200 OK even for errors — check response body
         let parsed = null;
@@ -89,7 +100,7 @@ const sendSmsViaIndiaHub = async (phone, otp) => {
             !parsed && /^\s*(failed|error)\b|invalid login/i.test(resultText);
 
         if (plainTextFailure) {
-            const errMsg = `SMS India Hub ERROR for ${phone}: ${resultText.trim()}`;
+            const errMsg = `SMS India Hub ERROR for ${phone}: ${safeText.trim()}`;
             logger.error(errMsg);
             // eslint-disable-next-line no-console
             console.error(`❌ [SMS ERROR] ${errMsg}`);
@@ -98,7 +109,7 @@ const sendSmsViaIndiaHub = async (phone, otp) => {
                 console.error('❌ [SMS ERROR] "Invalid Login" = the SMS India Hub API key / username is wrong or expired. No OTP is reaching any customer until it is corrected.');
             }
         } else if (parsed && parsed.ErrorCode && parsed.ErrorCode !== '000') {
-            const errMsg = `SMS India Hub ERROR for ${phone}: [${parsed.ErrorCode}] ${parsed.ErrorMessage || resultText}`;
+            const errMsg = `SMS India Hub ERROR for ${phone}: [${parsed.ErrorCode}] ${maskOtp(parsed.ErrorMessage, otp) || safeText}`;
             logger.error(errMsg);
             // eslint-disable-next-line no-console
             console.error(`❌ [SMS ERROR] ${errMsg}`);
@@ -107,7 +118,7 @@ const sendSmsViaIndiaHub = async (phone, otp) => {
                 console.error('❌ [SMS ERROR] ErrorCode 006 = DLT Template mismatch. The message text must EXACTLY match your registered TRAI DLT template. Login to https://cloud.smsindiahub.in and verify the approved template text.');
             }
         } else if (!response.ok) {
-            logger.error(`SMS API HTTP error for ${phone}: ${response.status} – ${resultText}`);
+            logger.error(`SMS API HTTP error for ${phone}: ${response.status} – ${safeText}`);
         } else {
             logger.info(`✅ SMS sent successfully to ${msisdn}`);
         }
