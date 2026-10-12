@@ -35,7 +35,12 @@ const PAGES = {
     cancellation: { key: "cancellation", title: "Cancellation Policy" },
 };
 
-export default function PublicCmsPage() {
+/**
+ * vertical "food" serves /pages/:slug, "quick" serves /mart/pages/:slug. Each
+ * reads its own vertical's copy; Mart never falls back to Food's text, since
+ * showing one app's privacy policy for the other is a legal problem.
+ */
+export default function PublicCmsPage({ vertical = "food" }) {
     const { slug } = useParams();
     const page = PAGES[String(slug || "").toLowerCase()];
 
@@ -49,7 +54,7 @@ export default function PublicCmsPage() {
         (async () => {
             setLoading(true);
             try {
-                const response = await apiClient.get(`/food/pages/${page.key}`, {
+                const response = await apiClient.get(`/${vertical === "quick" ? "quick" : "food"}/pages/${page.key}`, {
                     params: { module: "USER" },
                 });
                 // The endpoint returns the legal object directly for most keys,
@@ -87,7 +92,7 @@ export default function PublicCmsPage() {
         })();
 
         return () => { cancelled = true; };
-    }, [page]);
+    }, [page, vertical]);
 
     if (!page) {
         return (
@@ -145,7 +150,10 @@ export default function PublicCmsPage() {
 
                         {content.html ? (
                             <div
-                                className="prose prose-slate max-w-none prose-headings:font-bold prose-headings:text-slate-900 prose-p:leading-relaxed prose-p:text-slate-600 prose-a:text-[#FA0272] prose-li:text-slate-600"
+                                // Styled here rather than with `prose`: the typography
+                                // plugin is not installed, so those classes did nothing
+                                // and headings and bullets rendered as plain text.
+                                className="max-w-none text-slate-600 leading-relaxed [&_h2]:mt-10 [&_h2]:mb-3 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:text-slate-900 [&_h3]:mt-9 [&_h3]:mb-3 [&_h3]:text-lg [&_h3]:font-bold [&_h3]:text-slate-900 [&_p]:mb-4 [&_ul]:mb-5 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:mb-5 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-2 [&_strong]:text-slate-800 [&_a]:text-[#FA0272] [&_a]:underline"
                                 dangerouslySetInnerHTML={{ __html: content.html }}
                             />
                         ) : (
