@@ -1,5 +1,7 @@
+import mongoose from 'mongoose';
 import { config } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
+import { WhatsAppTemplate } from './whatsappTemplate.model.js';
 
 /**
  * WhatsApp template messages through yourbulksms, which speaks the WhatsApp
@@ -80,6 +82,37 @@ export const sendWhatsAppTemplate = async ({ phone, template, language, bodyPara
     } catch (e) {
         return { ok: false, to, error: e?.name === 'TimeoutError' ? 'timed out' : String(e?.message || e) };
     }
+};
+
+/**
+ * Remember a template that just sent successfully, so the admin panel can
+ * suggest it next time. Never throws: suggestions must not break a send.
+ */
+export const rememberWhatsAppTemplate = async ({ template, language, bodyParams } = {}) => {
+    try {
+        const name = String(template || '').trim();
+        if (!name) return;
+        const values = (Array.isArray(bodyParams) ? bodyParams : []).map((v) => String(v ?? '')).filter(Boolean).slice(0, 10);
+        await WhatsAppTemplate.updateOne(
+            { name, language: String(language || config.whatsappDefaultLanguage).trim() },
+            { $set: { variables: values.length, lastValues: values, lastUsedAt: new Date() }, $inc: { useCount: 1 } },
+            { upsert: true }
+        );
+    } catch (e) {
+        logger.warn(`[WHATSAPP] could not remember template "${template}": ${e?.message || e}`);
+    }
+};
+
+/** Remembered templates, most recently used first. */
+export const listWhatsAppTemplates = () =>
+    WhatsAppTemplate.find({}).sort({ lastUsedAt: -1 }).limit(100)
+        .select('name language variables lastValues lastUsedAt useCount').lean();
+
+/** Drop a suggestion (e.g. a template that was deleted in the business account). */
+export const forgetWhatsAppTemplate = async (id) => {
+    if (!mongoose.Types.ObjectId.isValid(String(id))) return false;
+    const r = await WhatsAppTemplate.deleteOne({ _id: id });
+    return r.deletedCount > 0;
 };
 
 /**

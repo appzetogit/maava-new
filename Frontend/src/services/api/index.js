@@ -521,6 +521,13 @@ export const adminAPI = {
   /** WhatsApp promotional templates: is it configured on the server? */
   getWhatsAppStatus: () =>
     apiClient.get("/food/admin/notifications/whatsapp/status", { contextModule: "admin" }),
+  /** Templates that sent successfully before, newest first (the panel's suggestions). */
+  getWhatsAppTemplates: () =>
+    apiClient.get("/food/admin/notifications/whatsapp/templates", { contextModule: "admin" }),
+  deleteWhatsAppTemplate: (id) =>
+    apiClient.delete(`/food/admin/notifications/whatsapp/templates/${String(id)}`, {
+      contextModule: "admin",
+    }),
   /** Send one WhatsApp template to one number. Body: { phone, template, language?, bodyParams? } */
   sendWhatsAppTest: (body = {}) =>
     apiClient.post("/food/admin/notifications/whatsapp/test", body ?? {}, {

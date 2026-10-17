@@ -8,7 +8,7 @@ import { FoodNotification } from '../../../../core/notifications/models/notifica
 import { createInboxNotifications } from '../../../../core/notifications/notification.service.js';
 import { notifyOwnersSafely } from '../../../../core/notifications/firebase.service.js';
 import { getIO, rooms } from '../../../../config/socket.js';
-import { isWhatsAppConfigured, sendWhatsAppTemplateBulk } from '../../../../core/whatsapp/whatsapp.service.js';
+import { isWhatsAppConfigured, sendWhatsAppTemplateBulk, rememberWhatsAppTemplate } from '../../../../core/whatsapp/whatsapp.service.js';
 import { logger } from '../../../../utils/logger.js';
 
 const TARGET_TYPE_MAP = {
@@ -261,6 +261,7 @@ const sendBroadcastWhatsApp = async (broadcastId, targets, option) => {
     try {
         const phones = await phonesForTargets(targets);
         const result = await sendWhatsAppTemplateBulk(phones, option);
+        if (result.sent > 0) await rememberWhatsAppTemplate(option);
         await BroadcastNotification.updateOne({ _id: broadcastId }, {
             $set: {
                 'whatsapp.status': 'done',
