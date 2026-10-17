@@ -81,6 +81,15 @@ export const config = {
         process.env.SMSINDIAHUB_MESSAGE_TEMPLATE ||
         process.env.SMS_INDIA_HUB_MESSAGE_TEMPLATE,
 
+    // WhatsApp (yourbulksms, WhatsApp Cloud API format) - promotional template
+    // messages only; login OTPs stay on SMS. URL is the full .../messages endpoint.
+    whatsappApiUrl: process.env.WHATSAPP_API_URL || '',
+    whatsappApiToken: process.env.WHATSAPP_API_TOKEN || '',
+    whatsappDefaultLanguage: process.env.WHATSAPP_DEFAULT_LANGUAGE || 'en',
+
+    // The owner's phone that gets the OTP confirming a super admin password change.
+    adminPasswordOtpPhone: process.env.ADMIN_PASSWORD_OTP_PHONE || '9010552515',
+
     // Rate limiting
     rateLimitEnabled: process.env.RATE_LIMIT_ENABLED !== 'false',
     rateLimitWindowMinutes: Number(process.env.RATE_LIMIT_WINDOW || 15),

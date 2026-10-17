@@ -7,7 +7,6 @@ import * as businessSettingsController from '../controllers/businessSettings.con
 import * as feedbackExperienceController from '../controllers/feedbackExperience.controller.js';
 import * as notificationBroadcastController from '../controllers/notificationBroadcast.controller.js';
 import * as diningAdminController from '../../dining/controllers/diningAdmin.controller.js';
-import * as subscriptionBillingController from '../controllers/subscriptionBilling.controller.js';
 import * as orderController from '../../orders/controllers/order.controller.js';
 import { listUserCartsAdminController, getUserCartPricingAdminController } from '../controllers/userCartAdmin.controller.js';
 import { getAdminPageController, upsertAdminPageController } from '../controllers/pageContent.controller.js';
@@ -34,7 +33,6 @@ const router = express.Router();
 router.get('/business-settings/public', businessSettingsController.getBusinessSettings);
 router.get('/power-scanning/public', businessSettingsController.getPowerScanningSettings);
 router.get('/fee-settings/public', adminController.getFeeSettings);
-router.get('/restaurant-subscription-settings/public', adminController.getRestaurantSubscriptionSettings);
 router.get('/feature-settings/public', adminController.getFeatureSettings);
 
 
@@ -61,8 +59,6 @@ router.use(
 );
 router.use('/support-tickets', requireAdminPermission('customer_management', 'view'));
 router.use('/restaurant-settings', requireAdminPermission('restaurant_management', 'view'));
-router.use('/restaurant-subscription-settings', requireAdminPermission('restaurant_management', 'view'));
-router.use('/restaurant-subscriptions', requireAdminPermission('restaurant_management', 'view'));
 router.use('/categories', requireAdminPermission('food_management', 'view'));
 router.use('/addons', requireAdminPermission('food_management', 'view'));
 router.use('/foods', requireAdminPermission('food_management', 'view'));
@@ -91,6 +87,9 @@ router.delete('/sub-admins/:id', requireAdminPermission('sub_admin_management', 
 router.post('/notifications/broadcast', notificationBroadcastController.createBroadcastNotificationController);
 router.get('/notifications/broadcast', notificationBroadcastController.getBroadcastNotificationsController);
 router.delete('/notifications/broadcast/:id', notificationBroadcastController.deleteBroadcastNotificationController);
+// WhatsApp promotional templates (same 'broadcast' permission as above)
+router.get('/notifications/whatsapp/status', notificationBroadcastController.whatsAppStatusController);
+router.post('/notifications/whatsapp/test', notificationBroadcastController.testWhatsAppController);
 
 // ----- Customers -----
 router.get(
@@ -139,20 +138,6 @@ router.get('/reports/tax/:id', adminController.getTaxReportDetail);
 router.get('/restaurants/pending', adminController.getPendingRestaurants);
 router.get('/restaurants/unregistered', adminController.getUnregisteredRestaurants);
 router.delete('/restaurants/unregistered/:id', adminController.deleteUnregisteredRestaurant);
-router.get('/restaurant-subscription-settings', adminController.getRestaurantSubscriptionSettings);
-router.patch('/restaurant-subscription-settings', adminController.updateRestaurantSubscriptionSettings);
-router.get('/restaurant-subscriptions/history', adminController.getRestaurantSubscriptionHistory);
-// Calendar-month postpaid billing (invoices, settlement actions, analytics)
-router.get('/restaurant-subscriptions/invoices', subscriptionBillingController.listSubscriptionInvoices);
-router.get('/restaurant-subscriptions/invoices/export', subscriptionBillingController.exportSubscriptionInvoices);
-router.get('/restaurant-subscriptions/invoices/:invoiceId', subscriptionBillingController.getSubscriptionInvoice);
-router.get('/restaurant-subscriptions/summary', subscriptionBillingController.getSubscriptionBillingSummary);
-router.get('/restaurant-subscriptions/restaurants/:restaurantId/overview', subscriptionBillingController.getRestaurantSubscriptionOverview);
-router.post('/restaurant-subscriptions/invoices/:invoiceId/deduct-wallet', subscriptionBillingController.deductInvoiceFromWallet);
-router.post('/restaurant-subscriptions/invoices/:invoiceId/mark-paid', subscriptionBillingController.markInvoicePaid);
-router.post('/restaurant-subscriptions/invoices/:invoiceId/waive', subscriptionBillingController.waiveInvoice);
-router.post('/restaurant-subscriptions/invoices/:invoiceId/adjust', subscriptionBillingController.adjustInvoice);
-router.post('/restaurant-subscriptions/run-billing', subscriptionBillingController.runSubscriptionBilling);
 router.get('/feature-settings', adminController.getFeatureSettings);
 router.patch('/feature-settings/:key', adminController.updateFeatureSetting);
 router.get('/restaurants/reviews', adminController.getRestaurantReviews);
@@ -188,6 +173,11 @@ router.patch('/restaurants/:id/menu', adminController.updateRestaurantMenuById);
 router.patch('/restaurants/:id/approve', adminController.approveRestaurant);
 router.patch('/restaurants/:id/reject', adminController.rejectRestaurant);
 router.delete('/restaurants/:id', adminController.deleteRestaurant);
+// Recorded credits/debits on a restaurant's wallet (create: super admin only).
+router.get('/restaurant-wallets', requireAdminPermission('restaurant_management', 'view'), adminController.listRestaurantWallets);
+router.get('/restaurants/:id/wallet-adjustments', adminController.getRestaurantWalletAdjustments);
+router.post('/restaurants/:id/wallet-adjustments', adminController.createRestaurantWalletAdjustment);
+router.post('/restaurants/:id/wallet-balance', adminController.setRestaurantWalletBalance);
 
 
 // ----- Restaurant Commission -----

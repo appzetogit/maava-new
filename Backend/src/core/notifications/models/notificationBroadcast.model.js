@@ -65,6 +65,19 @@ const notificationBroadcastSchema = new mongoose.Schema(
         targetCount: {
             type: Number,
             default: 0
+        },
+        /** Optional WhatsApp copy of the broadcast (promotional template). Sent in the background. */
+        whatsapp: {
+            template: { type: String, default: '' },
+            language: { type: String, default: '' },
+            bodyParams: { type: [String], default: [] },
+            status: { type: String, enum: ['none', 'sending', 'done', 'failed'], default: 'none' },
+            attempted: { type: Number, default: 0 },
+            sent: { type: Number, default: 0 },
+            failed: { type: Number, default: 0 },
+            skipped: { type: Number, default: 0 },
+            errors: { type: [{ to: String, error: String, _id: false }], default: [] },
+            finishedAt: { type: Date }
         }
     },
     {

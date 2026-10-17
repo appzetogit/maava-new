@@ -4,6 +4,7 @@ import {
     getBroadcastNotifications,
     deleteBroadcastNotification
 } from '../services/notificationBroadcast.service.js';
+import { isWhatsAppConfigured, sendWhatsAppTemplate } from '../../../../core/whatsapp/whatsapp.service.js';
 
 export const createBroadcastNotificationController = async (req, res) => {
     try {
@@ -28,6 +29,25 @@ export const getBroadcastNotificationsController = async (req, res) => {
         return sendError(res, error.statusCode || 500, error.message || 'Failed to fetch broadcast notifications');
     }
 };
+
+/** POST /admin/notifications/whatsapp/test - one template to one number, to check it before a campaign. */
+export const testWhatsAppController = async (req, res) => {
+    try {
+        const { phone, template, language, bodyParams } = req.body || {};
+        if (!isWhatsAppConfigured()) {
+            return sendError(res, 400, 'WhatsApp is not configured on the server');
+        }
+        const result = await sendWhatsAppTemplate({ phone, template: String(template || '').trim(), language, bodyParams });
+        if (!result.ok) return sendError(res, 400, `WhatsApp send failed: ${result.error}`);
+        return sendResponse(res, 200, 'WhatsApp test message sent', { to: result.to, messageId: result.messageId });
+    } catch (error) {
+        return sendError(res, error.statusCode || 500, error.message || 'Failed to send WhatsApp test');
+    }
+};
+
+/** GET /admin/notifications/whatsapp/status - whether the panel can offer WhatsApp. */
+export const whatsAppStatusController = async (_req, res) =>
+    sendResponse(res, 200, 'WhatsApp status', { configured: isWhatsAppConfigured() });
 
 export const deleteBroadcastNotificationController = async (req, res) => {
     try {

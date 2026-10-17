@@ -8,6 +8,8 @@ import { FoodNotification } from '../../../../core/notifications/models/notifica
 import { createInboxNotifications } from '../../../../core/notifications/notification.service.js';
 import { notifyOwnersSafely } from '../../../../core/notifications/firebase.service.js';
 import { getIO, rooms } from '../../../../config/socket.js';
+import { isWhatsAppConfigured, sendWhatsAppTemplateBulk } from '../../../../core/whatsapp/whatsapp.service.js';
+import { logger } from '../../../../utils/logger.js';
 
 const TARGET_TYPE_MAP = {
     ALL: 'ALL',
@@ -53,19 +55,23 @@ const ownerModelMap = {
     DELIVERY_PARTNER: FoodDeliveryPartner
 };
 
+// `phone` rides along for the optional WhatsApp copy; it is not persisted on the broadcast.
 const buildUserLabel = (doc) => ({
     label: String(doc?.name || doc?.phone || 'User').trim(),
-    subLabel: [doc?.phone, doc?.email].filter(Boolean).join(' • ')
+    subLabel: [doc?.phone, doc?.email].filter(Boolean).join(' • '),
+    phone: doc?.phone || ''
 });
 
 const buildRestaurantLabel = (doc) => ({
     label: String(doc?.restaurantName || doc?.ownerName || 'Restaurant').trim(),
-    subLabel: [doc?.ownerPhone, doc?.ownerEmail].filter(Boolean).join(' • ')
+    subLabel: [doc?.ownerPhone, doc?.ownerEmail].filter(Boolean).join(' • '),
+    phone: doc?.ownerPhone || ''
 });
 
 const buildDeliveryLabel = (doc) => ({
     label: String(doc?.name || doc?.phone || 'Delivery Partner').trim(),
-    subLabel: [doc?.phone, doc?.email].filter(Boolean).join(' • ')
+    subLabel: [doc?.phone, doc?.email].filter(Boolean).join(' • '),
+    phone: doc?.phone || ''
 });
 
 const modelConfigMap = {
@@ -206,11 +212,80 @@ const paginationMeta = ({ page = 1, limit = 10 } = {}) => {
     };
 };
 
+/**
+ * Optional `whatsapp` block on a broadcast: { template, language?, bodyParams? }.
+ * The template must be approved in the WhatsApp business account; bodyParams
+ * fill its {{1}}, {{2}}... in order. Returns null when no WhatsApp copy is wanted.
+ */
+const normalizeWhatsAppOption = (raw) => {
+    if (!raw || raw.enabled === false) return null;
+    const template = String(raw.template || '').trim();
+    if (!template) return null;
+    if (!/^[a-z0-9_]{1,512}$/.test(template)) {
+        throw new ValidationError('WhatsApp template name must be lowercase letters, numbers and underscores');
+    }
+    if (!isWhatsAppConfigured()) {
+        throw new ValidationError('WhatsApp is not configured on the server');
+    }
+    const language = String(raw.language || '').trim() || undefined;
+    const bodyParams = (Array.isArray(raw.bodyParams) ? raw.bodyParams : [])
+        .map((p) => String(p ?? '').trim())
+        .slice(0, 10);
+    if (bodyParams.some((p) => !p)) {
+        throw new ValidationError('WhatsApp template values cannot be empty');
+    }
+    return { template, language, bodyParams };
+};
+
+const PHONE_FIELD = { USER: 'phone', RESTAURANT: 'ownerPhone', DELIVERY_PARTNER: 'phone' };
+
+/** Phones for every target; looks up the ones the caller did not supply (custom picks from the panel). */
+const phonesForTargets = async (targets) => {
+    const phones = [];
+    const missing = { USER: [], RESTAURANT: [], DELIVERY_PARTNER: [] };
+    for (const t of targets) {
+        if (t.phone) phones.push(t.phone);
+        else if (missing[t.ownerType]) missing[t.ownerType].push(t.ownerId);
+    }
+    for (const [ownerType, ids] of Object.entries(missing)) {
+        if (!ids.length) continue;
+        const field = PHONE_FIELD[ownerType];
+        const rows = await ownerModelMap[ownerType].find({ _id: { $in: ids } }).select(field).lean();
+        for (const r of rows) if (r[field]) phones.push(r[field]);
+    }
+    return phones;
+};
+
+/** Background: send the WhatsApp copy and record the outcome on the broadcast. Never throws. */
+const sendBroadcastWhatsApp = async (broadcastId, targets, option) => {
+    try {
+        const phones = await phonesForTargets(targets);
+        const result = await sendWhatsAppTemplateBulk(phones, option);
+        await BroadcastNotification.updateOne({ _id: broadcastId }, {
+            $set: {
+                'whatsapp.status': 'done',
+                'whatsapp.attempted': result.attempted,
+                'whatsapp.sent': result.sent,
+                'whatsapp.failed': result.failed,
+                'whatsapp.skipped': result.skipped + (targets.length - phones.length),
+                'whatsapp.errors': result.errors,
+                'whatsapp.finishedAt': new Date()
+            }
+        });
+    } catch (e) {
+        logger.error(`[WHATSAPP] broadcast ${broadcastId} failed: ${e?.message || e}`);
+        await BroadcastNotification.updateOne({ _id: broadcastId }, {
+            $set: { 'whatsapp.status': 'failed', 'whatsapp.finishedAt': new Date() }
+        }).catch(() => {});
+    }
+};
+
 export const createBroadcastNotification = async ({ body = {}, adminId } = {}) => {
     const title = normalizeText(body?.title, 'title');
     const message = normalizeText(body?.message, 'message');
     const link = normalizeText(body?.link, 'link', false);
     const targetType = normalizeTargetType(body?.targetType);
+    const whatsappOption = normalizeWhatsAppOption(body?.whatsapp);
     const resolvedTargets = await resolveTargets({
         targetType,
         targetIds: body?.targetIds,
@@ -236,8 +311,17 @@ export const createBroadcastNotification = async ({ body = {}, adminId } = {}) =
         })),
         link,
         createdBy: toObjectId(adminId, 'createdBy'),
-        targetCount: resolvedTargets.length
+        targetCount: resolvedTargets.length,
+        ...(whatsappOption
+            ? { whatsapp: { ...whatsappOption, language: whatsappOption.language || '', status: 'sending' } }
+            : {})
     });
+
+    // Not awaited: a WhatsApp run over every customer takes minutes, and the
+    // admin's request should not hang on it. Progress lands on the broadcast.
+    if (whatsappOption) {
+        void sendBroadcastWhatsApp(broadcast._id, resolvedTargets, whatsappOption);
+    }
 
     await createInboxNotifications({
         notifications: resolvedTargets.map((target) =>
