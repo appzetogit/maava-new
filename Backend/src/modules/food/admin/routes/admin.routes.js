@@ -90,6 +90,8 @@ router.delete('/notifications/broadcast/:id', notificationBroadcastController.de
 // WhatsApp promotional templates (same 'broadcast' permission as above)
 router.get('/notifications/whatsapp/status', notificationBroadcastController.whatsAppStatusController);
 router.post('/notifications/whatsapp/test', notificationBroadcastController.testWhatsAppController);
+router.get('/notifications/whatsapp/templates', notificationBroadcastController.listWhatsAppTemplatesController);
+router.delete('/notifications/whatsapp/templates/:id', notificationBroadcastController.forgetWhatsAppTemplateController);
 
 // ----- Customers -----
 router.get(

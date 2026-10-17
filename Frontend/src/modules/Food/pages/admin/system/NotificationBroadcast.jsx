@@ -1,17 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { BellRing, Loader2, MessageCircle, Search, Send, Trash2 } from "lucide-react";
+import { BellRing, Loader2, MessageCircle, Minus, Plus, Search, Send, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { adminAPI } from "@food/api";
 import { vt } from "@food/utils/adminVerticalLabels";
 
-const EMPTY_WHATSAPP = { enabled: false, template: "", language: "en", values: "", testPhone: "" };
+// values[i] fills the template's {{i+1}}.
+const EMPTY_WHATSAPP = { enabled: false, template: "", language: "en", values: [], testPhone: "" };
+const MAX_TEMPLATE_VALUES = 10;
 
-/** Template values, one per line -> ["...", "..."] filling {{1}}, {{2}}... */
-const parseValues = (text) =>
-  String(text || "")
-    .split("\n")
-    .map((v) => v.trim())
-    .filter(Boolean);
+const cleanValues = (values) => (Array.isArray(values) ? values : []).map((v) => String(v ?? "").trim());
 
 const whatsappLabel = (wa) => {
   if (!wa || !wa.status || wa.status === "none") return "-";
@@ -78,6 +75,46 @@ export default function NotificationBroadcast() {
   const [whatsappConfigured, setWhatsappConfigured] = useState(false);
   const [testing, setTesting] = useState(false);
   const setWa = (patch) => setWhatsapp((prev) => ({ ...prev, ...patch }));
+  // Templates that sent successfully before (the server remembers them).
+  const [templates, setTemplates] = useState([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+
+  const loadTemplates = () =>
+    adminAPI
+      .getWhatsAppTemplates()
+      .then((res) => setTemplates(res?.data?.data?.templates || []))
+      .catch(() => setTemplates([]));
+
+  const suggestions = useMemo(() => {
+    const q = whatsapp.template.trim().toLowerCase();
+    return q ? templates.filter((t) => t.name.toLowerCase().includes(q)) : templates;
+  }, [templates, whatsapp.template]);
+
+  const pickTemplate = (t) => {
+    const count = Math.min(MAX_TEMPLATE_VALUES, Number(t.variables) || 0);
+    setWa({
+      template: t.name,
+      language: t.language || "en",
+      values: Array.from({ length: count }, (_, i) => t.lastValues?.[i] || ""),
+    });
+    setSuggestOpen(false);
+  };
+
+  const forgetTemplate = async (t) => {
+    try {
+      await adminAPI.deleteWhatsAppTemplate(t._id);
+      setTemplates((prev) => prev.filter((x) => x._id !== t._id));
+    } catch {
+      toast.error("Could not remove that suggestion");
+    }
+  };
+
+  const setValueAt = (index, text) =>
+    setWhatsapp((prev) => {
+      const values = [...prev.values];
+      values[index] = text;
+      return { ...prev, values };
+    });
 
   const loadHistory = async () => {
     try {
@@ -135,6 +172,7 @@ export default function NotificationBroadcast() {
       .getWhatsAppStatus()
       .then((res) => setWhatsappConfigured(Boolean(res?.data?.data?.configured)))
       .catch(() => setWhatsappConfigured(false));
+    loadTemplates();
   }, []);
 
   // A WhatsApp run finishes in the background; refresh until none is still sending.
@@ -149,15 +187,18 @@ export default function NotificationBroadcast() {
     const template = whatsapp.template.trim();
     if (!template) return toast.error("Enter the WhatsApp template name");
     if (!whatsapp.testPhone.trim()) return toast.error("Enter a phone number for the test");
+    const values = cleanValues(whatsapp.values);
+    if (values.some((v) => !v)) return toast.error("Fill in every template value");
     try {
       setTesting(true);
       await adminAPI.sendWhatsAppTest({
         phone: whatsapp.testPhone.trim(),
         template,
         language: whatsapp.language.trim() || "en",
-        bodyParams: parseValues(whatsapp.values),
+        bodyParams: values,
       });
       toast.success(`Test sent to ${whatsapp.testPhone.trim()}`);
+      loadTemplates();
     } catch (error) {
       toast.error(error?.response?.data?.message || "WhatsApp test failed");
     } finally {
@@ -211,6 +252,10 @@ export default function NotificationBroadcast() {
       toast.error("Enter the WhatsApp template name, or turn WhatsApp off");
       return;
     }
+    if (whatsapp.enabled && cleanValues(whatsapp.values).some((v) => !v)) {
+      toast.error("Fill in every WhatsApp template value");
+      return;
+    }
 
     try {
       setSubmitting(true);
@@ -220,7 +265,7 @@ export default function NotificationBroadcast() {
               whatsapp: {
                 template: whatsapp.template.trim(),
                 language: whatsapp.language.trim() || "en",
-                bodyParams: parseValues(whatsapp.values),
+                bodyParams: cleanValues(whatsapp.values),
               },
             }
           : {}),
@@ -399,15 +444,60 @@ export default function NotificationBroadcast() {
             {whatsapp.enabled && (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  <label className="block lg:col-span-2">
+                  <div className="block lg:col-span-2 relative">
                     <span className="text-sm font-semibold text-slate-700">Template name</span>
                     <input
                       value={whatsapp.template}
-                      onChange={(event) => setWa({ template: event.target.value.toLowerCase().replace(/\s+/g, "_") })}
-                      placeholder="e.g. weekend_offer"
+                      onChange={(event) => {
+                        setWa({ template: event.target.value.toLowerCase().replace(/\s+/g, "_") });
+                        setSuggestOpen(true);
+                      }}
+                      onFocus={() => setSuggestOpen(true)}
+                      // Delay so a click on a suggestion lands before the list closes.
+                      onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") setSuggestOpen(false);
+                        if (event.key === "Enter" && suggestOpen && suggestions[0]) {
+                          event.preventDefault();
+                          pickTemplate(suggestions[0]);
+                        }
+                      }}
+                      placeholder={templates.length ? "Pick a template or type a new name" : "e.g. weekend_offer"}
+                      autoComplete="off"
                       className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                     />
-                  </label>
+                    {suggestOpen && suggestions.length > 0 && (
+                      <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-lg">
+                        <div className="px-4 pt-2.5 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                          Sent successfully before
+                        </div>
+                        {suggestions.map((t) => (
+                          <div key={t._id} className="flex items-center gap-2 px-2 hover:bg-emerald-50">
+                            <button
+                              type="button"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => pickTemplate(t)}
+                              className="flex-1 min-w-0 text-left px-2 py-2.5"
+                            >
+                              <div className="text-sm font-semibold text-slate-900 truncate">{t.name}</div>
+                              <div className="text-xs text-slate-500">
+                                {t.language} · {t.variables} value{t.variables === 1 ? "" : "s"} · used {t.useCount || 1}×
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              title="Stop suggesting this template"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => forgetTemplate(t)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <label className="block">
                     <span className="text-sm font-semibold text-slate-700">Language code</span>
                     <input
@@ -419,16 +509,53 @@ export default function NotificationBroadcast() {
                   </label>
                 </div>
 
-                <label className="block">
-                  <span className="text-sm font-semibold text-slate-700">Template values</span>
-                  <textarea
-                    value={whatsapp.values}
-                    onChange={(event) => setWa({ values: event.target.value })}
-                    placeholder={"One per line: line 1 fills {{1}}, line 2 fills {{2}}…\nLeave empty if the template has no variables."}
-                    rows={3}
-                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 resize-y"
-                  />
-                </label>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-slate-700">Template values</span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        title="Remove the last value"
+                        disabled={whatsapp.values.length === 0}
+                        onClick={() => setWa({ values: whatsapp.values.slice(0, -1) })}
+                        className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="text-xs text-slate-500 w-16 text-center">
+                        {whatsapp.values.length} value{whatsapp.values.length === 1 ? "" : "s"}
+                      </span>
+                      <button
+                        type="button"
+                        title="Add a value"
+                        disabled={whatsapp.values.length >= MAX_TEMPLATE_VALUES}
+                        onClick={() => setWa({ values: [...whatsapp.values, ""] })}
+                        className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  {whatsapp.values.length === 0 ? (
+                    <p className="mt-2 text-xs text-slate-500">
+                      No values. Use + if the template's text has placeholders like {"{{1}}"}.
+                    </p>
+                  ) : (
+                    <div className="mt-2 space-y-2">
+                      {whatsapp.values.map((value, index) => (
+                        <div key={index} className="flex items-center gap-2">
+                          <span className="w-12 shrink-0 text-xs font-mono text-emerald-700">{`{{${index + 1}}}`}</span>
+                          <input
+                            value={value}
+                            onChange={(event) => setValueAt(index, event.target.value)}
+                            placeholder={`Value for {{${index + 1}}}`}
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 <div className="flex flex-col sm:flex-row sm:items-end gap-3">
                   <label className="block flex-1">

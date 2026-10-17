@@ -4,7 +4,13 @@ import {
     getBroadcastNotifications,
     deleteBroadcastNotification
 } from '../services/notificationBroadcast.service.js';
-import { isWhatsAppConfigured, sendWhatsAppTemplate } from '../../../../core/whatsapp/whatsapp.service.js';
+import {
+    isWhatsAppConfigured,
+    sendWhatsAppTemplate,
+    rememberWhatsAppTemplate,
+    listWhatsAppTemplates,
+    forgetWhatsAppTemplate
+} from '../../../../core/whatsapp/whatsapp.service.js';
 
 export const createBroadcastNotificationController = async (req, res) => {
     try {
@@ -37,11 +43,34 @@ export const testWhatsAppController = async (req, res) => {
         if (!isWhatsAppConfigured()) {
             return sendError(res, 400, 'WhatsApp is not configured on the server');
         }
-        const result = await sendWhatsAppTemplate({ phone, template: String(template || '').trim(), language, bodyParams });
+        const name = String(template || '').trim();
+        const result = await sendWhatsAppTemplate({ phone, template: name, language, bodyParams });
         if (!result.ok) return sendError(res, 400, `WhatsApp send failed: ${result.error}`);
+        await rememberWhatsAppTemplate({ template: name, language, bodyParams });
         return sendResponse(res, 200, 'WhatsApp test message sent', { to: result.to, messageId: result.messageId });
     } catch (error) {
         return sendError(res, error.statusCode || 500, error.message || 'Failed to send WhatsApp test');
+    }
+};
+
+/** GET /admin/notifications/whatsapp/templates - templates that sent successfully before, newest first. */
+export const listWhatsAppTemplatesController = async (_req, res) => {
+    try {
+        const templates = await listWhatsAppTemplates();
+        return sendResponse(res, 200, 'WhatsApp templates', { templates });
+    } catch (error) {
+        return sendError(res, 500, error.message || 'Failed to load WhatsApp templates');
+    }
+};
+
+/** DELETE /admin/notifications/whatsapp/templates/:id - stop suggesting a template. */
+export const forgetWhatsAppTemplateController = async (req, res) => {
+    try {
+        const removed = await forgetWhatsAppTemplate(req.params?.id);
+        if (!removed) return sendError(res, 404, 'Template suggestion not found');
+        return sendResponse(res, 200, 'Template suggestion removed', {});
+    } catch (error) {
+        return sendError(res, 500, error.message || 'Failed to remove template suggestion');
     }
 };
 
