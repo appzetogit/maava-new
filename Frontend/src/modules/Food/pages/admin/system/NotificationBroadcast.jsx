@@ -1,11 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
-import { BellRing, Loader2, Search, Send, Trash2 } from "lucide-react";
+import { BellRing, Loader2, MessageCircle, Search, Send, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { adminAPI } from "@food/api";
+import { vt } from "@food/utils/adminVerticalLabels";
+
+const EMPTY_WHATSAPP = { enabled: false, template: "", language: "en", values: "", testPhone: "" };
+
+/** Template values, one per line -> ["...", "..."] filling {{1}}, {{2}}... */
+const parseValues = (text) =>
+  String(text || "")
+    .split("\n")
+    .map((v) => v.trim())
+    .filter(Boolean);
+
+const whatsappLabel = (wa) => {
+  if (!wa || !wa.status || wa.status === "none") return "-";
+  if (wa.status === "sending") return "Sending…";
+  if (wa.status === "failed") return "Failed";
+  return `${wa.sent || 0} sent${wa.failed ? `, ${wa.failed} failed` : ""}${wa.skipped ? `, ${wa.skipped} no phone` : ""}`;
+};
 
 const TARGET_OPTIONS = [
   { value: "ALL", label: "All" },
   { value: "USER", label: "Users" },
-  { value: "RESTAURANT", label: "Restaurants" },
+  { value: "RESTAURANT", label: vt("Sellers") },
   { value: "DELIVERY", label: "Delivery Partners" },
   { value: "CUSTOM", label: "Particular Persons" },
 ];
@@ -56,6 +74,10 @@ export default function NotificationBroadcast() {
   const [search, setSearch] = useState("");
   const [allRecipients, setAllRecipients] = useState([]);
   const [selectedRecipients, setSelectedRecipients] = useState([]);
+  const [whatsapp, setWhatsapp] = useState(EMPTY_WHATSAPP);
+  const [whatsappConfigured, setWhatsappConfigured] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const setWa = (patch) => setWhatsapp((prev) => ({ ...prev, ...patch }));
 
   const loadHistory = async () => {
     try {
@@ -88,7 +110,7 @@ export default function NotificationBroadcast() {
       const restaurants = normalizeRecipients(restaurantsRes, "RESTAURANT", (item, ownerType) => ({
         ownerType,
         ownerId: String(item?._id || item?.id || ""),
-        label: String(item?.restaurantName || item?.ownerName || "Restaurant").trim(),
+        label: String(item?.restaurantName || item?.ownerName || vt("Seller")).trim(),
         subLabel: [item?.ownerPhone, item?.ownerEmail].filter(Boolean).join(" • "),
       }));
 
@@ -109,7 +131,39 @@ export default function NotificationBroadcast() {
 
   useEffect(() => {
     loadHistory();
+    adminAPI
+      .getWhatsAppStatus()
+      .then((res) => setWhatsappConfigured(Boolean(res?.data?.data?.configured)))
+      .catch(() => setWhatsappConfigured(false));
   }, []);
+
+  // A WhatsApp run finishes in the background; refresh until none is still sending.
+  const anySending = history.some((item) => item?.whatsapp?.status === "sending");
+  useEffect(() => {
+    if (!anySending) return undefined;
+    const timer = setInterval(loadHistory, 5000);
+    return () => clearInterval(timer);
+  }, [anySending]);
+
+  const handleWhatsAppTest = async () => {
+    const template = whatsapp.template.trim();
+    if (!template) return toast.error("Enter the WhatsApp template name");
+    if (!whatsapp.testPhone.trim()) return toast.error("Enter a phone number for the test");
+    try {
+      setTesting(true);
+      await adminAPI.sendWhatsAppTest({
+        phone: whatsapp.testPhone.trim(),
+        template,
+        language: whatsapp.language.trim() || "en",
+        bodyParams: parseValues(whatsapp.values),
+      });
+      toast.success(`Test sent to ${whatsapp.testPhone.trim()}`);
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "WhatsApp test failed");
+    } finally {
+      setTesting(false);
+    }
+  };
 
   useEffect(() => {
     if (form.targetType !== "CUSTOM") return;
@@ -153,10 +207,23 @@ export default function NotificationBroadcast() {
     event.preventDefault();
     if (!form.title.trim() || !form.message.trim()) return;
     if (form.targetType === "CUSTOM" && selectedRecipients.length === 0) return;
+    if (whatsapp.enabled && !whatsapp.template.trim()) {
+      toast.error("Enter the WhatsApp template name, or turn WhatsApp off");
+      return;
+    }
 
     try {
       setSubmitting(true);
       await adminAPI.createBroadcastNotification({
+        ...(whatsapp.enabled
+          ? {
+              whatsapp: {
+                template: whatsapp.template.trim(),
+                language: whatsapp.language.trim() || "en",
+                bodyParams: parseValues(whatsapp.values),
+              },
+            }
+          : {}),
         title: form.title.trim(),
         message: form.message.trim(),
         targetType: form.targetType,
@@ -174,11 +241,15 @@ export default function NotificationBroadcast() {
               }))
             : [],
       });
+      toast.success(whatsapp.enabled ? "Broadcast sent. WhatsApp is sending in the background." : "Broadcast sent");
       setForm({ title: "", message: "", targetType: "ALL" });
       setSelectedRecipients([]);
       setSearch("");
+      setWhatsapp((prev) => ({ ...EMPTY_WHATSAPP, testPhone: prev.testPhone }));
       window.dispatchEvent(new Event("adminBroadcastUpdated"));
       await loadHistory();
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to send broadcast");
     } finally {
       setSubmitting(false);
     }
@@ -254,7 +325,7 @@ export default function NotificationBroadcast() {
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search users, restaurants, or delivery partners"
+                  placeholder={vt("Search users, sellers, or delivery partners")}
                   className="w-full text-sm bg-transparent outline-none"
                 />
               </div>
@@ -303,6 +374,91 @@ export default function NotificationBroadcast() {
             </div>
           )}
 
+          <div className="rounded-3xl border border-emerald-200 bg-emerald-50/40 p-4 space-y-4">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={whatsapp.enabled}
+                disabled={!whatsappConfigured}
+                onChange={(event) => setWa({ enabled: event.target.checked })}
+                className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                  <MessageCircle className="w-4 h-4 text-emerald-600" />
+                  Also send on WhatsApp
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {whatsappConfigured
+                    ? "Sends an approved WhatsApp template to the same recipients' phone numbers, in the background."
+                    : "WhatsApp is not set up on the server yet."}
+                </p>
+              </div>
+            </label>
+
+            {whatsapp.enabled && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <label className="block lg:col-span-2">
+                    <span className="text-sm font-semibold text-slate-700">Template name</span>
+                    <input
+                      value={whatsapp.template}
+                      onChange={(event) => setWa({ template: event.target.value.toLowerCase().replace(/\s+/g, "_") })}
+                      placeholder="e.g. weekend_offer"
+                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-semibold text-slate-700">Language code</span>
+                    <input
+                      value={whatsapp.language}
+                      onChange={(event) => setWa({ language: event.target.value })}
+                      placeholder="en"
+                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </label>
+                </div>
+
+                <label className="block">
+                  <span className="text-sm font-semibold text-slate-700">Template values</span>
+                  <textarea
+                    value={whatsapp.values}
+                    onChange={(event) => setWa({ values: event.target.value })}
+                    placeholder={"One per line: line 1 fills {{1}}, line 2 fills {{2}}…\nLeave empty if the template has no variables."}
+                    rows={3}
+                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 resize-y"
+                  />
+                </label>
+
+                <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+                  <label className="block flex-1">
+                    <span className="text-sm font-semibold text-slate-700">Send a test first</span>
+                    <input
+                      value={whatsapp.testPhone}
+                      onChange={(event) => setWa({ testPhone: event.target.value })}
+                      placeholder="Your phone number"
+                      inputMode="tel"
+                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleWhatsAppTest}
+                    disabled={testing}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-300 bg-white px-5 py-3 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                  >
+                    {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4" />}
+                    Send test
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Only templates approved in your WhatsApp business account are delivered. Send marketing
+                  messages only to people who agreed to receive them.
+                </p>
+              </div>
+            )}
+          </div>
+
           <div className="flex justify-end">
             <button
               type="submit"
@@ -340,6 +496,7 @@ export default function NotificationBroadcast() {
                   <th className="py-3 pr-4 font-semibold">Message</th>
                   <th className="py-3 pr-4 font-semibold">Target</th>
                   <th className="py-3 pr-4 font-semibold">Recipients</th>
+                  <th className="py-3 pr-4 font-semibold">WhatsApp</th>
                   <th className="py-3 pr-4 font-semibold">Date</th>
                   <th className="py-3 text-right font-semibold">Action</th>
                 </tr>
@@ -351,6 +508,9 @@ export default function NotificationBroadcast() {
                     <td className="py-4 pr-4 text-slate-600 max-w-sm">{item?.message || "-"}</td>
                     <td className="py-4 pr-4 text-slate-700">{item?.targetLabel || item?.targetType}</td>
                     <td className="py-4 pr-4 text-slate-700">{item?.targetCount || item?.targets?.length || 0}</td>
+                    <td className="py-4 pr-4 text-slate-700 whitespace-nowrap" title={item?.whatsapp?.template ? `Template: ${item.whatsapp.template}` : ""}>
+                      {whatsappLabel(item?.whatsapp)}
+                    </td>
                     <td className="py-4 pr-4 text-slate-500 whitespace-nowrap">{toDateLabel(item?.createdAt)}</td>
                     <td className="py-4 text-right">
                       <button

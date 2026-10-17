@@ -71,7 +71,11 @@ export const sendWhatsAppTemplate = async ({ phone, template, language, bodyPara
         const messageId = json?.messages?.[0]?.id;
         if (res.ok && messageId) return { ok: true, to, messageId };
 
-        const error = json?.error?.message || json?.message || `HTTP ${res.status}: ${text.slice(0, 200)}`;
+        // Cloud API errors come as { error: { message } }; yourbulksms's own
+        // checks (e.g. unknown template) as { isValid: false, response: [{ status, message }] }.
+        const provider = json?.response?.[0];
+        const providerText = [provider?.status, provider?.message].filter(Boolean).join(' ');
+        const error = json?.error?.message || providerText || json?.message || `HTTP ${res.status}: ${text.slice(0, 200)}`;
         return { ok: false, to, error };
     } catch (e) {
         return { ok: false, to, error: e?.name === 'TimeoutError' ? 'timed out' : String(e?.message || e) };

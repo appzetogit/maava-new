@@ -328,70 +328,12 @@ export const adminAPI = {
       params,
       contextModule: "admin",
     }),
-  getRestaurantSubscriptionSettings: () =>
-    apiClient.get("/food/admin/restaurant-subscription-settings", {
-      contextModule: "admin",
-    }),
   getRestaurantOrderAcceptanceSettings: () =>
     apiClient.get("/food/admin/restaurant-settings/order-acceptance", {
       contextModule: "admin",
     }),
   updateRestaurantOrderAcceptanceSettings: (body = {}) =>
     apiClient.patch("/food/admin/restaurant-settings/order-acceptance", body ?? {}, {
-      contextModule: "admin",
-    }),
-  getRestaurantSubscriptionHistory: (params = {}) =>
-    apiClient.get("/food/admin/restaurant-subscriptions/history", {
-      params,
-      contextModule: "admin",
-    }),
-  updateRestaurantSubscriptionSettings: (body) =>
-    apiClient.patch("/food/admin/restaurant-subscription-settings", body, {
-      contextModule: "admin",
-    }),
-  /** Calendar-month postpaid subscription billing */
-  getSubscriptionInvoicesAdmin: (params = {}) =>
-    apiClient.get("/food/admin/restaurant-subscriptions/invoices", {
-      params,
-      contextModule: "admin",
-    }),
-  getSubscriptionInvoiceAdmin: (invoiceId) =>
-    apiClient.get(`/food/admin/restaurant-subscriptions/invoices/${String(invoiceId)}`, {
-      contextModule: "admin",
-    }),
-  getSubscriptionBillingSummary: (params = {}) =>
-    apiClient.get("/food/admin/restaurant-subscriptions/summary", {
-      params,
-      contextModule: "admin",
-    }),
-  getRestaurantSubscriptionOverviewAdmin: (restaurantId) =>
-    apiClient.get(`/food/admin/restaurant-subscriptions/restaurants/${String(restaurantId)}/overview`, {
-      contextModule: "admin",
-    }),
-  deductInvoiceFromWallet: (invoiceId, body = {}) =>
-    apiClient.post(`/food/admin/restaurant-subscriptions/invoices/${String(invoiceId)}/deduct-wallet`, body, {
-      contextModule: "admin",
-    }),
-  markInvoicePaid: (invoiceId, body = {}) =>
-    apiClient.post(`/food/admin/restaurant-subscriptions/invoices/${String(invoiceId)}/mark-paid`, body, {
-      contextModule: "admin",
-    }),
-  waiveInvoice: (invoiceId, body = {}) =>
-    apiClient.post(`/food/admin/restaurant-subscriptions/invoices/${String(invoiceId)}/waive`, body, {
-      contextModule: "admin",
-    }),
-  adjustInvoice: (invoiceId, body = {}) =>
-    apiClient.post(`/food/admin/restaurant-subscriptions/invoices/${String(invoiceId)}/adjust`, body, {
-      contextModule: "admin",
-    }),
-  runSubscriptionBilling: (billingMonth) =>
-    apiClient.post("/food/admin/restaurant-subscriptions/run-billing", { billingMonth }, {
-      contextModule: "admin",
-    }),
-  exportSubscriptionInvoices: (params = {}) =>
-    apiClient.get("/food/admin/restaurant-subscriptions/invoices/export", {
-      params,
-      responseType: "blob",
       contextModule: "admin",
     }),
   getFeatureSettings: () =>
@@ -574,6 +516,14 @@ export const adminAPI = {
     }),
   deleteBroadcastNotification: (id) =>
     apiClient.delete(`/food/admin/notifications/broadcast/${String(id)}`, {
+      contextModule: "admin",
+    }),
+  /** WhatsApp promotional templates: is it configured on the server? */
+  getWhatsAppStatus: () =>
+    apiClient.get("/food/admin/notifications/whatsapp/status", { contextModule: "admin" }),
+  /** Send one WhatsApp template to one number. Body: { phone, template, language?, bodyParams? } */
+  sendWhatsAppTest: (body = {}) =>
+    apiClient.post("/food/admin/notifications/whatsapp/test", body ?? {}, {
       contextModule: "admin",
     }),
   /** List restaurants for admin. Requires admin auth. */
@@ -1108,6 +1058,26 @@ export const adminAPI = {
       contextModule: "admin",
     }),
 
+  /** Restaurant wallets (admin): balances, and recorded credits/debits */
+  getRestaurantWallets: () =>
+    apiClient.get("/food/admin/restaurant-wallets", { contextModule: "admin" }),
+  getRestaurantWalletAdjustments: (restaurantId) =>
+    apiClient.get(`/food/admin/restaurants/${String(restaurantId)}/wallet-adjustments`, {
+      contextModule: "admin",
+    }),
+  setRestaurantWalletBalance: (restaurantId, { balance, reason }) =>
+    apiClient.post(
+      `/food/admin/restaurants/${String(restaurantId)}/wallet-balance`,
+      { balance, reason },
+      { contextModule: "admin" },
+    ),
+  createRestaurantWalletAdjustment: (restaurantId, { amount, reason }) =>
+    apiClient.post(
+      `/food/admin/restaurants/${String(restaurantId)}/wallet-adjustments`,
+      { amount, reason },
+      { contextModule: "admin" },
+    ),
+
   /** Restaurant Commission (admin) */
   getRestaurantCommissionBootstrap: () =>
     apiClient.get("/food/admin/restaurant-commissions/bootstrap", {
@@ -1353,25 +1323,6 @@ export const restaurantAPI = {
     }),
   getWithdrawalHistory: () =>
     apiClient.get("/food/restaurant/withdrawals", {
-      contextModule: "restaurant"
-    }),
-  /** Calendar-month postpaid subscription billing */
-  getSubscriptionOverview: () =>
-    apiClient.get("/food/restaurant/subscription/overview", {
-      contextModule: "restaurant"
-    }),
-  getSubscriptionInvoices: (params = {}) =>
-    apiClient.get("/food/restaurant/subscription/invoices", {
-      params,
-      contextModule: "restaurant"
-    }),
-  getSubscriptionInvoice: (invoiceId) =>
-    apiClient.get(`/food/restaurant/subscription/invoices/${String(invoiceId)}`, {
-      contextModule: "restaurant"
-    }),
-  getSubscriptionTransactions: (params = {}) =>
-    apiClient.get("/food/restaurant/subscription/transactions", {
-      params,
       contextModule: "restaurant"
     }),
   /** Update restaurant profile fields (name/cuisines/location/menuImages). */
