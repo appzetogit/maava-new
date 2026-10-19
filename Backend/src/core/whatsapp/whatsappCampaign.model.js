@@ -12,6 +12,8 @@ const whatsappCampaignSchema = new mongoose.Schema(
         template: { type: String, required: true, trim: true },
         language: { type: String, default: 'en', trim: true },
         bodyParams: { type: [String], default: [] },
+        /** Public https URL of the header image, for templates approved with an image header. */
+        headerImage: { type: String, default: '' },
         /** ALL | USER | RESTAURANT | DELIVERY | CUSTOM (picked people) | NUMBERS (pasted phones) */
         audience: { type: String, enum: ['ALL', 'USER', 'RESTAURANT', 'DELIVERY', 'CUSTOM', 'NUMBERS'], required: true },
         recipientCount: { type: Number, default: 0 },

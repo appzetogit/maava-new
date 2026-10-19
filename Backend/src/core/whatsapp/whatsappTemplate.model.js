@@ -15,6 +15,9 @@ const whatsappTemplateSchema = new mongoose.Schema(
         variables: { type: Number, min: 0, max: 10, default: 0 },
         /** Values from the last successful send, as a hint for the next one. */
         lastValues: { type: [String], default: [] },
+        /** Sent with a header image last time, i.e. an image template. */
+        hasImage: { type: Boolean, default: false },
+        lastHeaderImage: { type: String, default: '' },
         lastUsedAt: { type: Date, default: Date.now },
         useCount: { type: Number, default: 0 }
     },

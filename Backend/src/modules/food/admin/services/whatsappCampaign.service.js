@@ -79,7 +79,9 @@ const runCampaign = async (campaignId, phones, option, recipientCount) => {
  * runs in the background and its counts land on the campaign.
  */
 export const createWhatsAppCampaign = async ({ body = {}, adminId } = {}) => {
-    const option = normalizeWhatsAppOption({ template: body?.template, language: body?.language, bodyParams: body?.bodyParams });
+    const option = normalizeWhatsAppOption({
+        template: body?.template, language: body?.language, bodyParams: body?.bodyParams, headerImage: body?.headerImage
+    });
     if (!option) throw new ValidationError('Template name is required');
     const { audience, phones, recipientCount } = await resolveRecipients(body);
 
@@ -87,6 +89,7 @@ export const createWhatsAppCampaign = async ({ body = {}, adminId } = {}) => {
         template: option.template,
         language: option.language || 'en',
         bodyParams: option.bodyParams,
+        headerImage: option.headerImage || '',
         audience,
         recipientCount,
         status: 'sending',

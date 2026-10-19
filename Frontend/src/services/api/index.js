@@ -531,6 +531,15 @@ export const adminAPI = {
       params,
       contextModule: "admin",
     }),
+  /** Upload a WhatsApp header image; the server stores it as JPEG and returns an https URL. */
+  uploadWhatsAppImage: (file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return apiClient.post("/food/admin/notifications/whatsapp/image", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      contextModule: "admin",
+    });
+  },
   /** Templates that sent successfully before, newest first (the panel's suggestions). */
   getWhatsAppTemplates: () =>
     apiClient.get("/food/admin/notifications/whatsapp/templates", { contextModule: "admin" }),

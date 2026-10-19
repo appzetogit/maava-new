@@ -9,8 +9,10 @@ import {
     sendWhatsAppTemplate,
     rememberWhatsAppTemplate,
     listWhatsAppTemplates,
-    forgetWhatsAppTemplate
+    forgetWhatsAppTemplate,
+    normalizeHeaderImage
 } from '../../../../core/whatsapp/whatsapp.service.js';
+import { saveJpegImage } from '../../../../services/storage.service.js';
 import { createWhatsAppCampaign, listWhatsAppCampaigns } from '../services/whatsappCampaign.service.js';
 
 export const createBroadcastNotificationController = async (req, res) => {
@@ -45,9 +47,12 @@ export const testWhatsAppController = async (req, res) => {
             return sendError(res, 400, 'WhatsApp is not configured on the server');
         }
         const name = String(template || '').trim();
-        const result = await sendWhatsAppTemplate({ phone, template: name, language, bodyParams });
+        const rawImage = String(req.body?.headerImage || '').trim();
+        const headerImage = normalizeHeaderImage(rawImage);
+        if (rawImage && !headerImage) return sendError(res, 400, 'Header image must be a public https:// link');
+        const result = await sendWhatsAppTemplate({ phone, template: name, language, bodyParams, headerImage });
         if (!result.ok) return sendError(res, 400, `WhatsApp send failed: ${result.error}`);
-        await rememberWhatsAppTemplate({ template: name, language, bodyParams });
+        await rememberWhatsAppTemplate({ template: name, language, bodyParams, headerImage });
         return sendResponse(res, 200, 'WhatsApp test message sent', { to: result.to, messageId: result.messageId });
     } catch (error) {
         return sendError(res, error.statusCode || 500, error.message || 'Failed to send WhatsApp test');
@@ -93,6 +98,28 @@ export const listWhatsAppCampaignsController = async (req, res) => {
         return sendResponse(res, 200, 'WhatsApp campaigns', data);
     } catch (error) {
         return sendError(res, error.statusCode || 500, error.message || 'Failed to load WhatsApp campaigns');
+    }
+};
+
+/**
+ * POST /admin/notifications/whatsapp/image (multipart "file") - store a header
+ * image as JPEG (WhatsApp rejects WebP, which the normal upload produces) and
+ * return an absolute https link WhatsApp can fetch.
+ */
+export const uploadWhatsAppImageController = async (req, res) => {
+    try {
+        if (!req.file) return sendError(res, 400, 'Choose an image to upload');
+        const saved = await saveJpegImage(req.file, 'whatsapp/headers');
+        let url = saved.url;
+        if (url.startsWith('/')) {
+            // Relative /uploads/... path: serve it from the site the admin is using.
+            const origin = String(req.headers.origin || '');
+            const base = /^https:\/\/[a-z0-9.-]+$/i.test(origin) ? origin : `https://${req.get('host')}`;
+            url = `${base}${url}`;
+        }
+        return sendResponse(res, 201, 'Image uploaded', { url, size: saved.size });
+    } catch (error) {
+        return sendError(res, error.statusCode || 400, error.message || 'Image upload failed');
     }
 };
 

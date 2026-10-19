@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, MessageCircle, Minus, Plus, Search, Send, X } from "lucide-react";
+import { ImagePlus, Loader2, MessageCircle, Minus, Plus, Search, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { adminAPI } from "@food/api";
 import { vt } from "@food/utils/adminVerticalLabels";
@@ -66,6 +66,9 @@ export default function WhatsAppMessages() {
   const [template, setTemplate] = useState("");
   const [language, setLanguage] = useState("en");
   const [values, setValues] = useState([]);
+  // Header image for templates approved with an IMAGE header (https URL from our upload).
+  const [headerImage, setHeaderImage] = useState("");
+  const [uploading, setUploading] = useState(false);
   const [audience, setAudience] = useState("USER");
   const [phonesText, setPhonesText] = useState("");
   const [testPhone, setTestPhone] = useState("");
@@ -177,7 +180,27 @@ export default function WhatsAppMessages() {
     setTemplate(t.name);
     setLanguage(t.language || "en");
     setValues(Array.from({ length: count }, (_, i) => t.lastValues?.[i] || ""));
+    setHeaderImage(t.hasImage ? t.lastHeaderImage || "" : "");
     setSuggestOpen(false);
+  };
+
+  const handleImagePick = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!/^image\/(jpeg|jpg|png|webp)$/i.test(file.type)) return toast.error("Choose a JPG, PNG or WebP image");
+    if (file.size > 10 * 1024 * 1024) return toast.error("Image is too large (max 10 MB)");
+    try {
+      setUploading(true);
+      const res = await adminAPI.uploadWhatsAppImage(file);
+      const url = res?.data?.data?.url;
+      if (!url) throw new Error("No link returned");
+      setHeaderImage(url);
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Image upload failed");
+    } finally {
+      setUploading(false);
+    }
   };
 
   const forgetTemplate = async (t) => {
@@ -197,7 +220,12 @@ export default function WhatsAppMessages() {
     if (!name) { toast.error("Choose or type a template name"); return null; }
     const cleaned = values.map((v) => String(v ?? "").trim());
     if (cleaned.some((v) => !v)) { toast.error("Fill in every template value"); return null; }
-    return { template: name, language: language.trim() || "en", bodyParams: cleaned };
+    return {
+      template: name,
+      language: language.trim() || "en",
+      bodyParams: cleaned,
+      ...(headerImage ? { headerImage } : {}),
+    };
   };
 
   const handleTest = async () => {
@@ -299,7 +327,7 @@ export default function WhatsAppMessages() {
                         className="flex-1 min-w-0 text-left px-2 py-2.5">
                         <div className="text-sm font-semibold text-slate-900 truncate">{t.name}</div>
                         <div className="text-xs text-slate-500">
-                          {t.language} · {t.variables} value{t.variables === 1 ? "" : "s"} · used {t.useCount || 1}×
+                          {t.language} · {t.variables} value{t.variables === 1 ? "" : "s"}{t.hasImage ? " · with image" : ""} · used {t.useCount || 1}×
                         </div>
                       </button>
                       <button type="button" title="Stop suggesting this template"
@@ -351,6 +379,35 @@ export default function WhatsAppMessages() {
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+
+          <div>
+            <span className="text-sm font-semibold text-slate-700">Image (optional)</span>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Only for templates created with an <strong>image header</strong> in your WhatsApp account. Leave empty
+              for text-only templates, or WhatsApp will reject the message.
+            </p>
+            {headerImage ? (
+              <div className="mt-2 flex items-start gap-3">
+                <img src={headerImage} alt="WhatsApp header" className="h-28 w-28 rounded-2xl border border-slate-200 object-cover bg-slate-50" />
+                <div className="flex flex-col gap-2">
+                  <label className="inline-flex items-center gap-2 cursor-pointer rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                    <ImagePlus className="w-4 h-4" /> Change
+                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleImagePick} disabled={uploading} />
+                  </label>
+                  <button type="button" onClick={() => setHeaderImage("")}
+                    className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50">
+                    <X className="w-4 h-4" /> Remove
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <label className={`mt-2 flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-200 bg-white px-4 py-5 text-sm text-slate-600 ${uploading ? "opacity-60" : "cursor-pointer hover:border-emerald-300 hover:bg-emerald-50/40"}`}>
+                {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
+                {uploading ? "Uploading…" : "Upload an image (JPG, PNG or WebP; saved as JPG)"}
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleImagePick} disabled={uploading} />
+              </label>
             )}
           </div>
 
@@ -464,7 +521,14 @@ export default function WhatsAppMessages() {
                 {history.map((c) => (
                   <tr key={c._id} className="border-b border-slate-100 align-top">
                     <td className="py-4 pr-4 font-semibold text-slate-900">
-                      {c.template}<span className="ml-1 text-xs font-normal text-slate-400">{c.language}</span>
+                      <div className="flex items-center gap-2">
+                        {c.headerImage && (
+                          <img src={c.headerImage} alt="" className="h-8 w-8 rounded-lg object-cover border border-slate-200" />
+                        )}
+                        <span>
+                          {c.template}<span className="ml-1 text-xs font-normal text-slate-400">{c.language}</span>
+                        </span>
+                      </div>
                     </td>
                     <td className="py-4 pr-4 text-slate-600 max-w-xs">{(c.bodyParams || []).join(" · ") || "-"}</td>
                     <td className="py-4 pr-4 text-slate-700">

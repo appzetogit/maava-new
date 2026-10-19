@@ -11,6 +11,7 @@ import * as orderController from '../../orders/controllers/order.controller.js';
 import { listUserCartsAdminController, getUserCartPricingAdminController } from '../controllers/userCartAdmin.controller.js';
 import { getAdminPageController, upsertAdminPageController } from '../controllers/pageContent.controller.js';
 import { upload } from '../../../../middleware/upload.js';
+import { imageUpload } from '../../../uploads/middleware/upload.middleware.js';
 import { invalidateCache } from '../../../../middleware/cache.js';
 import {
     downloadBulkMenuTemplateController,
@@ -89,6 +90,7 @@ router.get('/notifications/broadcast', notificationBroadcastController.getBroadc
 router.delete('/notifications/broadcast/:id', notificationBroadcastController.deleteBroadcastNotificationController);
 // WhatsApp promotional messages (Admin > WhatsApp Messages; 'whatsapp_messages' permission)
 router.post('/notifications/whatsapp/campaigns', notificationBroadcastController.createWhatsAppCampaignController);
+router.post('/notifications/whatsapp/image', imageUpload.single('file'), notificationBroadcastController.uploadWhatsAppImageController);
 router.get('/notifications/whatsapp/campaigns', notificationBroadcastController.listWhatsAppCampaignsController);
 router.get('/notifications/whatsapp/status', notificationBroadcastController.whatsAppStatusController);
 router.post('/notifications/whatsapp/test', notificationBroadcastController.testWhatsAppController);
