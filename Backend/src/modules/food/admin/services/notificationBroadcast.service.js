@@ -8,7 +8,7 @@ import { FoodNotification } from '../../../../core/notifications/models/notifica
 import { createInboxNotifications } from '../../../../core/notifications/notification.service.js';
 import { notifyOwnersSafely } from '../../../../core/notifications/firebase.service.js';
 import { getIO, rooms } from '../../../../config/socket.js';
-import { isWhatsAppConfigured, sendWhatsAppTemplateBulk, rememberWhatsAppTemplate } from '../../../../core/whatsapp/whatsapp.service.js';
+import { isWhatsAppConfigured, sendWhatsAppTemplateBulk, rememberWhatsAppTemplate, normalizeHeaderImage } from '../../../../core/whatsapp/whatsapp.service.js';
 import { logger } from '../../../../utils/logger.js';
 
 const TARGET_TYPE_MAP = {
@@ -234,7 +234,12 @@ export const normalizeWhatsAppOption = (raw) => {
     if (bodyParams.some((p) => !p)) {
         throw new ValidationError('WhatsApp template values cannot be empty');
     }
-    return { template, language, bodyParams };
+    const rawImage = String(raw.headerImage || '').trim();
+    const headerImage = normalizeHeaderImage(rawImage);
+    if (rawImage && !headerImage) {
+        throw new ValidationError('Header image must be a public https:// link');
+    }
+    return { template, language, bodyParams, ...(headerImage ? { headerImage } : {}) };
 };
 
 const PHONE_FIELD = { USER: 'phone', RESTAURANT: 'ownerPhone', DELIVERY_PARTNER: 'phone' };

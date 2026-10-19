@@ -205,6 +205,32 @@ export const saveImageFile = async (file, folder) => {
     };
 };
 
+/**
+ * Save an image as JPEG (not WebP like saveImageFile). For consumers that do
+ * not accept WebP, e.g. WhatsApp template header images (JPEG/PNG, max 5 MB).
+ */
+export const saveJpegImage = async (file, folder, { maxWidth = 1600, quality = 85 } = {}) => {
+    if (!file?.buffer?.length) {
+        throw new ValidationError('File is required');
+    }
+    const mimeType = String(file.mimetype || '').toLowerCase();
+    if (!ALLOWED_MIME_TYPES.has(mimeType)) {
+        throw new ValidationError('Only JPEG, PNG, WebP, and GIF images are allowed');
+    }
+    const safeFolder = sanitizeUploadFolder(folder);
+    const buffer = await sharp(file.buffer, { failOn: 'none' })
+        .rotate()
+        .resize({ width: maxWidth, withoutEnlargement: true })
+        .flatten({ background: '#ffffff' }) // JPEG has no transparency
+        .jpeg({ quality, mozjpeg: true })
+        .toBuffer();
+    const filename = buildFilename('.jpg');
+    const relativePath = path.posix.join(safeFolder, filename);
+    await ensureUploadStorageReady(safeFolder);
+    await fs.writeFile(getAbsolutePath(relativePath), buffer);
+    return { url: buildPublicUrl(relativePath), path: relativePath, filename, mimeType: 'image/jpeg', size: buffer.length };
+};
+
 export const saveImageBuffer = async (buffer, folder, options = {}) => {
     return saveImageFile(
         {
