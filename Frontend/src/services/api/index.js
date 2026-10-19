@@ -521,6 +521,16 @@ export const adminAPI = {
   /** WhatsApp promotional templates: is it configured on the server? */
   getWhatsAppStatus: () =>
     apiClient.get("/food/admin/notifications/whatsapp/status", { contextModule: "admin" }),
+  /** Start a WhatsApp send. Body: { template, language?, bodyParams?, audience, targetIds?, targets?, phones? } */
+  createWhatsAppCampaign: (body = {}) =>
+    apiClient.post("/food/admin/notifications/whatsapp/campaigns", body ?? {}, {
+      contextModule: "admin",
+    }),
+  getWhatsAppCampaigns: (params = {}) =>
+    apiClient.get("/food/admin/notifications/whatsapp/campaigns", {
+      params,
+      contextModule: "admin",
+    }),
   /** Templates that sent successfully before, newest first (the panel's suggestions). */
   getWhatsAppTemplates: () =>
     apiClient.get("/food/admin/notifications/whatsapp/templates", { contextModule: "admin" }),

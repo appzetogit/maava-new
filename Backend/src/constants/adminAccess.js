@@ -14,6 +14,7 @@ export const ADMIN_ACCESS_GROUPS = [
         { key: 'dashboard', label: 'Dashboard' },
         { key: 'point_of_sale', label: 'Point of Sale' },
         { key: 'restaurant_commission', label: 'Restaurant Commission' },
+        { key: 'restaurant_wallets', label: 'Restaurant Wallets' },
     ] },
     { group: 'Catalog', items: [
         { key: 'product_approval', label: 'Product Approval' },
@@ -69,6 +70,7 @@ export const ADMIN_ACCESS_GROUPS = [
     ] },
     { group: 'System', items: [
         { key: 'broadcast', label: 'Broadcast Notification' },
+        { key: 'whatsapp_messages', label: 'WhatsApp Messages' },
         { key: 'business_setup', label: 'Business Setup' },
         { key: 'feature_settings', label: 'Feature Settings' },
         { key: 'power_scanning', label: 'Power Scanning' },
@@ -100,13 +102,14 @@ const RULES = [
 
     [/^\/dashboard-stats/, ['dashboard']],
     [/^\/restaurant-commissions/, ['restaurant_commission']],
+    [/^\/restaurant-wallets/, ['restaurant_wallets']],
 
     [/^\/foods\/(pending-approvals|[^/]+\/(approve|reject)|bulk-approve)/, ['product_approval']],
     [/^\/(foods|addons)/, ['products', 'product_approval', 'point_of_sale']],
     [/^\/categories/, ['categories']],
 
     [/^\/zones/, ['zone_setup']],
-    [/^\/(restaurants|restaurant-settings|restaurant-subscription-settings|restaurant-subscriptions|restaurant-app-banners|dining)/, ['sellers']],
+    [/^\/(restaurants|restaurant-settings|restaurant-app-banners|dining)/, ['sellers']],
 
     [/^\/order-detect-delivery/, ['order_detect_delivery']],
     [/^\/orders/, ['orders', 'point_of_sale']],
@@ -141,6 +144,7 @@ const RULES = [
     [/^\/withdrawals/, ['restaurant_withdraws']],
 
     [/^\/pages-social-media/, ['pages']],
+    [/^\/notifications\/whatsapp/, ['whatsapp_messages']],
     [/^\/notifications/, ['broadcast']],
     [/^\/business-settings/, ['business_setup']],
     [/^\/feature-settings/, ['feature_settings']],
