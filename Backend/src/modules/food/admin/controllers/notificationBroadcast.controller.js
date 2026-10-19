@@ -11,6 +11,7 @@ import {
     listWhatsAppTemplates,
     forgetWhatsAppTemplate
 } from '../../../../core/whatsapp/whatsapp.service.js';
+import { createWhatsAppCampaign, listWhatsAppCampaigns } from '../services/whatsappCampaign.service.js';
 
 export const createBroadcastNotificationController = async (req, res) => {
     try {
@@ -71,6 +72,27 @@ export const forgetWhatsAppTemplateController = async (req, res) => {
         return sendResponse(res, 200, 'Template suggestion removed', {});
     } catch (error) {
         return sendError(res, 500, error.message || 'Failed to remove template suggestion');
+    }
+};
+
+/** POST /admin/notifications/whatsapp/campaigns - start a WhatsApp send (runs in the background). */
+export const createWhatsAppCampaignController = async (req, res) => {
+    try {
+        if (!isWhatsAppConfigured()) return sendError(res, 400, 'WhatsApp is not configured on the server');
+        const data = await createWhatsAppCampaign({ body: req.body, adminId: req.user?.userId });
+        return sendResponse(res, 201, 'WhatsApp messages are being sent', data);
+    } catch (error) {
+        return sendError(res, error.statusCode || 500, error.message || 'Failed to start WhatsApp send');
+    }
+};
+
+/** GET /admin/notifications/whatsapp/campaigns - past WhatsApp sends, newest first. */
+export const listWhatsAppCampaignsController = async (req, res) => {
+    try {
+        const data = await listWhatsAppCampaigns({ page: req.query?.page, limit: req.query?.limit });
+        return sendResponse(res, 200, 'WhatsApp campaigns', data);
+    } catch (error) {
+        return sendError(res, error.statusCode || 500, error.message || 'Failed to load WhatsApp campaigns');
     }
 };
 

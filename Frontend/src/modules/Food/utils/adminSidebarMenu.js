@@ -18,6 +18,12 @@ export const adminSidebarMenu = [
     icon: "Percent",
   },
   {
+    type: "link",
+    label: "Seller Wallet",
+    path: "/admin/store/sellers/wallets",
+    icon: "Wallet",
+  },
+  {
     type: "section",
     label: "CATALOG MANAGEMENT",
     items: [
@@ -65,8 +71,6 @@ export const adminSidebarMenu = [
           { label: "Seller Reviews", path: "/admin/store/sellers/reviews" },
           { label: "Seller Complaints", path: "/admin/store/sellers/complaints" },
           { label: "Seller Settings", path: "/admin/store/sellers/settings" },
-          { label: "Subscription Settings", path: "/admin/store/sellers/subscription-settings" },
-          { label: "Subscription Billing", path: "/admin/store/sellers/subscription-history" },
         ],
       },
     ],
@@ -238,6 +242,7 @@ export const adminSidebarMenu = [
     label: "SYSTEM SETTINGS",
     items: [
       { type: "link", label: "Broadcast Notification", path: "/admin/store/broadcast-notification", icon: "Bell" },
+      { type: "link", label: "WhatsApp Messages", path: "/admin/store/whatsapp-messages", icon: "MessageSquare" },
       { type: "link", label: "Business Setup", path: "/admin/store/business-setup", icon: "Settings" },
     ],
   },

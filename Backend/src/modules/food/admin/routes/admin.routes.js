@@ -87,7 +87,9 @@ router.delete('/sub-admins/:id', requireAdminPermission('sub_admin_management', 
 router.post('/notifications/broadcast', notificationBroadcastController.createBroadcastNotificationController);
 router.get('/notifications/broadcast', notificationBroadcastController.getBroadcastNotificationsController);
 router.delete('/notifications/broadcast/:id', notificationBroadcastController.deleteBroadcastNotificationController);
-// WhatsApp promotional templates (same 'broadcast' permission as above)
+// WhatsApp promotional messages (Admin > WhatsApp Messages; 'whatsapp_messages' permission)
+router.post('/notifications/whatsapp/campaigns', notificationBroadcastController.createWhatsAppCampaignController);
+router.get('/notifications/whatsapp/campaigns', notificationBroadcastController.listWhatsAppCampaignsController);
 router.get('/notifications/whatsapp/status', notificationBroadcastController.whatsAppStatusController);
 router.post('/notifications/whatsapp/test', notificationBroadcastController.testWhatsAppController);
 router.get('/notifications/whatsapp/templates', notificationBroadcastController.listWhatsAppTemplatesController);

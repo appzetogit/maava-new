@@ -10,6 +10,7 @@ export const ADMIN_ACCESS_GROUPS = [
     { key: "dashboard", label: "Dashboard", pages: ["=/admin/store"] },
     { key: "point_of_sale", label: "Point of Sale", pages: ["/admin/store/point-of-sale"] },
     { key: "restaurant_commission", label: vt("Seller Commission"), pages: ["/admin/store/sellers/commission"] },
+    { key: "restaurant_wallets", label: vt("Seller Wallet"), pages: ["/admin/store/sellers/wallets", "/admin/store/restaurants/wallets"] },
   ] },
   { group: "Catalog", items: [
     { key: "product_approval", label: "Product Approval", pages: ["/admin/store/food-approval"] },
@@ -65,6 +66,7 @@ export const ADMIN_ACCESS_GROUPS = [
   ] },
   { group: "System", items: [
     { key: "broadcast", label: "Broadcast Notification", pages: ["/admin/store/broadcast-notification"] },
+    { key: "whatsapp_messages", label: "WhatsApp Messages", pages: ["/admin/store/whatsapp-messages"] },
     { key: "business_setup", label: "Business Setup", pages: ["/admin/store/business-setup"] },
     { key: "feature_settings", label: "Feature Settings", pages: ["/admin/store/feature-settings"] },
     { key: "power_scanning", label: "Power Scanning", pages: ["/admin/store/power-scanning"] },

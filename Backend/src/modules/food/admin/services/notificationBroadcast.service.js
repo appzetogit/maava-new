@@ -40,7 +40,7 @@ const normalizeText = (value, fieldName, required = true) => {
     return text;
 };
 
-const normalizeTargetType = (value) => {
+export const normalizeTargetType = (value) => {
     const nextValue = String(value || '').trim().toUpperCase();
     const normalized = TARGET_TYPE_MAP[nextValue];
     if (!normalized) {
@@ -140,7 +140,7 @@ const resolveCustomTargets = async ({ targets = [], targetIds = [] } = {}) => {
     }));
 };
 
-const resolveTargets = async ({ targetType, targetIds = [], targets = [] } = {}) => {
+export const resolveTargets = async ({ targetType, targetIds = [], targets = [] } = {}) => {
     if (targetType === 'ALL') {
         const [users, restaurants, deliveryPartners] = await Promise.all([
             loadTargetsByOwnerType('USER'),
@@ -217,7 +217,7 @@ const paginationMeta = ({ page = 1, limit = 10 } = {}) => {
  * The template must be approved in the WhatsApp business account; bodyParams
  * fill its {{1}}, {{2}}... in order. Returns null when no WhatsApp copy is wanted.
  */
-const normalizeWhatsAppOption = (raw) => {
+export const normalizeWhatsAppOption = (raw) => {
     if (!raw || raw.enabled === false) return null;
     const template = String(raw.template || '').trim();
     if (!template) return null;
@@ -240,7 +240,7 @@ const normalizeWhatsAppOption = (raw) => {
 const PHONE_FIELD = { USER: 'phone', RESTAURANT: 'ownerPhone', DELIVERY_PARTNER: 'phone' };
 
 /** Phones for every target; looks up the ones the caller did not supply (custom picks from the panel). */
-const phonesForTargets = async (targets) => {
+export const phonesForTargets = async (targets) => {
     const phones = [];
     const missing = { USER: [], RESTAURANT: [], DELIVERY_PARTNER: [] };
     for (const t of targets) {
