@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { exportReportsToCSV, exportReportsToExcel, exportReportsToPDF, exportReportsToJSON } from "@food/components/admin/reports/reportsExportUtils"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -72,7 +73,7 @@ export default function RestaurantReport() {
         }
       } catch (error) {
         debugError("Error fetching restaurant report:", error)
-        toast.error("Failed to fetch restaurant report")
+        toast.error(vt("Failed to fetch seller report"))
         setRestaurants([])
       } finally {
         setLoading(false)
@@ -107,8 +108,8 @@ export default function RestaurantReport() {
     }
     const headers = [
       { key: "sl", label: "SL" },
-      { key: "restaurantName", label: "Restaurant Name" },
-      { key: "totalFood", label: "Total Food" },
+      { key: "restaurantName", label: vt("Seller Name") },
+      { key: "totalFood", label: vt("Total Products") },
       { key: "totalOrder", label: "Total Order" },
       { key: "totalOrderAmount", label: "Total Order Amount" },
       { key: "totalDiscountGiven", label: "Total Discount Given" },
@@ -119,7 +120,7 @@ export default function RestaurantReport() {
     switch (format) {
       case "csv": exportReportsToCSV(filteredRestaurants, headers, "restaurant_report"); break
       case "excel": exportReportsToExcel(filteredRestaurants, headers, "restaurant_report"); break
-      case "pdf": exportReportsToPDF(filteredRestaurants, headers, "restaurant_report", "Restaurant Report"); break
+      case "pdf": exportReportsToPDF(filteredRestaurants, headers, "restaurant_report", vt("Seller Report")); break
       case "json": exportReportsToJSON(filteredRestaurants, "restaurant_report"); break
     }
   }
@@ -167,7 +168,7 @@ export default function RestaurantReport() {
             <div className="w-10 h-10 rounded-lg bg-slate-700 flex items-center justify-center">
               <Briefcase className="w-5 h-5 text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-slate-900">Restaurant Report</h1>
+            <h1 className="text-2xl font-bold text-slate-900">{vt("Seller Report")}</h1>
           </div>
         </div>
 
@@ -311,13 +312,13 @@ export default function RestaurantReport() {
         {/* Restaurant Report Table Section */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-            <h2 className="text-xl font-bold text-slate-900">Restaurant Report Table {totalRestaurants}</h2>
+            <h2 className="text-xl font-bold text-slate-900">{vt("Seller Report Table")} {totalRestaurants}</h2>
 
             <div className="flex items-center gap-3">
               <div className="relative flex-1 sm:flex-initial min-w-[250px]">
                 <input
                   type="text"
-                  placeholder="Ex: search restaurant nam"
+                  placeholder={vt("Ex: search seller nam")}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-4 pr-10 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -376,13 +377,13 @@ export default function RestaurantReport() {
                   </th>
                   <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                     <div className="flex items-center gap-1">
-                      <span>Restaurant Name</span>
+                      <span>{vt("Seller Name")}</span>
                       <ArrowUpDown className="w-3 h-3 text-slate-400" />
                     </div>
                   </th>
                   <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                     <div className="flex items-center gap-1">
-                      <span>Total Food</span>
+                      <span>{vt("Total Products")}</span>
                       <ArrowUpDown className="w-3 h-3 text-slate-400" />
                     </div>
                   </th>
@@ -430,7 +431,7 @@ export default function RestaurantReport() {
                     <td colSpan={9} className="px-6 py-20 text-center">
                       <div className="flex flex-col items-center justify-center">
                         <p className="text-lg font-semibold text-slate-700 mb-1">No Data Found</p>
-                        <p className="text-sm text-slate-500">No restaurants match your search</p>
+                        <p className="text-sm text-slate-500">{vt("No sellers match your search")}</p>
                       </div>
                     </td>
                   </tr>
@@ -508,7 +509,7 @@ export default function RestaurantReport() {
           </DialogHeader>
           <div className="px-6 pb-6">
             <p className="text-sm text-slate-700">
-              Restaurant report settings and preferences will be available here.
+              {vt("Seller report settings and preferences will be available here.")}
             </p>
           </div>
           <div className="px-6 pb-6 flex items-center justify-end">

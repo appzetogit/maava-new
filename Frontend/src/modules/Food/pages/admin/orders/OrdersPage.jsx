@@ -17,6 +17,7 @@ import { OrdersDashboardSkeleton } from "@food/components/ui/loading-skeletons"
 import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
 import alertSound from "@food/assets/audio/alert.mp3"
 import originalSound from "@food/assets/audio/original.mp3"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -27,7 +28,7 @@ const statusConfig = {
   "all": { title: "All Orders", color: "emerald", icon: FileText },
   "pending": {
     title: "Pending Orders",
-    subtitle: "Cash orders awaiting restaurant acceptance",
+    subtitle: vt("Cash orders awaiting seller acceptance"),
     color: "amber",
     icon: Package,
   },
@@ -38,14 +39,14 @@ const statusConfig = {
     icon: Package,
   },
   "food-on-the-way": {
-    title: "Food On The Way Orders",
+    title: "Out for Delivery Orders",
     subtitle: "Delivery partner accepted — not yet delivered",
     color: "amber",
     icon: Package,
   },
   "delivered": { title: "Delivered Orders", color: "emerald", icon: Package },
   "canceled": { title: "Canceled Orders", color: "rose", icon: Package },
-  "restaurant-cancelled": { title: "Restaurant Cancelled Orders", color: "red", icon: Package },
+  "restaurant-cancelled": { title: vt("Seller Cancelled Orders"), color: "red", icon: Package },
   "payment-failed": { title: "Payment Failed Orders", color: "red", icon: Package },
   "refunded": { title: "Refunded Orders", color: "sky", icon: Package },
   "offline-payments": { title: "Offline Payments", color: "slate", icon: Package },
@@ -546,7 +547,7 @@ export default function OrdersPage({ statusKey = "all" }) {
           .filter(Boolean),
       )
 
-      seenOrderIdsRef.current = nextOrderIds
+      nextOrderIds.forEach((id) => seenOrderIdsRef.current.add(id))
       isFirstLoadRef.current = false
       setOrders(nextOrders)
       setTotalOrdersCount(total)
@@ -561,7 +562,7 @@ export default function OrdersPage({ statusKey = "all" }) {
       if (!silent && !withRingCheck) {
         toast.error(error.response?.data?.message || "Failed to fetch orders")
       }
-      if (!withRingCheck) {
+      if (!withRingCheck && !silent) {
         setOrders([])
         setTotalOrdersCount(0)
         setApiTotalPages(1)
@@ -669,11 +670,11 @@ export default function OrdersPage({ statusKey = "all" }) {
       ) {
         displayStatus = "Processing"
       } else if (backendStatus === "picked_up") {
-        displayStatus = "Food On The Way"
+        displayStatus = "Out for Delivery"
       } else if (backendStatus === "delivered") {
         displayStatus = "Delivered"
       } else if (backendStatus === "cancelled_by_restaurant") {
-        displayStatus = "Cancelled by Restaurant"
+        displayStatus = "Cancelled by Seller"
       } else if (backendStatus === "cancelled_by_user") {
         displayStatus = "Cancelled by User"
       } else if (backendStatus === "cancelled_by_admin") {
@@ -695,6 +696,8 @@ export default function OrdersPage({ statusKey = "all" }) {
             quantity: item.quantity || 1,
             name: item.name || item.foodName || item.title || "Item",
             price: item.price || 0,
+            variantName: item.variantName || "",
+            addons: Array.isArray(item.addons) ? item.addons : [],
           }))
         : []
 
@@ -807,7 +810,7 @@ export default function OrdersPage({ statusKey = "all" }) {
           rows
             .map((row) => ({
               id: row._id || row.id,
-              name: row.restaurantName || row.name || "Restaurant",
+              name: row.restaurantName || row.name || vt("Seller"),
             }))
             .filter((row) => row.id)
             .sort((a, b) => a.name.localeCompare(b.name)),
@@ -852,13 +855,30 @@ export default function OrdersPage({ statusKey = "all" }) {
   }, [apiPage])
 
   useEffect(() => {
-    if (statusKey !== "all") return undefined
-
-    const pollId = setInterval(() => {
-      fetchOrdersRef.current({ silent: true, withRingCheck: true })
+    // The ring check (All tab) only looks for new orders and never redraws the
+    // table, and the admin socket receives no order events, so accepted, picked
+    // up and delivered orders used to change only on a manual reload. Refetch
+    // the visible page silently as well, on every tab.
+    const pollId = setInterval(async () => {
+      if (statusKey === "all") {
+        await fetchOrdersRef.current({ silent: true, withRingCheck: true })
+      }
+      if (typeof document !== "undefined" && document.hidden) return
+      if (fetchInFlightRef.current) return
+      fetchOrdersRef.current({ silent: true, force: true })
     }, 12000)
 
-    return () => clearInterval(pollId)
+    const onVisible = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        fetchOrdersRef.current({ silent: true, force: true })
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible)
+
+    return () => {
+      clearInterval(pollId)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
   }, [statusKey])
 
   useEffect(() => {
@@ -1354,8 +1374,8 @@ export default function OrdersPage({ statusKey = "all" }) {
           orderDate: "Order Date",
           orderOtp: "Order OTP",
           customer: "Customer Information",
-          restaurant: "Restaurant",
-          foodItems: "Food Items",
+          restaurant: vt("Seller"),
+          foodItems: vt("Product Items"),
           totalAmount: "Total Amount",
           paymentType: "Payment Type",
           paymentCollectionStatus: "Payment Status",

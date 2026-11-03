@@ -107,8 +107,6 @@ export default function HubFinance() {
   const [withdrawalAmount, setWithdrawalAmount] = useState('')
   const [submittingWithdrawal, setSubmittingWithdrawal] = useState(false)
   const [withdrawalRequests, setWithdrawalRequests] = useState([])
-  const [subscriptionHistory, setSubscriptionHistory] = useState([])
-  const [loadingSubscriptionHistory, setLoadingSubscriptionHistory] = useState(false)
   const isRestaurantSubscriptionEnabled = financeData?.features?.restaurantSubscriptionEnabled !== false
   // Locked = total outstanding calendar-month subscription dues; the full balance stays visible.
   const subscriptionDueAmount = Number(financeData?.subscription?.lockedAmount ?? financeData?.restaurant?.subscriptionDueAmount ?? 0)
@@ -176,25 +174,6 @@ export default function HubFinance() {
     }
 
     fetchWithdrawals()
-  }, [])
-
-  useEffect(() => {
-    const fetchSubscriptionHistory = async () => {
-      try {
-        setLoadingSubscriptionHistory(true)
-        const response = await restaurantAPI.getSubscriptionTransactions({ limit: 20 })
-        const list = Array.isArray(response?.data?.data?.transactions) ? response.data.data.transactions : []
-        setSubscriptionHistory(list)
-      } catch (error) {
-        if (error?.response?.status !== 401) {
-          debugError("Error fetching subscription history:", error)
-        }
-        setSubscriptionHistory([])
-      } finally {
-        setLoadingSubscriptionHistory(false)
-      }
-    }
-    fetchSubscriptionHistory()
   }, [])
 
   // Fetch restaurant data for header display
@@ -1415,49 +1394,6 @@ export default function HubFinance() {
               </div>
             </div>
 
-            {/* Subscription billing timeline */}
-            <div className="md:col-start-2">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-base font-bold text-gray-900 md:text-lg md:tracking-tight">Subscription billing</h2>
-                <button
-                  onClick={() => navigate('/restaurant/subscription')}
-                  className="text-xs font-semibold text-blue-600 hover:text-blue-700 md:text-[#4f6f9a]"
-                >
-                  View all
-                </button>
-              </div>
-              <div className="bg-white rounded-lg p-4 md:rounded-2xl md:border md:border-[#d6dce4] md:shadow-[0_18px_40px_-34px_rgba(20,24,32,0.35)]">
-                {loadingSubscriptionHistory ? (
-                  <div className="py-6 text-center text-sm text-gray-500">Loading subscription billing...</div>
-                ) : subscriptionHistory.length === 0 ? (
-                  <div className="py-6 text-center text-sm text-gray-500">No subscription billing activity yet.</div>
-                ) : (
-                  <div className="space-y-3">
-                    {subscriptionHistory.map((item, idx) => (
-                      <div key={item?._id || idx} className="border border-gray-200 rounded-lg p-3 md:rounded-xl md:border-[#e2e7ed] md:bg-[#f5f7fa]">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-sm font-semibold text-gray-900 capitalize">
-                            {String(item?.type || "").replaceAll("_", " ")}
-                          </p>
-                          <p className="text-sm font-bold text-gray-900">
-                            ₹{Number(item?.amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </p>
-                        </div>
-                        <p className="text-xs text-gray-600 mt-1">
-                          {item?.billingMonthLabel || item?.billingMonth || "-"} • Remaining due: ₹{Number(item?.outstandingAfter || 0).toLocaleString("en-IN")}
-                        </p>
-                        {item?.remarks ? (
-                          <p className="text-xs text-gray-500 mt-1">{item.remarks}</p>
-                        ) : null}
-                        <p className="text-xs text-gray-500 mt-1">
-                          {item?.createdAt ? new Date(item.createdAt).toLocaleString() : ""}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
         )}
 

@@ -187,6 +187,23 @@ const toProduct = (f) => ({
   inStock: f.isAvailable !== false,
 });
 
+/**
+ * Is any Mart store serving this spot open now? { hasStores, isOpen, reason,
+ * opensAt }. Sent as lat/lng; the server finds the Mart zone. A failed check
+ * reads as open -- checkout still refuses a closed store on its own.
+ */
+export const getStoreStatus = async ({ lat, lng } = {}) => {
+  try {
+    const res = await apiClient.get(`${QUICK}/search/store-status`, {
+      params: lat != null && lng != null ? { lat, lng } : {},
+      contextModule: "user",
+    });
+    return res?.data?.data || { isOpen: true };
+  } catch {
+    return { isOpen: true };
+  }
+};
+
 export const getProducts = async (filters = {}) => {
   const params = Object.fromEntries(
     Object.entries(filters).filter(([, v]) => v !== undefined && v !== null && v !== ""),
@@ -228,6 +245,7 @@ export const getStories = async () => ({ success: true, data: { stories: [] } })
 
 const inmartAPI = {
   getInMartHome,
+  getStoreStatus,
   getCategories,
   getNavCategories,
   getProducts,

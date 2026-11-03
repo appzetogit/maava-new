@@ -17,6 +17,7 @@ import deliveredIcon from "@food/assets/Dashboard-icons/image25.png"
 import canceledIcon from "@food/assets/Dashboard-icons/image26.png"
 import paymentFailedIcon from "@food/assets/Dashboard-icons/image27.png"
 import refundedIcon from "@food/assets/Dashboard-icons/image25.png"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -27,7 +28,7 @@ const statusMeta = {
   Pending: { label: "Pending Orders", color: "text-blue-600", bg: "bg-blue-50", icon: pendingIcon },
   Accepted: { label: "Accepted Orders", color: "text-sky-600", bg: "bg-sky-50", icon: acceptedIcon },
   Processing: { label: "Processing Orders", color: "text-indigo-600", bg: "bg-indigo-50", icon: processingIcon },
-  "Food On The Way": { label: "Food On The Way", color: "text-cyan-600", bg: "bg-cyan-50", icon: onTheWayIcon },
+  "Out for Delivery": { label: "Out for Delivery", color: "text-cyan-600", bg: "bg-cyan-50", icon: onTheWayIcon },
   Delivered: { label: "Delivered", color: "text-emerald-600", bg: "bg-emerald-50", icon: deliveredIcon },
   Canceled: { label: "Canceled", color: "text-red-600", bg: "bg-red-50", icon: canceledIcon },
   "Payment Failed": { label: "Payment Failed", color: "text-orange-600", bg: "bg-orange-50", icon: paymentFailedIcon },
@@ -201,7 +202,7 @@ export default function RegularOrderReport() {
           } else if (backendStatus === "preparing" || backendStatus === "ready_for_pickup") {
             displayStatus = "Processing"
           } else if (backendStatus === "picked_up") {
-            displayStatus = "Food On The Way"
+            displayStatus = "Out for Delivery"
           } else if (backendStatus === "delivered") {
             displayStatus = "Delivered"
           } else if (backendStatus === "cancelled_by_restaurant") {
@@ -277,7 +278,7 @@ export default function RegularOrderReport() {
     }
     const headers = [
       { key: "orderId", label: "Order ID" },
-      { key: "restaurant", label: "Restaurant" },
+      { key: "restaurant", label: vt("Seller") },
       { key: "customerName", label: "Customer Name" },
       { key: "totalItemAmount", label: "Total Item Amount" },
       { key: "couponDiscount", label: "Coupon Discount" },
@@ -334,7 +335,7 @@ export default function RegularOrderReport() {
           Pending: 0,
           Accepted: 0,
           Processing: 0,
-          "Food On The Way": 0,
+          "Out for Delivery": 0,
           Delivered: 0,
           Canceled: 0,
           "Payment Failed": 0,
@@ -448,7 +449,7 @@ export default function RegularOrderReport() {
                 onChange={(e) => handleFilterChange("restaurant", e.target.value)}
                 className="w-full px-2.5 py-1.5 pr-5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs appearance-none cursor-pointer"
               >
-                <option value="All restaurants">All restaurants</option>
+                <option value="All restaurants">{vt("All sellers")}</option>
                 {restaurants.map((restaurant) => (
                   <option key={restaurant._id} value={restaurant._id}>
                     {restaurant.restaurantName || restaurant.name}
@@ -540,7 +541,7 @@ export default function RegularOrderReport() {
           {renderStatusRow("Scheduled")}
           {renderStatusRow("Pending")}
           {renderStatusRow("Processing")}
-          {renderStatusRow("Food On The Way")}
+          {renderStatusRow("Out for Delivery")}
           {renderStatusRow("Accepted")}
           {renderStatusRow("Delivered")}
           {renderStatusRow("Canceled")}
@@ -620,7 +621,7 @@ export default function RegularOrderReport() {
                     Order Id
                   </th>
                   <th className="px-1.5 py-1 text-left text-[8px] font-bold text-slate-700 uppercase tracking-wider" style={{ width: "12%" }}>
-                    Restaurant
+                    {vt("Seller")}
                   </th>
                   <th className="px-1.5 py-1 text-left text-[8px] font-bold text-slate-700 uppercase tracking-wider" style={{ width: "12%" }}>
                     Customer Name

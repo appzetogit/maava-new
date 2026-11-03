@@ -1,17 +1,18 @@
 import { useState } from "react"
 import { Plus, Trash2, Settings, ChevronDown } from "lucide-react"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 
 const defaultFields = [
-  "Restaurant Name", "Restaurant Logo", "Owner Last Name",
+  vt("Seller Name"), vt("Seller Logo"), "Owner Last Name",
   "Vat/Tax", "Cuisine", "Phone Number",
   "Delivery Address", "Zone", "Email",
   "Min Delivery Time", "Latitude & Longitude", "Password",
   "Max Delivery Time", "Map Location",
-  "Restaurant Cover", "Owner First Name"
+  vt("Seller Cover"), "Owner First Name"
 ]
 
 const fieldTypes = ["Text", "Date", "File Upload", "Number", "Email", "Phone"]
@@ -136,7 +137,7 @@ export default function JoinUsPageSetup() {
                   : "border-transparent text-slate-600 hover:text-slate-900"
               }`}
             >
-              Restaurant Registration Form
+              {vt("Seller Registration Form")}
             </button>
             <button
               onClick={() => setActiveTab("deliveryman")}

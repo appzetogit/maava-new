@@ -1,6 +1,7 @@
 import { useState, useRef } from "react"
 import { Upload, Heart, Star, Calendar, CheckCircle2, X } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@food/components/ui/dialog"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -116,7 +117,7 @@ export default function NewAdvertisement() {
     }
 
     if (!formData.restaurant) {
-      errors.restaurant = "Restaurant selection is required"
+      errors.restaurant = vt("Seller selection is required")
     }
 
     if (!formData.validity) {
@@ -263,7 +264,7 @@ export default function NewAdvertisement() {
                           formErrors.restaurant ? "border-red-500" : "border-slate-300"
                         }`}
                       >
-                        <option value="">Select Restaurant</option>
+                        <option value="">{vt("Select Seller")}</option>
                         <option value="cafe-monarch">Café Monarch</option>
                         <option value="hungry-puppets">Hungry Puppets</option>
                       </select>
@@ -298,7 +299,7 @@ export default function NewAdvertisement() {
                       onChange={(e) => handleInputChange("advertisementType", e.target.value)}
                       className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                     >
-                      <option value="Restaurant Promotion">Restaurant Promotion</option>
+                      <option value="Restaurant Promotion">{vt("Seller Promotion")}</option>
                       <option value="Video promotion">Video promotion</option>
                     </select>
                   </div>

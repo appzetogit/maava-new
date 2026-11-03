@@ -6,15 +6,25 @@ import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
 import { Clock, Loader2, Save } from "lucide-react"
 import { toast } from "sonner"
+import { vt } from "@food/utils/adminVerticalLabels"
 
 const MIN_MINUTES = 1
 const MAX_MINUTES = 20
 const DEFAULT_MINUTES = 4
+// Half-minute steps, so a 1:30 timer can be set.
+const STEP_MINUTES = 0.5
 
 const clampMinutes = (value) => {
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) return DEFAULT_MINUTES
-  return Math.max(MIN_MINUTES, Math.min(MAX_MINUTES, Math.round(numeric)))
+  return Math.max(MIN_MINUTES, Math.min(MAX_MINUTES, Math.round(numeric * 2) / 2))
+}
+
+// 1.5 -> "1:30 min", 4 -> "4:00 min": what the restaurant's countdown starts at.
+const formatTimer = (minutes) => {
+  const totalSeconds = Math.round(minutes * 60)
+  const secs = String(totalSeconds % 60).padStart(2, "0")
+  return `${Math.floor(totalSeconds / 60)}:${secs} min`
 }
 
 export default function RestaurantSettings() {
@@ -32,7 +42,7 @@ export default function RestaurantSettings() {
         setSavedMinutes(value)
         setMinutes(value)
       } catch (error) {
-        toast.error(error?.response?.data?.message || "Failed to load restaurant settings.")
+        toast.error(error?.response?.data?.message || vt("Failed to load seller settings."))
       } finally {
         setLoading(false)
       }
@@ -73,7 +83,7 @@ export default function RestaurantSettings() {
   return (
     <div className="mx-auto max-w-3xl p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Restaurant Settings</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{vt("Seller Settings")}</h1>
         <p className="mt-1 text-sm text-gray-500">
           Set the order acceptance timer for all restaurants.
         </p>
@@ -93,13 +103,14 @@ export default function RestaurantSettings() {
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <Label htmlFor="orderAcceptanceTimeMinutes">Timer duration</Label>
-              <span className="text-sm font-semibold text-gray-900">{currentMinutes} minutes</span>
+              <span className="text-sm font-semibold text-gray-900">{formatTimer(currentMinutes)}</span>
             </div>
             <Input
               id="orderAcceptanceTimeMinutes"
               type="range"
               min={MIN_MINUTES}
               max={MAX_MINUTES}
+              step={STEP_MINUTES}
               value={currentMinutes}
               onChange={(event) => setMinutes(clampMinutes(event.target.value))}
               className="h-10"
@@ -109,11 +120,12 @@ export default function RestaurantSettings() {
                 type="number"
                 min={MIN_MINUTES}
                 max={MAX_MINUTES}
+                step={STEP_MINUTES}
                 value={currentMinutes}
                 onChange={(event) => setMinutes(clampMinutes(event.target.value))}
                 className="w-28"
               />
-              <span className="text-sm text-gray-500">Allowed range: 1 to 20 minutes</span>
+              <span className="text-sm text-gray-500">Minutes, 1 to 20, in half-minute steps (1.5 = 1:30)</span>
             </div>
           </div>
 

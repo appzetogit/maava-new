@@ -9,6 +9,7 @@ import {
 import { FoodUser } from '../users/user.model.js';
 import { FoodRestaurant } from '../../modules/food/restaurant/models/restaurant.model.js';
 import { normalizePlatform } from '../../utils/platform.js';
+import { isVoipSupportedOwner, removeVoipDevice, upsertVoipDevice } from './voip.service.js';
 
 const router = express.Router();
 
@@ -95,30 +96,61 @@ router.post('/save', authMiddleware, async (req, res, next) => {
     }
 });
 
+// Body: { token?: string (FCM), voipToken?: string (iOS PushKit) }. At least one is required.
+// The iOS app sends both together so the server knows they are the same device.
 router.post('/mobile/save', authMiddleware, async (req, res, next) => {
     try {
         const { ownerType, ownerId } = getOwnerContext(req);
         const token = String(req.body?.token || '').trim();
+        const voipToken = String(req.body?.voipToken || '').trim();
 
-        console.log(`[FCM-DEBUG] /mobile/save request received: ownerType=${ownerType}, ownerId=${ownerId}, tokenPreview=${token?.slice(0, 10)}...`);
+        console.log(`[FCM-DEBUG] /mobile/save request received: ownerType=${ownerType}, ownerId=${ownerId}, tokenPreview=${token?.slice(0, 10)}..., voip=${voipToken ? 'yes' : 'no'}`);
 
         if (!ownerType || !ownerId) {
             console.warn('[FCM-DEBUG] /mobile/save - Authentication required');
             return sendError(res, 401, 'Authentication required');
         }
 
-        if (!token) {
+        if (!token && !voipToken) {
             console.warn('[FCM-DEBUG] /mobile/save - FCM token is required');
             return sendError(res, 400, 'FCM token is required');
         }
 
-        await upsertFirebaseDeviceToken({ ownerType, ownerId, token, platform: 'mobile' });
+        if (voipToken && !isVoipSupportedOwner(ownerType)) {
+            return sendError(res, 400, `VoIP registration is not supported for role ${ownerType}`);
+        }
+
+        if (token) {
+            await upsertFirebaseDeviceToken({ ownerType, ownerId, token, platform: 'mobile' });
+        }
+        if (voipToken) {
+            await upsertVoipDevice({ ownerType, ownerId, voipToken, fcmToken: token });
+        }
         console.log('[FCM-DEBUG] /mobile/save - Token saved successfully');
         return res.status(200).json({
             success: true,
             message: 'Mobile FCM token saved successfully',
-            data: { ownerType, ownerId, platform: 'mobile' }
+            data: { ownerType, ownerId, platform: 'mobile', fcmSaved: Boolean(token), voipSaved: Boolean(voipToken) }
         });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.delete('/voip/remove', authMiddleware, async (req, res, next) => {
+    try {
+        const { ownerType, ownerId } = getOwnerContext(req);
+        const voipToken = String(req.body?.voipToken || req.query?.voipToken || '').trim();
+
+        if (!ownerType || !ownerId) {
+            return sendError(res, 401, 'Authentication required');
+        }
+        if (!voipToken) {
+            return sendError(res, 400, 'voipToken is required');
+        }
+
+        await removeVoipDevice({ ownerType, ownerId, voipToken });
+        return res.status(200).json({ success: true, message: 'VoIP token removed' });
     } catch (error) {
         next(error);
     }

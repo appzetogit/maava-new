@@ -124,15 +124,33 @@ export async function loadRestaurantForOrdering(restaurantId) {
   return withTimings;
 }
 
+/** "13:00" or "1:00 pm" -> "1:00 PM"; null when unreadable. */
+function formatClock(value) {
+  const m = String(value || '').trim().toLowerCase().match(/^(\d{1,2}):(\d{2})\s*([ap]m)?$/);
+  if (!m) return null;
+  let h = Number(m[1]);
+  if (m[3] === 'pm' && h < 12) h += 12;
+  if (m[3] === 'am' && h === 12) h = 0;
+  if (h > 23) return null;
+  return `${h % 12 === 0 ? 12 : h % 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
 export function assertRestaurantOpenForOrdering(restaurant, at = new Date()) {
   const availability = getRestaurantAvailabilityStatus(restaurant, at);
   if (availability.isOpen) return availability;
 
+  const name = restaurant?.restaurantName ? String(restaurant.restaurantName) : 'This restaurant';
   if (availability.reason === 'not-accepting-orders') {
-    throw new ValidationError('Restaurant is currently offline. Please try again later.');
+    throw new ValidationError(`${name} is not taking orders right now. Please try again later.`);
   }
 
-  throw new ValidationError('Restaurant is currently closed. Please try again later.');
+  // Say when it opens: "closed" alone read to customers as a broken bill.
+  const opens = formatClock(availability.openingTime);
+  throw new ValidationError(
+    opens
+      ? `${name} is closed right now. It opens at ${opens}.`
+      : `${name} is closed right now. Please try again later.`,
+  );
 }
 
 /**
@@ -215,6 +233,36 @@ function matchFeeRange(ranges, distanceKm, pickValue) {
  * A zone's record laid over the default one, field by field. Kept here rather
  * than imported from admin.service, which imports from orders.
  */
+/**
+ * A zone that priced delivery by distance bands must not inherit the default's
+ * per-km pricing, which would outrank those bands (same for rider pay). Blank
+ * fields still inherit everything else.
+ */
+function dropInheritedPricingModes(merged, zoneDoc) {
+    const has = (value) => value !== null && value !== undefined && value !== '';
+    const zoneBands = Array.isArray(zoneDoc?.deliveryFeeRanges) && zoneDoc.deliveryFeeRanges.length > 0;
+    if (zoneBands && !has(zoneDoc?.baseDeliveryFee)) {
+        // Deleted, not set to null: Number(null) is 0, which reads as a valid
+        // "Rs 0 base + Rs 0/km" and made delivery free for the whole zone.
+        delete merged.baseDeliveryKm;
+        delete merged.baseDeliveryFee;
+        delete merged.perKmFee;
+        delete merged.maxDeliveryFee;
+    }
+    const zoneRiderBands =
+        zoneBands &&
+        zoneDoc.deliveryFeeRanges.some(
+            (r) => Number(r?.deliveryBoyBasePay) > 0 || Number(r?.deliveryBoyPerKm) > 0,
+        );
+    if (zoneRiderBands && !has(zoneDoc?.riderBasePay)) {
+        delete merged.riderBaseKm;
+        delete merged.riderBasePay;
+        delete merged.riderPerKmPay;
+        delete merged.riderMaxPay;
+    }
+    return merged;
+}
+
 function overlayZoneFeeSettings(defaults, zoneDoc) {
   if (!zoneDoc) return defaults || null;
   if (!defaults) return zoneDoc;
@@ -225,7 +273,7 @@ function overlayZoneFeeSettings(defaults, zoneDoc) {
     if (Array.isArray(value) && value.length === 0) continue;
     merged[key] = value;
   }
-  return merged;
+  return dropInheritedPricingModes(merged, zoneDoc);
 }
 
 /**
@@ -370,9 +418,14 @@ export function resolveUserDeliveryFee(feeSettings = {}, { subtotal = 0, distanc
   // Distance pricing: the base fee covers the base distance, then the distance
   // beyond it is charged pro rata -- 6.2 km with a 3 km base is 3.2 extra
   // kilometres. Only the final amount is rounded, to whole rupees.
+  // Blank is blank in every shape it arrives in: null, undefined and '' all
+  // coerce to 0 through Number(), which would price a zone at Rs 0.
+  const isSet = (value) => value !== null && value !== undefined && value !== '';
   const baseKm = Number(feeSettings.baseDeliveryKm);
   const baseFee = Number(feeSettings.baseDeliveryFee);
   if (
+    isSet(feeSettings.baseDeliveryFee) &&
+    isSet(feeSettings.baseDeliveryKm) &&
     Number.isFinite(baseFee) &&
     baseFee >= 0 &&
     Number.isFinite(baseKm) &&
@@ -676,6 +729,10 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
 
   let discount = 0;
   let appliedCoupon = null;
+  // Why a code the shopper typed did nothing. Null when it applied, or
+  // when no code was sent. The cart shows this instead of silently
+  // pricing the order at full price under a coupon that never applied.
+  let couponError = null;
   const codeRaw = dto.couponCode
     ? String(dto.couponCode).trim().toUpperCase()
     : "";
@@ -683,6 +740,9 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
   if (codeRaw) {
     const now = new Date();
     const offer = await FoodOffer.findOne({ couponCode: codeRaw }).lean();
+    if (!offer) {
+      couponError = { reason: 'not-found', message: `"${codeRaw}" is not a valid coupon code.` };
+    }
     if (offer) {
       const offerEnd = offer.endDate ? new Date(offer.endDate) : null;
       if (offerEnd && offerEnd.getHours() === 0 && offerEnd.getMinutes() === 0) {
@@ -750,6 +810,27 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
         perUserOk &&
         firstOrderOk;
 
+      if (!allowed) {
+        const shortBy = Math.max(0, (Number(offer.minOrderValue) || 0) - subtotal);
+        couponError = !statusOk
+          ? { reason: 'inactive', message: 'This coupon is no longer available.' }
+          : !startOk
+            ? { reason: 'not-started', message: 'This coupon has not started yet.' }
+            : !endOk
+              ? { reason: 'expired', message: 'This coupon has expired.' }
+              : !scopeOk
+                ? { reason: 'wrong-restaurant', message: 'This coupon is not valid at this store.' }
+                : !zoneOk
+                  ? { reason: 'wrong-zone', message: 'This coupon is not available at your delivery address.' }
+                  : !minOk
+                    ? { reason: 'min-order', amountNeeded: shortBy, message: `Add ₹${shortBy} more to use this coupon.` }
+                    : !usageOk
+                      ? { reason: 'usage-limit', message: 'This coupon has been fully claimed.' }
+                      : !perUserOk
+                        ? { reason: 'per-user-limit', message: 'You have already used this coupon.' }
+                        : { reason: 'first-order-only', message: 'This coupon is for first orders only.' };
+      }
+
       if (allowed) {
         if (offer.discountType === "percentage") {
           const raw = subtotal * (Number(offer.discountValue) / 100);
@@ -807,8 +888,11 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
     deliveryTip,
     total,
     currency: "INR",
-    couponCode: appliedCoupon?.code || codeRaw || null,
+    // Only a coupon that actually applied is stamped on the order; a
+    // rejected code used to be stored as if it had.
+    couponCode: appliedCoupon?.code || null,
     appliedCoupon,
+    couponError,
     distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
     roadDistanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
     straightLineDistanceKm: Number.isFinite(straightLineKm)

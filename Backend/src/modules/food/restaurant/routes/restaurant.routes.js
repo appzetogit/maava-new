@@ -17,8 +17,7 @@ import {
     getRestaurantComplaintsController,
     uploadRestaurantAttachmentController,
     deleteCurrentRestaurantAccountController,
-    registerUnregisteredRestaurantController,
-    getRestaurantSubscriptionHistoryController
+    registerUnregisteredRestaurantController
 } from '../controllers/restaurant.controller.js';
 import {
     createRestaurantOfferController,
@@ -34,12 +33,6 @@ import {
     createWithdrawalRequestController,
     listMyWithdrawalsController
 } from '../controllers/withdrawal.controller.js';
-import {
-    getSubscriptionOverviewController,
-    listSubscriptionInvoicesController,
-    getSubscriptionInvoiceController,
-    listSubscriptionTransactionsController
-} from '../controllers/subscription.controller.js';
 import {
     listCategoriesController,
     createCategoryController,
@@ -117,7 +110,9 @@ router.post('/unregistered', registerUnregisteredRestaurantController);
 router.post('/upload-attachment', upload.single('file'), uploadRestaurantAttachmentController);
 
 // Public: approved restaurants list (for user app)
-router.get('/restaurants', cacheResponse(300, 'restaurants'), listApprovedRestaurantsController);
+// 60 s, not 300: the list says whether each store is open now, and a store
+// closing for the night should show within a minute.
+router.get('/restaurants', cacheResponse(60, 'restaurants'), listApprovedRestaurantsController);
 router.get('/restaurants/:id', cacheResponse(600, 'restaurant_detail'), getApprovedRestaurantController);
 router.get('/restaurants/:id/menu', cacheResponse(600, 'restaurant_menu'), getPublicRestaurantMenuController);
 router.get('/public/foods', cacheResponse(300, 'public_foods'), listPublicFoodsController);
@@ -159,12 +154,12 @@ router.put('/outlet-timings', authMiddleware, requireRestaurant, upsertCurrentRe
 router.get('/finance', authMiddleware, requireRestaurant, getRestaurantFinanceController);
 router.post('/withdraw', authMiddleware, requireRestaurant, createWithdrawalRequestController);
 router.get('/withdrawals', authMiddleware, requireRestaurant, listMyWithdrawalsController);
-router.get('/subscription-history', authMiddleware, requireRestaurant, getRestaurantSubscriptionHistoryController);
-// New calendar-month postpaid subscription endpoints
-router.get('/subscription/overview', authMiddleware, requireRestaurant, getSubscriptionOverviewController);
-router.get('/subscription/invoices', authMiddleware, requireRestaurant, listSubscriptionInvoicesController);
-router.get('/subscription/invoices/:invoiceId', authMiddleware, requireRestaurant, getSubscriptionInvoiceController);
-router.get('/subscription/transactions', authMiddleware, requireRestaurant, listSubscriptionTransactionsController);
+// Maava charges commission only; there is no subscription. Installed restaurant
+// apps still ask for their invoices on the finance screen, so this keeps
+// answering, with none, instead of failing that screen with a 404.
+router.get('/subscription/invoices', authMiddleware, requireRestaurant, (req, res) =>
+    res.status(200).json({ success: true, message: 'No subscription invoices', data: { invoices: [] } })
+);
 router.post(
     '/profile/profile-image',
     authMiddleware,

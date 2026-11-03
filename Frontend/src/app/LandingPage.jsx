@@ -3,7 +3,7 @@ import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion"
 import Lenis from "lenis";
 import {
   ArrowRight, ArrowLeft, Search, ShoppingCart, Play, Apple,
-  MapPin, Clock, Star, Facebook, Youtube, Instagram, Linkedin,
+  MapPin, Clock, Star, Facebook,
   Zap, Award, ShieldCheck, TrendingUp, ArrowUpRight, Map,
   Users, Percent, Heart, Sparkles, X, Home, Store, Bike, Loader2
 } from "lucide-react";
@@ -45,7 +45,7 @@ export default function LandingPage() {
   const [isRestaurantOpen, setIsRestaurantOpen] = useState(false);
   const [isDeliveryOpen, setIsDeliveryOpen] = useState(false);
   const [supportContact, setSupportContact] = useState({
-    email: "support@switcheats.com",
+    email: "support@maava.in",
     mobile: "1-800-123-4567"
   });
   const [leadForm, setLeadForm] = useState({
@@ -68,7 +68,7 @@ export default function LandingPage() {
         const data = response?.data?.data || response?.data;
         if (data && (data.email || data.mobile)) {
           setSupportContact({
-            email: data.email || "support@switcheats.com",
+            email: data.email || "support@maava.in",
             mobile: data.mobile || "1-800-123-4567"
           });
         }
@@ -248,7 +248,7 @@ export default function LandingPage() {
               </div>
               <div className="overflow-hidden pb-4">
                 <motion.div custom={2} initial="hidden" animate="visible" variants={textReveal} className="flex items-center gap-4 lg:gap-8">
-                  <span className="text-transparent bg-clip-text bg-gradient-to-br from-[#FA0272] to-pink-600">SWITCHEATS?</span>
+                  <span className="text-transparent bg-clip-text bg-gradient-to-br from-[#FA0272] to-pink-600">MAAVA?</span>
                 </motion.div>
               </div>
             </h1>
@@ -415,7 +415,7 @@ export default function LandingPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 pt-4">
               <a
-                href="https://apps.apple.com/in/app/switcheats/id6766444150"
+                href="https://apps.apple.com/in/app/maava/id6762790109"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center gap-3 bg-slate-900 text-white hover:bg-[#FA0272] px-8 py-4 rounded-2xl font-bold transition-all duration-300 text-sm shadow-md shadow-slate-900/10 cursor-pointer"
@@ -423,7 +423,7 @@ export default function LandingPage() {
                 <Apple className="w-5 h-5" /> App Store
               </a>
               <a
-                href="https://play.google.com/store/apps/details?id=com.switcheats.user1"
+                href="https://play.google.com/store/apps/details?id=com.maava.user"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center gap-3 bg-white border border-slate-200 text-slate-800 hover:bg-slate-50 px-8 py-4 rounded-2xl font-bold transition-all duration-300 text-sm shadow-sm cursor-pointer"
@@ -1003,9 +1003,6 @@ export default function LandingPage() {
               <div className="flex gap-4">
                 {[
                   { Icon: Facebook, url: "https://www.facebook.com/share/1J8C8U4wnK/?mibextid=wwXIfr" },
-                  { Icon: Youtube, url: "https://youtube.com/@switcheats?si=EzceIs61zBwz3SGO" },
-                  { Icon: Instagram, url: "https://www.instagram.com/switcheats?igsh=MTA3eXJnMTRlMTF5Zw%3D%3D&utm_source=qr" },
-                  { Icon: Linkedin, url: "https://www.linkedin.com/company/switcheats/" }
                 ].map(({ Icon, url }, i) => (
                   <a 
                     key={i} 
@@ -1297,7 +1294,7 @@ export default function LandingPage() {
 
                   <div className="flex flex-col sm:flex-row gap-4 pt-2">
                     <a
-                      href="https://apps.apple.com/in/app/switcheats-partner/id6766466794"
+                      href="https://apps.apple.com/in/app/maava-restaurant/id6762795938"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center justify-center gap-3 bg-white text-slate-950 hover:bg-[#FA0272] hover:text-white px-8 py-4 rounded-2xl font-bold transition-all duration-300 text-sm shadow-md cursor-pointer text-center"
@@ -1305,7 +1302,7 @@ export default function LandingPage() {
                       <Apple className="w-5 h-5" /> iOS App Store
                     </a>
                     <a
-                      href="https://play.google.com/store/apps/details?id=com.switcheats.restaurant1"
+                      href="https://play.google.com/store/apps/details?id=com.maava.restaurant"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center justify-center gap-3 bg-slate-800 border border-slate-700 text-white hover:bg-[#FA0272] hover:border-[#FA0272] px-8 py-4 rounded-2xl font-bold transition-all duration-300 text-sm shadow-md cursor-pointer text-center"
@@ -1616,7 +1613,7 @@ export default function LandingPage() {
 
                   <div className="flex flex-col sm:flex-row gap-4 pt-2">
                     <a
-                      href="https://apps.apple.com/in/app/switcheats-captain/id6766778164"
+                      href="https://apps.apple.com/in/app/maava-delivery/id6763990935"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center justify-center gap-3 bg-white text-slate-950 hover:bg-[#FA0272] hover:text-white px-8 py-4 rounded-2xl font-bold transition-all duration-300 text-sm shadow-md cursor-pointer text-center"
@@ -1624,7 +1621,7 @@ export default function LandingPage() {
                       <Apple className="w-5 h-5" /> iOS App Store
                     </a>
                     <a
-                      href="https://play.google.com/store/apps/details?id=com.switcheats.delivery1"
+                      href="https://play.google.com/store/apps/details?id=com.maava.delivery"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center justify-center gap-3 bg-slate-800 border border-slate-800 text-white hover:bg-[#FA0272] hover:border-[#FA0272] px-8 py-4 rounded-2xl font-bold transition-all duration-300 text-sm shadow-md cursor-pointer text-center"

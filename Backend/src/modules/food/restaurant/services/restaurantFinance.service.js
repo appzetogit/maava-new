@@ -3,9 +3,7 @@ import { FoodOrder } from '../../orders/models/order.model.js';
 import { FoodRestaurant } from '../models/restaurant.model.js';
 import { FoodRestaurantWithdrawal } from '../models/foodRestaurantWithdrawal.model.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
-import { FEATURE_KEYS, isFeatureEnabled } from '../../admin/services/featureSettings.service.js';
-import { getOutstandingSummary } from './subscriptionBilling.service.js';
-import { FoodSubscriptionTransaction } from '../models/subscriptionTransaction.model.js';
+import { FoodRestaurantWalletAdjustment } from '../models/restaurantWalletAdjustment.model.js';
 import {
     isRestaurantEarnedOrder,
     computeRestaurantOrderShare,
@@ -61,7 +59,6 @@ function paginateCompletedOrders(rawOrders, mapFinanceOrder, pagination) {
 export async function getRestaurantFinance(restaurantId, query = {}) {
     if (!restaurantId || !mongoose.Types.ObjectId.isValid(restaurantId)) return null;
     const rid = new mongoose.Types.ObjectId(restaurantId);
-    const isRestaurantSubscriptionEnabled = await isFeatureEnabled(FEATURE_KEYS.RESTAURANT_SUBSCRIPTION, true);
 
     // Fetch restaurant profile for header display.
     const restaurant = await FoodRestaurant.findById(rid)
@@ -149,8 +146,9 @@ export async function getRestaurantFinance(restaurantId, query = {}) {
         0
     );
 
-    // Lifetime withdrawals and subscription wallet-deductions reduce the visible balance.
-    const [committedWithdrawalsAgg, walletDeductionsAgg, outstandingSummary] = await Promise.all([
+    // Maava charges commission only: the balance is earnings, less withdrawals,
+    // plus any recorded adjustments. Nothing is held back for subscription dues.
+    const [committedWithdrawalsAgg, adjustments] = await Promise.all([
         FoodRestaurantWithdrawal.aggregate([
             {
                 $match: {
@@ -165,36 +163,35 @@ export async function getRestaurantFinance(restaurantId, query = {}) {
             },
             { $group: { _id: null, total: { $sum: '$amount' } } }
         ]),
-        FoodSubscriptionTransaction.aggregate([
-            {
-                $match: {
-                    restaurantId: rid,
-                    type: 'wallet_deduction'
-                }
-            },
-            { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]),
-        isRestaurantSubscriptionEnabled
-            ? getOutstandingSummary(restaurantId)
-            : Promise.resolve({ lockedAmount: 0, openInvoices: [], monthsLabel: '' })
+        FoodRestaurantWalletAdjustment.find({ restaurantId: rid })
+            .sort({ createdAt: -1 })
+            .select('amount reason createdBy createdAt')
+            .lean()
     ]);
     const totalCommittedWithdrawals = Number(committedWithdrawalsAgg?.[0]?.total || 0);
-    const totalWalletDeductions = Number(walletDeductionsAgg?.[0]?.total || 0);
+    // Recorded corrections (old-system carry-over, disputes), credits positive.
+    const totalAdjustments =
+        Math.round(adjustments.reduce((sum, a) => sum + (Number(a.amount) || 0), 0) * 100) / 100;
 
-    // Locked balance = total outstanding subscription dues (calendar-month postpaid invoices).
-    // The full balance stays visible; only withdrawal is limited to balance − locked.
-    const lockedAmount = Math.max(0, Number(outstandingSummary.lockedAmount || 0));
     const availableBalance = Math.max(
         0,
-        totalEarnings - totalCommittedWithdrawals - totalWalletDeductions
+        Math.round((totalEarnings - totalCommittedWithdrawals + totalAdjustments) * 100) / 100
     );
 
     const wallet = {
         totalEarnings,
         totalWithdrawn: totalCommittedWithdrawals,
+        totalAdjustments,
+        adjustments: adjustments.map((a) => ({
+            id: String(a._id),
+            amount: Number(a.amount) || 0,
+            reason: a.reason || '',
+            by: a.createdBy?.name || a.createdBy?.role || 'ADMIN',
+            createdAt: a.createdAt,
+        })),
         estimatedPayout: totalEarnings,
         withdrawableBalance: availableBalance,
-        netAvailable: Math.max(0, availableBalance - lockedAmount), // Net amount that is ACTUALLY withdrawable
+        netAvailable: availableBalance, // what the restaurant can withdraw
         totalOrders: allCompletedOrders.length,
         payoutDate: null,
         orders: completedOrdersPage.orders,
@@ -236,17 +233,18 @@ export async function getRestaurantFinance(restaurantId, query = {}) {
             name: restaurant?.restaurantName || '',
             restaurantId: restaurant?._id ? `REST${restaurant._id.toString().slice(-6).padStart(6, '0')}` : 'N/A',
             address,
-            // Kept for backwards compatibility with existing clients: due = locked amount.
-            subscriptionDueAmount: lockedAmount,
-            subscriptionStatus: lockedAmount > 0 ? 'due' : 'paid',
+            // No subscription. These stay, always zero, because installed apps
+            // still read them and would fail on a missing field.
+            subscriptionDueAmount: 0,
+            subscriptionStatus: 'paid',
         },
         subscription: {
-            lockedAmount,
-            lockedMonths: outstandingSummary.monthsLabel,
-            openInvoices: outstandingSummary.openInvoices,
+            lockedAmount: 0,
+            lockedMonths: '',
+            openInvoices: [],
         },
         features: {
-            restaurantSubscriptionEnabled: isRestaurantSubscriptionEnabled
+            restaurantSubscriptionEnabled: false
         },
         wallet,
         // Backward compatibility for existing clients

@@ -10,7 +10,6 @@ import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model
 import { DeliverySupportTicket } from '../../delivery/models/supportTicket.model.js';
 import { FoodNotification } from '../../../../core/notifications/models/notification.model.js';
 import { sendNotificationToOwner } from '../../../../core/notifications/firebase.service.js';
-import { FoodRestaurantSubscriptionSettings } from '../models/restaurantSubscriptionSettings.model.js';
 import { FoodZone } from '../models/zone.model.js';
 import { invalidateActiveZonesCache } from '../../shared/zoneServiceability.js';
 import { FoodCategory } from '../models/category.model.js';
@@ -40,13 +39,14 @@ import { FoodOrder } from '../../orders/models/order.model.js';
 import { isCancelledOrder, CANCELLED_ORDER_STATUSES } from '../../orders/services/order.helpers.js';
 import { FoodTransaction } from '../../orders/models/foodTransaction.model.js';
 import { FoodRestaurantWithdrawal } from '../../restaurant/models/foodRestaurantWithdrawal.model.js';
+import { FoodRestaurantWalletAdjustment } from '../../restaurant/models/restaurantWalletAdjustment.model.js';
+import { logger } from '../../../../utils/logger.js';
+import { getRestaurantFinance } from '../../restaurant/services/restaurantFinance.service.js';
 import { FoodDeliveryWithdrawal } from '../../delivery/models/foodDeliveryWithdrawal.model.js';
 import { FoodDeliveryWallet } from '../../delivery/models/deliveryWallet.model.js';
 import { FoodDeliveryCashDeposit } from '../../delivery/models/foodDeliveryCashDeposit.model.js';
 import { FoodUnregisteredRestaurant } from '../../restaurant/models/unregisteredRestaurant.model.js';
 import { FoodAdmin } from '../../../../core/admin/admin.model.js';
-import { getAdminRestaurantSubscriptionHistory as getAdminRestaurantSubscriptionHistoryFromRestaurant } from '../../restaurant/services/subscriptionHistory.service.js';
-import { FoodRestaurantSubscriptionHistory } from '../../restaurant/models/subscriptionHistory.model.js';
 import { ADMIN_FULL_PERMISSIONS, isValidPermissionPayload, sanitizeAdminPermissions } from '../../../../constants/permissions.js';
 import { ACCESS_LEVELS, ADMIN_ACCESS_GROUPS, sanitizeAccess } from '../../../../constants/adminAccess.js';
 import {
@@ -1532,7 +1532,11 @@ export async function getCustomers(query = {}) {
     const page = Math.max(parseInt(query.page, 10) || 1, 1);
     const skip = (page - 1) * limit;
 
-    const filter = { role: 'USER' };
+    // Customers who signed up May-Aug 2026 have no role field at all
+    // (1,428 of them, real accounts with orders). The schema default makes them
+    // USER everywhere else -- login, tokens -- so count them as customers here
+    // too; matching role 'USER' alone hid them from this list and its export.
+    const filter = { role: { $in: ['USER', null] } };
 
     if (query.status) {
         if (String(query.status) === 'active') filter.isActive = true;
@@ -2321,6 +2325,36 @@ const findFeeSettingsDoc = (zoneIdRaw) =>
  * by field. A zone that only sets a delivery fee still uses the default GST,
  * platform fee and tip presets.
  */
+/**
+ * A zone that priced delivery by distance bands must not inherit the default's
+ * per-km pricing, which would outrank those bands (same for rider pay). Blank
+ * fields still inherit everything else.
+ */
+function dropInheritedPricingModes(merged, zoneDoc) {
+    const has = (value) => value !== null && value !== undefined && value !== '';
+    const zoneBands = Array.isArray(zoneDoc?.deliveryFeeRanges) && zoneDoc.deliveryFeeRanges.length > 0;
+    if (zoneBands && !has(zoneDoc?.baseDeliveryFee)) {
+        // Deleted, not set to null: Number(null) is 0, which reads as a valid
+        // "Rs 0 base + Rs 0/km" and made delivery free for the whole zone.
+        delete merged.baseDeliveryKm;
+        delete merged.baseDeliveryFee;
+        delete merged.perKmFee;
+        delete merged.maxDeliveryFee;
+    }
+    const zoneRiderBands =
+        zoneBands &&
+        zoneDoc.deliveryFeeRanges.some(
+            (r) => Number(r?.deliveryBoyBasePay) > 0 || Number(r?.deliveryBoyPerKm) > 0,
+        );
+    if (zoneRiderBands && !has(zoneDoc?.riderBasePay)) {
+        delete merged.riderBaseKm;
+        delete merged.riderBasePay;
+        delete merged.riderPerKmPay;
+        delete merged.riderMaxPay;
+    }
+    return merged;
+}
+
 export function mergeFeeSettings(defaults, zoneDoc) {
     if (!zoneDoc) return defaults || null;
     if (!defaults) return zoneDoc;
@@ -2333,7 +2367,7 @@ export function mergeFeeSettings(defaults, zoneDoc) {
     }
     merged._id = zoneDoc._id;
     merged.zoneId = zoneDoc.zoneId;
-    return merged;
+    return dropInheritedPricingModes(merged, zoneDoc);
 }
 
 /**
@@ -2804,114 +2838,6 @@ export async function getRestaurantById(id) {
         .lean();
 }
 
-function formatSubscriptionPlanLabel(plan) {
-    const key = String(plan || '').trim().toLowerCase();
-    if (key === 'starter') return 'Starter';
-    if (key === 'growth') return 'Growth';
-    if (key === 'premium') return 'Premium';
-    if (!key) return 'Not assigned';
-    return key.charAt(0).toUpperCase() + key.slice(1);
-}
-
-/**
- * Invoice-based subscription summary for the admin POS analytics view
- * (calendar-month postpaid billing).
- */
-async function buildRestaurantSubscriptionSummary(restaurantId) {
-    const rId = new mongoose.Types.ObjectId(String(restaurantId));
-
-    const [
-        { FoodSubscriptionInvoice },
-        { FoodSubscriptionTransaction },
-        billingService,
-    ] = await Promise.all([
-        import('../../restaurant/models/subscriptionInvoice.model.js'),
-        import('../../restaurant/models/subscriptionTransaction.model.js'),
-        import('../../restaurant/services/subscriptionBilling.service.js'),
-    ]);
-
-    const currentMonth = billingService.formatBillingMonth(new Date());
-    const { start: monthStart } = billingService.getMonthWindow(currentMonth);
-
-    const [invoiceAgg, latestInvoice, lastPaymentTx, currentGmv, invoices] = await Promise.all([
-        FoodSubscriptionInvoice.aggregate([
-            { $match: { restaurantId: rId } },
-            {
-                $group: {
-                    _id: null,
-                    totalBilled: { $sum: { $ifNull: ['$totalAmount', 0] } },
-                    totalPaid: { $sum: { $ifNull: ['$paidAmount', 0] } },
-                    totalWaived: { $sum: { $ifNull: ['$waivedAmount', 0] } },
-                    totalOutstanding: { $sum: { $ifNull: ['$outstandingAmount', 0] } },
-                    invoiceCount: { $sum: 1 },
-                },
-            },
-        ]),
-        FoodSubscriptionInvoice.findOne({ restaurantId: rId, billingMonth: { $ne: 'legacy' } })
-            .sort({ billingMonth: -1 })
-            .lean(),
-        FoodSubscriptionTransaction.findOne({
-            restaurantId: rId,
-            type: { $in: ['wallet_deduction', 'manual_payment'] },
-        })
-            .sort({ createdAt: -1 })
-            .lean(),
-        billingService.computeMonthlyGmv(rId, monthStart, new Date()),
-        FoodSubscriptionInvoice.find({ restaurantId: rId })
-            .sort({ billingMonth: -1 })
-            .limit(12)
-            .lean(),
-    ]);
-
-    const walletDeductionAgg = await FoodSubscriptionTransaction.aggregate([
-        { $match: { restaurantId: rId, type: 'wallet_deduction' } },
-        { $group: { _id: null, total: { $sum: { $ifNull: ['$amount', 0] } }, count: { $sum: 1 } } },
-    ]);
-
-    const agg = invoiceAgg?.[0] || {};
-    const dueAmount = Math.max(0, Number(agg.totalOutstanding) || 0);
-    const planKey = String(latestInvoice?.planName || '').trim().toLowerCase();
-
-    return {
-        billingModel: 'calendar_month_postpaid',
-        currentBillingMonth: currentMonth,
-        currentMonthGmv: Number(currentGmv?.gmv) || 0,
-        plan: planKey,
-        planLabel: latestInvoice ? formatSubscriptionPlanLabel(planKey) : 'Not billed yet',
-        cycleFee: Math.max(0, Number(latestInvoice?.totalAmount) || 0),
-        lastBilledMonth: latestInvoice?.billingMonth || null,
-        status: dueAmount > 0 ? 'due' : 'paid',
-        statusLabel: dueAmount > 0 ? 'Outstanding dues pending' : 'No outstanding dues',
-        dueAmount,
-        paidAmount: Math.max(0, Number(agg.totalPaid) || 0),
-        totalBilled: Math.max(0, Number(agg.totalBilled) || 0),
-        totalWaived: Math.max(0, Number(agg.totalWaived) || 0),
-        totalCollected: Math.max(0, Number(agg.totalPaid) || 0),
-        walletDeductionsTotal: Math.max(0, Number(walletDeductionAgg?.[0]?.total) || 0),
-        invoiceCount: Math.max(0, Number(agg.invoiceCount) || 0),
-        invoices: invoices.map((inv) => ({
-            billingMonth: inv.billingMonth,
-            billingMonthLabel: billingService.billingMonthLabel(inv.billingMonth),
-            gmv: inv.gmv,
-            planName: inv.planName,
-            totalAmount: inv.totalAmount,
-            paidAmount: inv.paidAmount,
-            waivedAmount: inv.waivedAmount,
-            outstandingAmount: inv.outstandingAmount,
-            status: inv.status,
-        })),
-        lastPayment: lastPaymentTx
-            ? {
-                amount: Math.max(0, Number(lastPaymentTx.amount) || 0),
-                eventType: String(lastPaymentTx.type || ''),
-                paymentType: lastPaymentTx.type === 'wallet_deduction' ? 'wallet' : 'manual',
-                date: lastPaymentTx.createdAt || null,
-                note: String(lastPaymentTx.remarks || '').trim(),
-            }
-            : null,
-    };
-}
-
 export async function getRestaurantAnalytics(restaurantId) {
     if (!restaurantId || !mongoose.Types.ObjectId.isValid(restaurantId)) return null;
     const rId = new mongoose.Types.ObjectId(restaurantId);
@@ -3182,9 +3108,7 @@ export async function getRestaurantAnalytics(restaurantId) {
         platformNetProfit: sum(completedMoneyRows, (row) => getAmount(row, 'platformNetProfit') ?? row?.platformProfit),
     };
 
-    const subscriptionSummary = await buildRestaurantSubscriptionSummary(rId);
-
-    return { restaurant, analytics, paymentSummary, subscriptionSummary };
+    return { restaurant, analytics, paymentSummary };
 }
 
 export async function getRestaurantMenuById(id) {
@@ -5010,105 +4934,6 @@ export async function updateDeliverySupportTicket(id, body = {}) {
     return ticket.toObject();
 }
 
-/**
- * Subscription Settings
- */
-export const getRestaurantSubscriptionSettings = async () => {
-    const settings = await FoodRestaurantSubscriptionSettings.findOne();
-    const raw = settings ? settings.toObject() : {};
-    const onboardingFee = Math.max(0, Number(raw?.onboardingFee ?? 0) || 0);
-
-    const { buildPlanCatalog, validatePlanCatalog, GST_RATE } = await import(
-        '../../restaurant/services/subscriptionPlan.service.js'
-    );
-
-    // One source of truth. The catalog builder falls back to the legacy
-    // columns when `plans` is empty, so a document written before the
-    // migration still returns a usable three-tier catalog here.
-    const planCatalog = buildPlanCatalog(raw);
-
-    // Surfaced from the catalog rather than stored separately, so the rows the
-    // admin edits and the plans actually billed cannot drift apart.
-    const plans = planCatalog.plans.map((p, index) => ({
-        key: p.id,
-        label: p.label,
-        price: p.basePrice,
-        gmvMin: p.gmvMin,
-        gmvMax: p.gmvMax,
-        isActive: true,
-        sortOrder: index,
-    }));
-
-    return {
-        ...raw,
-        plans,
-        planCatalog,
-        // True while this deployment is still serving the hardcoded three
-        // tiers, i.e. the migration has not run. The admin screen uses it to
-        // explain why the rows are not yet editable as saved data.
-        isLegacyPlanCatalog: planCatalog.isLegacy,
-        planIssues: validatePlanCatalog(plans),
-        onboardingFee,
-        gstRate: GST_RATE,
-    };
-};
-
-export const updateRestaurantSubscriptionSettings = async (data) => {
-    let settings = await FoodRestaurantSubscriptionSettings.findOne();
-    if (!settings) {
-        settings = new FoodRestaurantSubscriptionSettings();
-    }
-
-    if (data.onboardingFee !== undefined) {
-        settings.onboardingFee = Math.max(0, Number(data.onboardingFee) || 0);
-    }
-
-    if (Array.isArray(data.plans)) {
-        const { planKeyFromLabel } = await import(
-            '../../restaurant/services/subscriptionPlan.service.js'
-        );
-
-        const seen = new Set();
-        settings.plans = data.plans
-            .filter((p) => p && String(p.label || p.key || '').trim())
-            .map((p, index) => {
-                const label = String(p.label || p.key).trim();
-                // Key falls back to the label only on create; the admin screen
-                // sends the existing key for existing rows, because invoices
-                // and restaurant records store it and renaming a live tier
-                // would orphan its history.
-                const key = String(p.key || planKeyFromLabel(label)).trim().toLowerCase();
-                return {
-                    key,
-                    label,
-                    price: Math.max(0, Number(p.price) || 0),
-                    gmvMin: Math.max(0, Number(p.gmvMin) || 0),
-                    gmvMax:
-                        p.gmvMax === null || p.gmvMax === undefined || p.gmvMax === ''
-                            ? null
-                            : Math.max(0, Number(p.gmvMax) || 0),
-                    isActive: p.isActive !== false,
-                    sortOrder: Number.isFinite(Number(p.sortOrder)) ? Number(p.sortOrder) : index,
-                };
-            })
-            // Last write wins on a duplicated key rather than saving two rows
-            // that would both claim the same invoices.
-            .filter((p) => {
-                if (!p.key || seen.has(p.key)) return false;
-                seen.add(p.key);
-                return true;
-            })
-            .sort((a, b) => a.gmvMin - b.gmvMin);
-    }
-
-    await settings.save();
-    return getRestaurantSubscriptionSettings();
-};
-
-export const getAdminRestaurantSubscriptionHistory = async (query = {}) => {
-    return getAdminRestaurantSubscriptionHistoryFromRestaurant(query);
-};
-
 // ----- Delivery partners (approved list) -----
 /**
  * Private helper to get financial stats for multiple delivery partners in bulk.
@@ -6192,9 +6017,39 @@ export async function getWithdrawals(query = {}) {
 
 export async function updateWithdrawalStatus(id, { status, adminNote, rejectionReason, transactionId }) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid withdrawal ID');
-    
+
+    const nextStatus = String(status || '').trim().toLowerCase();
+    if (!['pending', 'approved', 'rejected'].includes(nextStatus)) {
+        throw new ValidationError('Status must be pending, approved or rejected');
+    }
+    const existing = await FoodRestaurantWithdrawal.findById(id).select('status amount restaurantId').lean();
+    if (!existing) throw new ValidationError('Withdrawal request not found');
+    const currentStatus = String(existing.status || '').toLowerCase();
+
+    // A request is decided once. Flipping a paid request back to pending or
+    // rejected would put money back into a wallet that was already paid out.
+    if (currentStatus !== 'pending' && nextStatus !== currentStatus) {
+        throw new ValidationError(`This withdrawal is already ${currentStatus}; it cannot be changed.`);
+    }
+
+    // Never pay out more than the restaurant has earned (after commission).
+    // Withdrawals were once approved beyond earnings, which left wallets paid
+    // in excess. The pending request is already counted in the finance figures,
+    // so the earnings cover it exactly when the balance before the floor is >= 0.
+    if (nextStatus === 'approved' && currentStatus === 'pending') {
+        const finance = await getRestaurantFinance(String(existing.restaurantId), { limit: 1 });
+        const w = finance?.wallet || {};
+        const balanceAfter = Math.round(((Number(w.totalEarnings) || 0) - (Number(w.totalWithdrawn) || 0) + (Number(w.totalAdjustments) || 0)) * 100) / 100;
+        if (balanceAfter < -0.01) {
+            const available = Math.max(0, Math.round((Number(existing.amount) + balanceAfter) * 100) / 100);
+            throw new ValidationError(
+                `Cannot approve ₹${Number(existing.amount).toFixed(2)}: the restaurant has only ₹${available.toFixed(2)} available after commission. Reject it and ask for a smaller amount.`,
+            );
+        }
+    }
+
     const update = {
-        status: String(status).toLowerCase(),
+        status: nextStatus,
         adminNote,
         rejectionReason,
         transactionId,
@@ -6871,4 +6726,117 @@ export async function deleteSubAdmin(id, actorId) {
 export function getAdminPermissionCatalog() {
     // One entry per sidebar option, grouped as in the sidebar.
     return { levels: ACCESS_LEVELS, groups: ADMIN_ACCESS_GROUPS };
+}
+
+// ----- Restaurant wallet adjustments -----
+
+/** The corrections recorded on a restaurant's wallet, newest first. */
+export async function listRestaurantWalletAdjustments(restaurantId) {
+    if (!restaurantId || !mongoose.Types.ObjectId.isValid(String(restaurantId))) return null;
+    const restaurant = await FoodRestaurant.findById(restaurantId).select('_id restaurantName').lean();
+    if (!restaurant) return null;
+    const adjustments = await FoodRestaurantWalletAdjustment.find({ restaurantId: restaurant._id })
+        .sort({ createdAt: -1 })
+        .lean();
+    const total = Math.round(adjustments.reduce((sum, a) => sum + (Number(a.amount) || 0), 0) * 100) / 100;
+    return { restaurantId: String(restaurant._id), restaurantName: restaurant.restaurantName, total, adjustments };
+}
+
+/**
+ * Records a credit (positive) or debit (negative) on a restaurant's wallet.
+ * Never edits an earlier one: a mistake is reversed by recording the opposite.
+ */
+export async function createRestaurantWalletAdjustment(restaurantId, body = {}, adminId = null) {
+    if (!restaurantId || !mongoose.Types.ObjectId.isValid(String(restaurantId))) return null;
+    const restaurant = await FoodRestaurant.findById(restaurantId).select('_id restaurantName').lean();
+    if (!restaurant) return null;
+
+    const amount = Math.round(Number(body.amount) * 100) / 100;
+    if (!Number.isFinite(amount) || amount === 0) {
+        throw new ValidationError('Enter an amount: positive to credit the wallet, negative to debit it.');
+    }
+    if (Math.abs(amount) > 1000000) throw new ValidationError('That amount is too large for a single adjustment.');
+    const reason = String(body.reason || '').trim();
+    if (reason.length < 5) throw new ValidationError('Write the reason for this adjustment (at least 5 characters).');
+
+    let adminName = '';
+    if (adminId && mongoose.Types.ObjectId.isValid(String(adminId))) {
+        const admin = await FoodAdmin.findById(adminId).select('name email').lean();
+        adminName = admin?.name || admin?.email || '';
+    }
+    const created = await FoodRestaurantWalletAdjustment.create({
+        restaurantId: restaurant._id,
+        amount,
+        reason: reason.slice(0, 500),
+        createdBy: { role: 'ADMIN', id: adminId && mongoose.Types.ObjectId.isValid(String(adminId)) ? adminId : null, name: adminName },
+    });
+    logger.info(`Wallet adjustment ${amount} for restaurant ${restaurant._id} by admin ${adminId || '-'}: ${reason}`);
+    return { adjustment: created.toObject() };
+}
+
+/**
+ * Sets a restaurant's wallet to an exact balance by recording the difference
+ * as an adjustment. Works from the balance before the floor at zero, so a
+ * wallet paid out beyond its earnings (shown as Rs 0) set to Rs 0 really is
+ * Rs 0 afterwards, and its next order shows at once.
+ */
+export async function setRestaurantWalletBalance(restaurantId, body = {}, adminId = null) {
+    if (!restaurantId || !mongoose.Types.ObjectId.isValid(String(restaurantId))) return null;
+    const target = Math.round(Number(body.balance) * 100) / 100;
+    if (!Number.isFinite(target) || target < 0) {
+        throw new ValidationError('Enter the new balance: zero or more.');
+    }
+    const reason = String(body.reason || '').trim();
+    if (reason.length < 5) throw new ValidationError('Write the reason for this change (at least 5 characters).');
+
+    const finance = await getRestaurantFinance(String(restaurantId), { limit: 1 });
+    if (!finance) return null;
+    const w = finance.wallet || {};
+    const current = Math.round(((Number(w.totalEarnings) || 0) - (Number(w.totalWithdrawn) || 0) + (Number(w.totalAdjustments) || 0)) * 100) / 100;
+    const difference = Math.round((target - current) * 100) / 100;
+    if (Math.abs(difference) < 0.01) {
+        return { balance: target, adjustment: null, message: 'The balance is already that amount.' };
+    }
+    const result = await createRestaurantWalletAdjustment(
+        restaurantId,
+        { amount: difference, reason: `Balance set to Rs ${target.toFixed(2)} (was Rs ${current.toFixed(2)}): ${reason}` },
+        adminId,
+    );
+    return { balance: target, previousBalance: current, ...result };
+}
+
+/**
+ * Every approved restaurant's wallet, exactly as its own app shows it: earned,
+ * withdrawn, recorded adjustments and the balance. For checking that each one
+ * sees what it is owed, and for finding the ones that need an adjustment.
+ */
+export async function listRestaurantWallets() {
+    const restaurants = await FoodRestaurant.find({ status: 'approved' })
+        .select('_id restaurantName vertical')
+        .sort({ restaurantName: 1 })
+        .lean();
+    const rows = [];
+    for (const r of restaurants) {
+        const finance = await getRestaurantFinance(String(r._id), { limit: 1 });
+        const w = finance?.wallet || {};
+        const earned = Number(w.totalEarnings) || 0;
+        const withdrawn = Number(w.totalWithdrawn) || 0;
+        const adjustments = Number(w.totalAdjustments) || 0;
+        const owed = Math.round((earned - withdrawn + adjustments) * 100) / 100;
+        rows.push({
+            restaurantId: String(r._id),
+            restaurantName: r.restaurantName || '',
+            vertical: r.vertical || 'food',
+            deliveredOrders: Number(w.totalOrders) || 0,
+            totalEarnings: Math.round(earned * 100) / 100,
+            totalWithdrawn: Math.round(withdrawn * 100) / 100,
+            totalAdjustments: adjustments,
+            balance: Number(w.withdrawableBalance) || 0,
+            // Negative when more has been paid out than the records show earned.
+            overpaidBy: owed < 0 ? Math.abs(owed) : 0,
+            // Before the floor at zero: what "set balance" works from.
+            rawBalance: owed,
+        });
+    }
+    return { restaurants: rows };
 }

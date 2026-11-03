@@ -5,6 +5,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@food/components/ui/dialog"
+import { vt } from "@food/utils/adminVerticalLabels"
 
 export default function SettingsDialog({ isOpen, onOpenChange, visibleColumns, toggleColumn, resetColumns, columnsConfig }) {
   const defaultColumnsConfig = {
@@ -13,8 +14,8 @@ export default function SettingsDialog({ isOpen, onOpenChange, visibleColumns, t
     orderDate: "Order Date",
     orderOtp: "Order OTP",
     customer: "Customer Information",
-    restaurant: "Restaurant",
-    foodItems: "Food Items",
+    restaurant: vt("Seller"),
+    foodItems: vt("Product Items"),
     totalAmount: "Total Amount",
     paymentType: "Payment Type",
     paymentCollectionStatus: "Payment Status",

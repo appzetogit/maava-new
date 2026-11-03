@@ -234,6 +234,23 @@ const restaurantSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    /**
+     * Per-device push registrations from the iOS app. voipToken is the PushKit
+     * token that rings the phone through CallKit even when the app is killed;
+     * fcmToken is the same device's FCM token, kept so a device that already
+     * rang over VoIP can be left out of the FCM alert instead of ringing twice.
+     */
+    pushDevices: {
+      type: [
+        {
+          fcmToken: { type: String, trim: true },
+          voipToken: { type: String, trim: true },
+          devicePlatform: { type: String, enum: ['ios', 'android', 'unknown'], default: 'ios' },
+          lastSeenAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
     /** GeoJSON point used for distance queries. */
     location: {
       type: geoPointSchema,

@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { exportTransactionsToExcel, exportTransactionsToPDF } from "@food/components/admin/transactions/transactionsExportUtils"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -171,13 +172,6 @@ export default function RestaurantWithdraws() {
     })}`
   }
 
-  const getSafeQrUrl = (value) => {
-    if (!value) return ''
-    if (typeof value === 'string') return value
-    if (typeof value === 'object' && typeof value.url === 'string') return value.url
-    return ''
-  }
-
   const handleExport = async (format) => {
     if (filteredWithdraws.length === 0) {
       toast.error("No data to export.")
@@ -186,8 +180,8 @@ export default function RestaurantWithdraws() {
     const headers = [
       { key: "sl", label: "SI" },
       { key: "amount", label: "Amount" },
-      { key: "restaurantName", label: "Restaurant Name" },
-      { key: "restaurantIdString", label: "Restaurant ID" },
+      { key: "restaurantName", label: vt("Seller Name") },
+      { key: "restaurantIdString", label: vt("Seller ID") },
       { key: "requestTime", label: "Request Time" },
       { key: "processedTime", label: "Approved/Rejected Time" },
       { key: "processedBy", label: "Processed By" },
@@ -210,7 +204,7 @@ export default function RestaurantWithdraws() {
         exportTransactionsToExcel(exportData, headers, "restaurant_withdraws_full_details")
         break
       case "pdf":
-        await exportTransactionsToPDF(exportData, headers, "restaurant_withdraws_full_details", "Restaurant Withdraws Report")
+        await exportTransactionsToPDF(exportData, headers, "restaurant_withdraws_full_details", vt("Seller Withdraws Report"))
         break
       default: break
     }
@@ -240,7 +234,7 @@ export default function RestaurantWithdraws() {
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
           <div className="flex items-center gap-3">
             <Building className="w-5 h-5 text-blue-600" />
-            <h1 className="text-2xl font-bold text-slate-900">Restaurant Withdraw Transaction</h1>
+            <h1 className="text-2xl font-bold text-slate-900">{vt("Seller Withdraw Transaction")}</h1>
           </div>
         </div>
 
@@ -276,7 +270,7 @@ export default function RestaurantWithdraws() {
               <div className="relative flex-1 sm:flex-initial min-w-[200px]">
                 <input
                   type="text"
-                  placeholder="Ex: search by Restaurant name"
+                  placeholder={vt("Ex: search by Seller name")}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
@@ -330,8 +324,8 @@ export default function RestaurantWithdraws() {
                       </div>
                     </th>}
                     {visibleColumns.amount && <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Amount</th>}
-                    {visibleColumns.restaurant && <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Restaurant Name</th>}
-                    {visibleColumns.restaurantId && <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Restaurant ID</th>}
+                    {visibleColumns.restaurant && <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">{vt("Seller Name")}</th>}
+                    {visibleColumns.restaurantId && <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">{vt("Seller ID")}</th>}
                     {visibleColumns.requestTime && <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Request Time</th>}
                     {visibleColumns.status && <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Status</th>}
                     {visibleColumns.actions && <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">Action</th>}
@@ -435,11 +429,11 @@ export default function RestaurantWithdraws() {
                   </p>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase">Restaurant Name</label>
+                  <label className="text-xs font-semibold text-slate-500 uppercase">{vt("Seller Name")}</label>
                   <p className="text-sm font-medium text-slate-900 mt-1">{selectedWithdraw.restaurantName || 'N/A'}</p>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase">Restaurant ID</label>
+                  <label className="text-xs font-semibold text-slate-500 uppercase">{vt("Seller ID")}</label>
                   <p className="text-sm font-medium text-slate-900 mt-1">{selectedWithdraw.restaurantIdString || 'N/A'}</p>
                 </div>
                 <div>
@@ -489,16 +483,6 @@ export default function RestaurantWithdraws() {
                       <span className="font-semibold">UPI ID:</span>{' '}
                       {selectedWithdraw.restaurantBankDetails?.upiId || selectedWithdraw.restaurantId?.upiId || 'N/A'}
                     </p>
-                    {getSafeQrUrl(selectedWithdraw.restaurantBankDetails?.upiQrImage || selectedWithdraw.restaurantId?.upiQrImage) ? (
-                      <div>
-                        <p className="text-sm text-slate-800 font-semibold mb-2">UPI QR</p>
-                        <img
-                          src={getSafeQrUrl(selectedWithdraw.restaurantBankDetails?.upiQrImage || selectedWithdraw.restaurantId?.upiQrImage)}
-                          alt="Restaurant UPI QR"
-                          className="w-32 h-32 object-contain border border-slate-200 rounded-md bg-white"
-                        />
-                      </div>
-                    ) : null}
                   </div>
                 </div>
                 {selectedWithdraw.rejectionReason && (

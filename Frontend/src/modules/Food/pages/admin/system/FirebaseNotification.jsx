@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Cloud, Settings, Info } from "lucide-react"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -38,7 +39,7 @@ const notificationMessages = [
   {
     id: 4,
     key: "restaurantHandover",
-    label: "Restaurant handover message",
+    label: vt("Seller handover message"),
     defaultText: "Your order {orderId} has been handed over to restaurant {restaurantName}",
     enabled: true
   },

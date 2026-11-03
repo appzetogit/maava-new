@@ -86,13 +86,14 @@ export const validateCreateOfferDto = (body) => {
     if (endDate && endDate.getTime() <= Date.now()) {
         throw new ValidationError('endDate must be a future date');
     }
-    // Business rule: percentage coupon must have maxDiscount; flat ignores it
+    // A percentage coupon's cap is optional: left blank, 10% off Rs 200 is
+    // Rs 20 off, however large the bill. Requiring it had admins typing the
+    // percentage again as the cap, so "10%" quietly became "Rs 10 off".
+    // Blank or 0 is stored as null, which pricing reads as "no cap".
     let maxDiscount = result.data.maxDiscount;
     if (result.data.discountType === 'percentage') {
-        if (maxDiscount === undefined || maxDiscount === null || Number.isNaN(Number(maxDiscount))) {
-            throw new ValidationError('maxDiscount is required for percentage coupons');
-        }
-        maxDiscount = Math.max(0, Number(maxDiscount) || 0);
+        const cap = Number(maxDiscount);
+        maxDiscount = Number.isFinite(cap) && cap > 0 ? cap : null;
     } else {
         maxDiscount = undefined; // ignore for flat-price
     }

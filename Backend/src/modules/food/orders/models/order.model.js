@@ -401,6 +401,8 @@ const orderSchema = new mongoose.Schema(
         acceptanceDeadlineAt: { type: Date, default: null },
         /** Idempotency guard so retries/duplicate calls never double-push the "new order" alert. */
         restaurantNotifiedAt: { type: Date, default: null },
+        /** Set once the "stop ringing" VoIP push went out, so the iPhone is told only once. */
+        restaurantRingEndedAt: { type: Date, default: null },
         /** Set once stock was decremented for this order; absent on pre-inventory orders. */
         stockReservedAt: { type: Date, default: null },
         /**
