@@ -368,10 +368,10 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
     const l = label.toLowerCase()
     const p = path?.toLowerCase() || ""
 
-    if (l.includes("food approval")) return badges.foodApprovals
-    if (l === "foods") return badges.foods
-    if (l === "restaurants" || l.includes("new joining request")) return badges.restaurants
-    if (l.includes("restaurant complaints")) return badges.restaurantComplaints
+    if (l.includes("food approval") || l.includes("product approval")) return badges.foodApprovals
+    if (l === "foods" || l === "products") return badges.foods
+    if (l === "restaurants" || l === "sellers" || l.includes("new joining request")) return badges.restaurants
+    if (l.includes("restaurant complaints") || l.includes("seller complaints")) return badges.restaurantComplaints
     if (p.includes("orders/pending")) return badges.orders
     if (p.includes("offline-payments")) return badges.offlinePayments
     if (l.includes("support tickets")) return l.includes("delivery") ? badges.deliverySupportTickets : badges.userSupportTickets

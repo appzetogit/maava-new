@@ -628,11 +628,14 @@ export const sendPushNotification = async (tokens, payload = {}) => {
     return { successCount, failureCount, results };
 };
 
-export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, platform } = {}) => {
+export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, platform, excludeTokens } = {}) => {
     // Clone payload to avoid side-effects across batched sends.
     const enrichedPayload = { ...payload };
 
-    const tokens = await listOwnerTokens({ ownerType, ownerId, platform });
+    // excludeTokens: devices already alerted another way (an iPhone that rang
+    // over VoIP), which must not get this push as well.
+    const excluded = new Set(Array.isArray(excludeTokens) ? excludeTokens : []);
+    const tokens = (await listOwnerTokens({ ownerType, ownerId, platform })).filter((t) => !excluded.has(t));
     if (!tokens.length) {
         return { successCount: 0, failureCount: 0, results: [] };
     }
@@ -737,6 +740,7 @@ export const sendNotificationToOwners = async (targets = [], payload = {}) => {
             ownerType: target.ownerType,
             ownerId: target.ownerId,
             platform: target.platform,
+            excludeTokens: target.excludeTokens,
             payload
         })
     );

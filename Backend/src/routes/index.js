@@ -23,6 +23,7 @@ import { getCashbackSettingsPublicController } from '../modules/food/user/contro
 import { config } from '../config/env.js';
 import { getRateLimitSummary } from '../middleware/rateLimit.js';
 import { withVertical, withAllVerticals } from '../core/vertical/verticalScope.js';
+import { zoneAliasMiddleware } from '../core/vertical/zoneAlias.js';
 
 const router = express.Router();
 
@@ -72,7 +73,6 @@ verticalScopedRoutes.get('/dining/restaurants/public', getPublicDiningRestaurant
 // Mark business-settings/public as truly public (must be before protected admin block)
 verticalScopedRoutes.get('/admin/business-settings/public', businessSettingsController.getBusinessSettings);
 verticalScopedRoutes.get('/admin/power-scanning/public', businessSettingsController.getPowerScanningSettings);
-verticalScopedRoutes.get('/admin/restaurant-subscription-settings/public', adminController.getRestaurantSubscriptionSettings);
 verticalScopedRoutes.get('/admin/feature-settings/public', adminController.getFeatureSettings);
 verticalScopedRoutes.get('/admin/fee-settings/public', adminController.getFeeSettings);
 verticalScopedRoutes.get('/admin/cashback-settings/public', getCashbackSettingsPublicController);
@@ -87,7 +87,9 @@ verticalScopedRoutes.use('/payments', authMiddleware, paymentRoutes);
 // The existing Food apps keep this prefix and see byte-identical behaviour.
 router.use('/v1/food', withVertical('food'), verticalScopedRoutes);
 // The quick-commerce apps change one constant: their base URL.
-router.use('/v1/quick', withVertical('quick'), verticalScopedRoutes);
+// A Food zone id sent to Mart is swapped for the Mart zone of the same name
+// (core/vertical/zoneAlias.js): installed apps send Food's zone without a saved address.
+router.use('/v1/quick', withVertical('quick'), zoneAliasMiddleware(), verticalScopedRoutes);
 
 // Backward-compatible auth routes (legacy). Auth is shared across verticals --
 // one phone, one login, one identity -- so this needs no scope.

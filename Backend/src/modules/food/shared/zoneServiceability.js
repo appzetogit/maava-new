@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { FoodZone } from '../admin/models/zone.model.js';
 import { getRedisClient } from '../../../config/redis.js';
+import { currentVertical, VERTICALS } from '../../../core/vertical/verticalScope.js';
 
 /**
  * Which zone a point falls in.
@@ -16,7 +17,10 @@ import { getRedisClient } from '../../../config/redis.js';
  * the list ever gets long enough to matter.
  */
 
-const ACTIVE_ZONES_CACHE_KEY = 'zones:active:list:v1';
+// Per vertical: FoodZone.find is vertical-scoped, so one shared key handed
+// whichever vertical filled it first to the other -- Mart checked addresses
+// against Food's zones (and the reverse) for up to two minutes at a time.
+const activeZonesCacheKey = (vertical = currentVertical()) => `zones:active:list:v2:${vertical}`;
 const ACTIVE_ZONES_CACHE_TTL_SECONDS = 120;
 
 export const toFiniteNumber = (value) => {
@@ -27,13 +31,13 @@ export const toFiniteNumber = (value) => {
 export const invalidateActiveZonesCache = async () => {
   const redis = getRedisClient();
   if (!redis || !redis.isReady) return;
-  await redis.del(ACTIVE_ZONES_CACHE_KEY);
+  await redis.del(VERTICALS.map((v) => activeZonesCacheKey(v)));
 };
 
 export const getActiveZones = async () => {
   const redis = getRedisClient();
   if (redis?.isReady) {
-    const raw = await redis.get(ACTIVE_ZONES_CACHE_KEY);
+    const raw = await redis.get(activeZonesCacheKey());
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
@@ -46,7 +50,7 @@ export const getActiveZones = async () => {
 
   const zones = await FoodZone.find({ isActive: true }).lean();
   if (redis?.isReady) {
-    await redis.set(ACTIVE_ZONES_CACHE_KEY, JSON.stringify(zones), {
+    await redis.set(activeZonesCacheKey(), JSON.stringify(zones), {
       EX: ACTIVE_ZONES_CACHE_TTL_SECONDS,
     });
   }
@@ -118,14 +122,40 @@ export const findZoneForPoint = async (lat, lng) => {
   if (latitude === null || longitude === null) return null;
 
   const zones = await getActiveZones();
+  // Overlapping zones resolve to the SMALLEST one containing the point -- the
+  // most specific area. First-in-the-list used to win, so a city zone drawn
+  // inside a wide regional one (Bhopal inside Mart's Indore polygon) could
+  // never be reached.
+  let best = null;
+  let bestArea = Infinity;
   for (const zone of zones) {
     // Length is checked after normalising, not before: a GeoJSON-shaped ring
     // arrives as a single nested array and would otherwise fail a raw `< 3`.
     const ring = normalizeZoneRing(zone.coordinates);
     if (ring.length < 3) continue;
-    if (isPointInPolygon(latitude, longitude, ring)) return zone;
+    if (!isPointInPolygon(latitude, longitude, ring)) continue;
+    const area = ringArea(ring);
+    if (area < bestArea) {
+      best = zone;
+      bestArea = area;
+    }
   }
-  return null;
+  return best;
+};
+
+/** Shoelace area in squared degrees -- only ever compared, never shown. */
+const ringArea = (ring) => {
+  let sum = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const a = ring[i];
+    const b = ring[j];
+    const ax = Number(a.longitude ?? a.lng ?? a[0]);
+    const ay = Number(a.latitude ?? a.lat ?? a[1]);
+    const bx = Number(b.longitude ?? b.lng ?? b[0]);
+    const by = Number(b.latitude ?? b.lat ?? b[1]);
+    sum += (bx + ax) * (by - ay);
+  }
+  return Math.abs(sum / 2);
 };
 
 export const isValidZoneId = (zoneIdRaw) => {

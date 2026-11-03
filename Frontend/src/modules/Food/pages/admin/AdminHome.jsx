@@ -25,6 +25,7 @@ import {
 } from "recharts"
 import { Activity, ArrowUpRight, ShoppingBag, CreditCard, Truck, Receipt, DollarSign, Store, UserCheck, Package, UserCircle, Clock, CheckCircle, Plus, XCircle } from "lucide-react"
 import { adminAPI } from "@food/api"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = () => {}
 const debugError = () => {}
 
@@ -231,7 +232,7 @@ export default function AdminHome() {
             <MetricCard
               title="Commission earned"
               value={formatCurrency(commissionTotal)}
-              helper={`${periodLabel} restaurant cut`}
+              helper={`${periodLabel} ${vt("seller cut")}`}
               icon={<ArrowUpRight className="h-5 w-5 text-indigo-600" />}
               accent="bg-indigo-200/40"
               path="/admin/store/sellers/commission"

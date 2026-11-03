@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react"
 import { Search, Download, ChevronDown, Plus, Edit, Trash2, Upload, Image as ImageIcon, Info, Loader2 } from "lucide-react"
 import api from "@food/api"
 import { emptyBanners } from "@food/utils/adminFallbackData"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -162,7 +163,7 @@ export default function Banners() {
                   onChange={(e) => handleInputChange("bannerType", e.target.value)}
                   className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                 >
-                  <option value="Restaurant wise">Restaurant wise</option>
+                  <option value="Restaurant wise">{vt("Seller wise")}</option>
                   <option value="Zone wise">Zone wise</option>
                 </select>
               </div>
@@ -232,7 +233,7 @@ export default function Banners() {
                 className="px-4 py-2.5 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-slate-400"
               >
                 <option value="all">All Banner</option>
-                <option value="Restaurant wise">Restaurant wise</option>
+                <option value="Restaurant wise">{vt("Seller wise")}</option>
                 <option value="Zone wise">Zone wise</option>
               </select>
 

@@ -20,6 +20,21 @@ const errorHandler = (err, req, res, next) => {
         }
     }
 
+    // A record that fails its schema is the caller's input, not a server fault:
+    // a 400 with the rule that failed ("Zone must have at least 3 coordinates"),
+    // instead of a 500 the admin panel can only report as "something went
+    // wrong". Mongoose's errors carry no statusCode; ours do and keep theirs.
+    if (!err.statusCode && err.name === 'ValidationError' && err.errors) {
+        statusCode = 400;
+        message = Object.values(err.errors)
+            .map((e) => e?.message)
+            .filter(Boolean)
+            .join(' ') || 'Some details are not valid.';
+    } else if (!err.statusCode && err.name === 'CastError') {
+        statusCode = 400;
+        message = `Invalid ${err.path || 'value'}: ${String(err.value).slice(0, 60)}`;
+    }
+
     // Business-layer rate limits (RateLimitError) must advertise when to retry,
     // the same way the HTTP limiter's handler does. Without this a 429 from the
     // per-phone OTP quota is indistinguishable from a permanent failure.

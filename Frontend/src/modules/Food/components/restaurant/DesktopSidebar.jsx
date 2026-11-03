@@ -84,7 +84,6 @@ const sections = [
       { name: "Payout", path: `${BASE}/hub-finance`, icon: IndianRupee, exact: true },
       { name: "Invoices", path: `${BASE}/hub-finance?tab=invoices`, icon: Receipt },
       { name: "Bank details", path: `${BASE}/update-bank-details`, icon: Building2 },
-      { name: "Subscription", path: `${BASE}/subscription`, icon: CreditCard },
     ],
   },
 ]

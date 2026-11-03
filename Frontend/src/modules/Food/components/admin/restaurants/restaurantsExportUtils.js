@@ -1,9 +1,10 @@
+import { vt } from "@food/utils/adminVerticalLabels";
 // Export utility functions for restaurants
 export const exportRestaurantsToExcel = (restaurants, filename = "restaurants") => {
   const headers = [
     "SI",
-    "Restaurant ID",
-    "Restaurant Name",
+    vt("Seller ID"),
+    vt("Seller Name"),
     "Owner Name",
     "Owner Phone",
     "Zone",
@@ -43,8 +44,8 @@ export const exportRestaurantsToExcel = (restaurants, filename = "restaurants") 
 export const exportRestaurantsToPDF = (restaurants, filename = "restaurants") => {
   const headers = [
     "SI",
-    "Restaurant ID",
-    "Restaurant Name",
+    vt("Seller ID"),
+    vt("Seller Name"),
     "Owner Name",
     "Owner Phone",
     "Zone",
@@ -121,7 +122,7 @@ export const exportRestaurantsToPDF = (restaurants, filename = "restaurants") =>
         </style>
       </head>
       <body>
-        <h1>Restaurants List</h1>
+        <h1>${vt("Sellers List")}</h1>
         <p>Generated on: ${new Date().toLocaleString()}</p>
         <table>
           <thead>

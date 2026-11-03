@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { ChevronDown, Settings } from "lucide-react"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -8,7 +9,7 @@ const debugError = (...args) => {}
 const addons = [
   {
     id: 1,
-    title: "Restaurant app",
+    title: vt("Seller app"),
     description: "With this app your vendor will mange their business through mobile app",
     enabled: true,
     hasSettings: true

@@ -16,6 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@food/components/ui/dropdown-menu"
+import { vt } from "@food/utils/adminVerticalLabels"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -166,7 +167,7 @@ export default function ContactMessages() {
             <div className="relative flex-1 sm:flex-initial min-w-[250px]">
               <input
                 type="text"
-                placeholder="Ex: Search by name, email, order ID, restaurant, food items"
+                placeholder={vt("Ex: Search by name, email, order ID, seller, product items")}
                 value={searchQuery}
                 onChange={(e) => {
                   setSearchQuery(e.target.value)

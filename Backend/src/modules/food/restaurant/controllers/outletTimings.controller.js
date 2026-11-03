@@ -20,6 +20,16 @@ export const getCurrentRestaurantOutletTimingsController = async (req, res, next
     }
 };
 
+/** Admin setting a store's hours for it: PUT /admin/restaurants/:id/outlet-timings */
+export const upsertOutletTimingsByRestaurantIdController = async (req, res, next) => {
+    try {
+        const data = await upsertOutletTimingsForRestaurant(req.params.id, req.body?.outletTimings);
+        return sendResponse(res, 200, 'Outlet timings saved successfully', data);
+    } catch (error) {
+        next(error);
+    }
+};
+
 export const upsertCurrentRestaurantOutletTimingsController = async (req, res, next) => {
     try {
         const restaurantId = req.user?.userId;

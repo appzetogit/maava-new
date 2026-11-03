@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Monitor, Info, X, ChevronRight, RotateCcw, Save } from "lucide-react";
 import mobileImage1 from "@food/assets/Transaction-report-icons/mobile_image1.png";
+import { vt } from "@food/utils/adminVerticalLabels";
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -38,11 +39,11 @@ export default function LandingPageSettings({ type = "admin" }) {
   const [reactActiveLanguage, setReactActiveLanguage] = useState("default");
   const [reactHeaderContent, setReactHeaderContent] = useState({
     title: "Your Next Experience Awaits",
-    subtitle: "Discover Restaurants Near You",
+    subtitle: vt("Discover Sellers Near You"),
     backgroundImage: null,
   });
   const [reactLocationPicker, setReactLocationPicker] = useState({
-    placeholder: "Enter location to search restaurant",
+    placeholder: vt("Enter location to search sellers"),
   });
   const [reactBusinessStats, setReactBusinessStats] = useState({
     restaurant: "200",
@@ -125,11 +126,11 @@ export default function LandingPageSettings({ type = "admin" }) {
     } else {
       setReactHeaderContent({
         title: "Your Next Experience Awaits",
-        subtitle: "Discover Restaurants Near You",
+        subtitle: vt("Discover Sellers Near You"),
         backgroundImage: null,
       });
       setReactLocationPicker({
-        placeholder: "Enter location to search restaurant",
+        placeholder: vt("Enter location to search sellers"),
       });
       setReactBusinessStats({
         restaurant: "200",
@@ -1219,7 +1220,7 @@ export default function LandingPageSettings({ type = "admin" }) {
                 Location picker section
               </h2>
               <p className="text-xs sm:text-sm text-slate-600 mb-3">
-                Customize location search bar and placeholder text to help users find nearby restaurants.
+                {vt("Customize location search bar and placeholder text to help users find nearby sellers.")}
               </p>
 
               {/* Language Tabs */}
@@ -1286,13 +1287,13 @@ export default function LandingPageSettings({ type = "admin" }) {
                 Business Statistics Section
               </h2>
               <p className="text-xs sm:text-sm text-slate-600 mb-3">
-                Display key business statistics like total restaurants, happy customers, and average delivery time.
+                {vt("Display key business statistics like total sellers, happy customers, and average delivery time.")}
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">
-                    Restaurant*
+                    {vt("Seller*")}
                   </label>
                   <input
                     type="number"
@@ -1535,7 +1536,7 @@ export default function LandingPageSettings({ type = "admin" }) {
               Categories Section
             </h2>
             <p className="text-xs sm:text-sm text-slate-600 mb-4">
-              Configure food categories display settings.
+              {vt("Configure product categories display settings.")}
             </p>
             <div className="space-y-3">
               <div>

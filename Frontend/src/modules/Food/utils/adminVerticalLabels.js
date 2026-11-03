@@ -1,3 +1,5 @@
+import { getAdminVertical } from "./adminVertical";
+
 /**
  * Per-vertical wording and visibility for the admin sidebar.
  *
@@ -38,6 +40,7 @@ const FOOD_LABELS = {
     'Seller Wallet': 'Restaurant Wallet',
     'Seller Withdraws': 'Restaurant Withdraws',
     'Seller Report': 'Restaurant Report',
+    'Seller Commission': 'Restaurant Commission',
 };
 
 /** quick keeps the menu exactly as authored, so it needs no overrides. */
@@ -75,6 +78,27 @@ const NOUNS = {
 
 /** Falls back to food wording, matching config.defaultVertical on the server. */
 export const verticalNouns = (vertical) => NOUNS[vertical] || NOUNS.food;
+
+/**
+ * Whole-string version of the nouns above, for page text written in
+ * quick-commerce wording: "Seller Commission" stays as is for quick and reads
+ * "Restaurant Commission" for food. Pass only fixed copy -- never a seller's
+ * name or other data, which would get renamed too. Switching vertical reloads
+ * the page, so reading the vertical at call time is enough.
+ */
+const FOOD_WORDING = [
+    [/\bSELLERS\b/g, 'RESTAURANTS'], [/\bSELLER\b/g, 'RESTAURANT'],
+    [/\bSellers\b/g, 'Restaurants'], [/\bSeller\b/g, 'Restaurant'],
+    [/\bsellers\b/g, 'restaurants'], [/\bseller\b/g, 'restaurant'],
+    [/\bPRODUCTS\b/g, 'FOODS'], [/\bPRODUCT\b/g, 'FOOD'],
+    [/\bProducts\b/g, 'Foods'], [/\bProduct\b/g, 'Food'],
+    [/\bproducts\b/g, 'foods'], [/\bproduct\b/g, 'food'],
+];
+
+export const vt = (text, vertical = getAdminVertical()) => {
+    if (vertical !== 'food' || typeof text !== 'string') return text;
+    return FOOD_WORDING.reduce((out, [pattern, word]) => out.replace(pattern, word), text);
+};
 
 /**
  * Sections that exist for one vertical only.

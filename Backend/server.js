@@ -14,6 +14,7 @@ import { expireExpiredOffers } from './src/modules/food/admin/services/admin.ser
 import { syncExpiredFssaiNotifications } from './src/modules/food/restaurant/services/fssaiExpiry.service.js';
 
 import { logger } from './src/utils/logger.js';
+import { logVoipConfigurationWarnings } from './src/core/notifications/voip.service.js';
 import { initializeFirebaseRealtime } from './src/config/firebase.js';
 import { ensureUploadStorageReady } from './src/services/storage.service.js';
 
@@ -162,6 +163,7 @@ const startServer = async () => {
         });
 
         server = httpServer.listen(config.port, config.host, () => {
+            logVoipConfigurationWarnings();
             logger.info(`Server running in ${config.nodeEnv} mode on ${config.host}:${config.port}`);
             console.log(`Server URL http://localhost:${config.port}`);
         });

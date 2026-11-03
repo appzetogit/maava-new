@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@food
 import { Switch } from '@food/components/ui/switch';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { vt } from "@food/utils/adminVerticalLabels";
 
 const FEATURE_KEYS = {
     RESTAURANT_SUBSCRIPTION: 'restaurant_subscription',
@@ -118,7 +119,7 @@ export default function FeatureSettings() {
 
             <Card className="border-slate-200">
                 <CardHeader>
-                    <CardTitle className="text-lg">Restaurant Subscription</CardTitle>
+                    <CardTitle className="text-lg">{vt("Seller Subscription")}</CardTitle>
                     <CardDescription>
                         Controls post-approval onboarding payment, due checks, withdrawal restrictions, and subscription settings visibility.
                     </CardDescription>
@@ -206,16 +207,16 @@ export default function FeatureSettings() {
 
             <Card className="border-slate-200">
                 <CardHeader>
-                    <CardTitle className="text-lg">Root Landing & Unregistered Restaurants</CardTitle>
+                    <CardTitle className="text-lg">{vt("Root Landing & Unregistered Sellers")}</CardTitle>
                     <CardDescription>
-                        Controls root URL and Unregistered Restaurants visibility. OFF redirects root (/) to /food/user and hides Unregistered Restaurants.
+                        {vt("Controls root URL and Unregistered Sellers visibility. OFF redirects root (/) to /food/user and hides Unregistered Sellers.")}
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="flex items-center justify-between gap-4">
                     <div className="text-sm text-gray-700">
                         {rootLandingAndUnregisteredControl?.isEnabled
-                            ? 'Enabled: root opens Landing Page and Unregistered Restaurants is visible'
-                            : 'Disabled: root redirects to /food/user and Unregistered Restaurants is hidden'}
+                            ? vt('Enabled: root opens Landing Page and Unregistered Sellers is visible')
+                            : vt('Disabled: root redirects to /food/user and Unregistered Sellers is hidden')}
                     </div>
                     <Switch
                         checked={Boolean(rootLandingAndUnregisteredControl?.isEnabled)}

@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react"
 import { Monitor, Info, Check, Copy, Edit, ExternalLink, Settings, ArrowUpDown, Columns } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@food/components/ui/dialog"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -15,7 +16,7 @@ const panelLoginUrls = [
   },
   {
     id: 2,
-    panelName: "Restaurant Panel",
+    panelName: vt("Seller Panel"),
     loginUrl: "https://restaurant.stackfood.com/login",
     status: "active"
   },

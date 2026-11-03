@@ -1,4 +1,5 @@
 import { getRedisClient } from '../../../../config/redis.js';
+import { currentVertical } from '../../../../core/vertical/verticalScope.js';
 import {
     findZoneForPoint,
     getActiveZones,
@@ -21,7 +22,9 @@ const buildZoneDetectCacheKey = (lat, lng) => {
     const roundedLat = roundCoordinate(lat, 3);
     const roundedLng = roundCoordinate(lng, 3);
     if (roundedLat === null || roundedLng === null) return null;
-    return `zones:detect:${roundedLat}:${roundedLng}`;
+    // Per vertical: Food and Mart have separate zones, and one shared key made
+    // /quick/zones/detect answer with Food's zone whenever Food asked first.
+    return `zones:detect:${currentVertical()}:${roundedLat}:${roundedLng}`;
 };
 
 const getCachedJson = async (key) => {

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { FoodOrder } from '../../../modules/food/orders/models/order.model.js';
 import * as foodTransactionService from '../../../modules/food/orders/services/foodTransaction.service.js';
+import { confirmPaidOnlineOrder } from '../../../modules/food/orders/services/order.service.js';
 import { config } from '../../../config/env.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -58,6 +59,25 @@ export const handleRazorpayWebhook = async (req, res) => {
                     }
                     return res.status(200).json({ status: 'ok' });
                 }
+            }
+
+            // Still waiting for payment: confirm it properly -- paid, sent to the
+            // restaurant, ledger written -- the same as the app's verify-payment.
+            // Only flipping payment.status (below) left the order stuck in
+            // pending_payment: paid, but never shown to the restaurant or admin.
+            if (existingOrder && String(existingOrder.orderStatus) === 'pending_payment') {
+                const pending = await FoodOrder.findById(existingOrder._id);
+                if (pending) {
+                    await confirmPaidOnlineOrder(pending, {
+                        paymentId: rzPaymentId,
+                        signature: null,
+                        byRole: 'SYSTEM',
+                        byId: null,
+                        note: 'Payment confirmed by Razorpay webhook',
+                    });
+                    logger.info(`Webhook [payment.captured]: confirmed pending order ${pending._id}`);
+                }
+                return res.status(200).json({ status: 'ok' });
             }
 
             // Atomic update to mark as paid if not already

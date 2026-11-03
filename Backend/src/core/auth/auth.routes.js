@@ -12,6 +12,7 @@ import {
     getMeController,
     updateAdminProfileController,
     changeAdminPasswordController,
+    requestAdminPasswordChangeOtpController,
     requestAdminForgotPasswordOtpController,
     resetAdminPasswordWithOtpController
 } from './auth.controller.js';
@@ -64,6 +65,7 @@ router.get('/me', authMiddleware, getMeController);
 
 // Admin-only: profile update & change password (Bearer + ADMIN role)
 router.patch('/admin/profile', authMiddleware, requireAdmin, updateAdminProfileController);
+router.post('/admin/change-password/request-otp', authMiddleware, requireAdmin, requestAdminPasswordChangeOtpController);
 router.post('/admin/change-password', authMiddleware, requireAdmin, changeAdminPasswordController);
 
 export default router;

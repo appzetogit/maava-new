@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { getRestaurantCookingNote } from "@food/utils/orderCookingNote";
+import { printOrderInvoice } from "@food/utils/printOrderInvoice";
 import BottomNavOrders from "@food/components/restaurant/BottomNavOrders";
 import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar";
 import NewOrderAcceptCard from "@food/components/restaurant/NewOrderAcceptCard";
@@ -1303,6 +1304,38 @@ export default function OrdersMain() {
     };
   }, [clearNewOrder]);
 
+  // Keep Preparing / Ready / Out for delivery / Completed / Cancelled lists live.
+  // They only refetch on refreshToken, which used to move only on the restaurant's
+  // own actions, so rider pickups and deliveries stayed stale until a page reload.
+  useEffect(() => {
+    let debounceId = null;
+    const refreshNow = () => {
+      sharedOrdersResponse = null;
+      sharedOrdersFetchedAt = 0;
+      requestOrdersRefresh();
+    };
+    const onStatusUpdate = () => {
+      clearTimeout(debounceId);
+      debounceId = setTimeout(refreshNow, 400);
+    };
+    const intervalId = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      requestOrdersRefresh();
+    }, 15000);
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden) refreshNow();
+    };
+
+    window.addEventListener("restaurant:order_status_update", onStatusUpdate);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      clearTimeout(debounceId);
+      clearInterval(intervalId);
+      window.removeEventListener("restaurant:order_status_update", onStatusUpdate);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   // Fallback if custom event not fired but hook state updates
   useEffect(() => {
     if (!newOrder) return;
@@ -1579,91 +1612,29 @@ export default function OrdersMain() {
 
   const handlePrintOrder = async (orderToPrint) => {
     if (!orderToPrint) {
-      debugWarn("No order data available for PDF generation");
+      debugWarn("No order data available for printing");
       return;
     }
 
+    // The queue card is built from the socket payload and may lack pricing,
+    // phone or add-ons; print from the full order when it can be fetched.
+    let fullOrder = null;
+    const lookupId = orderToPrint.orderMongoId || orderToPrint.orderId;
+    if (lookupId) {
+      try {
+        const response = await restaurantAPI.getOrderById(lookupId);
+        fullOrder =
+          response.data?.data?.order || response.data?.order || response.data?.data || null;
+      } catch (error) {
+        debugWarn("Could not load full order for printing:", error);
+      }
+    }
+
     try {
-      const [{ jsPDF }, { default: autoTable }] = await Promise.all([
-        import("jspdf"),
-        import("jspdf-autotable"),
-      ]);
-      const doc = new jsPDF();
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(20);
-      doc.text("Order Receipt", 105, 20, { align: "center" });
-
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "normal");
-      doc.text(orderToPrint.restaurantName || "Restaurant", 105, 30, {
-        align: "center",
-      });
-
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "bold");
-      doc.text(`Order ID: ${orderToPrint.orderId || "N/A"}`, 20, 45);
-      doc.setFont("helvetica", "normal");
-
-      const orderDate = orderToPrint.createdAt
-        ? new Date(orderToPrint.createdAt).toLocaleString("en-GB", {
-            day: "numeric",
-            month: "short",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })
-        : new Date().toLocaleString("en-GB");
-
-      doc.text(`Date: ${orderDate}`, 20, 52);
-
-      if (orderToPrint.customerAddress) {
-        doc.setFont("helvetica", "bold");
-        doc.text("Delivery Address:", 20, 62);
-        doc.setFont("helvetica", "normal");
-        const addressText =
-          [
-            orderToPrint.customerAddress.street,
-            orderToPrint.customerAddress.city,
-            orderToPrint.customerAddress.state,
-          ]
-            .filter(Boolean)
-            .join(", ") || "Address not available";
-        const addressLines = doc.splitTextToSize(addressText, 170);
-        doc.text(addressLines, 20, 69);
-      }
-
-      let yPos = 85;
-      if (orderToPrint.items && orderToPrint.items.length > 0) {
-        doc.setFont("helvetica", "bold");
-        doc.text("Items:", 20, yPos);
-        yPos += 8;
-
-        const tableData = orderToPrint.items.map((item) => [
-          item.name || "Item",
-          item.quantity || 1,
-          `₹${(item.price || 0).toFixed(2)}`,
-          `₹${((item.price || 0) * (item.quantity || 1)).toFixed(2)}`,
-        ]);
-
-        autoTable(doc, {
-          startY: yPos,
-          head: [["Item", "Qty", "Price", "Total"]],
-          body: tableData,
-          theme: "striped",
-          headStyles: {
-            fillColor: [0, 0, 0],
-            textColor: 255,
-            fontStyle: "bold",
-          },
-          styles: { fontSize: 9 },
-        });
-      }
-
-      doc.save(`order-${orderToPrint.orderId || "receipt"}.pdf`);
+      await printOrderInvoice({ ...orderToPrint, ...(fullOrder || {}) });
     } catch (error) {
-      debugError("Error generating PDF:", error);
-      toast.error("Failed to generate receipt");
+      debugError("Error printing order:", error);
+      toast.error("Failed to print bill");
     }
   };
 

@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@food/components/ui/card";
 import { toast } from "sonner";
+import PasswordOtpDialog from "@food/components/admin/PasswordOtpDialog";
 import { Lock, Eye, EyeOff, Save, Loader2, Shield, User, Mail, Truck } from "lucide-react";
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -29,6 +30,8 @@ export default function AdminSettings() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
+  // The passwords awaiting the SMS code; the dialog is open while this is set.
+  const [otpRequest, setOtpRequest] = useState(null);
 
   // Single API: getAdminProfile (GET /auth/me) for current account display
   useEffect(() => {
@@ -110,34 +113,32 @@ export default function AdminSettings() {
       return;
     }
 
-    try {
-      setSaving(true);
-      await adminAPI.changePassword(
-        passwordForm.currentPassword,
-        passwordForm.newPassword
-      );
+    setSaving(true);
+    setOtpRequest({
+      currentPassword: passwordForm.currentPassword,
+      newPassword: passwordForm.newPassword,
+    });
+  };
 
-      // Clear form
-      setPasswordForm({
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: "",
-      });
+  const handlePasswordChanged = () => {
+    setOtpRequest(null);
+    setSaving(false);
+    setPasswordForm({
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    });
+    toast.success("Password changed successfully");
+  };
 
-      toast.success("Password changed successfully");
-    } catch (error) {
-      debugError("Error changing password:", error);
-      const errorMessage =
-        error?.response?.data?.message || "Failed to change password";
-      
-      // Set specific error for current password
-      if (errorMessage.includes("current password") || errorMessage.includes("incorrect")) {
-        setErrors({ currentPassword: errorMessage });
-      } else {
-        toast.error(errorMessage);
-      }
-    } finally {
-      setSaving(false);
+  const handlePasswordChangeError = (errorMessage) => {
+    debugError("Error changing password:", errorMessage);
+    setOtpRequest(null);
+    setSaving(false);
+    if (/current password|incorrect/i.test(errorMessage)) {
+      setErrors({ currentPassword: errorMessage });
+    } else {
+      toast.error(errorMessage);
     }
   };
 
@@ -336,6 +337,16 @@ export default function AdminSettings() {
           </form>
         </CardContent>
       </Card>
+
+      <PasswordOtpDialog
+        request={otpRequest}
+        onDone={handlePasswordChanged}
+        onError={handlePasswordChangeError}
+        onClose={() => {
+          setOtpRequest(null);
+          setSaving(false);
+        }}
+      />
     </div>
   );
 }
