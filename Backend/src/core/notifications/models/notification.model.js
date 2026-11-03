@@ -35,9 +35,9 @@ const notificationSchema = new mongoose.Schema(
         },
         source: {
             type: String,
-            // SUBSCRIPTION_BILLING is written by subscriptionBilling.service. It was never
-            // added here, so every billing notice failed validation in the scheduler
-            // and the restaurant was never told its subscription was due.
+            // SUBSCRIPTION_BILLING: subscription billing was removed (Maava charges
+            // commission only), but notifications already stored carry it, and
+            // they must stay valid when they are read and saved.
             enum: ['ADMIN_BROADCAST', 'FSSAI_EXPIRY', 'SUPPORT_RESPONSE', 'SUBSCRIPTION_BILLING'],
             default: 'ADMIN_BROADCAST',
             index: true

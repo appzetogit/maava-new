@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react"
 import { Edit, Upload, Info, Trash2, Plus, Calendar, Link as LinkIcon, Save, X, Loader2, Image as ImageIcon } from "lucide-react"
 import api from "@food/api"
 import { resolveMediaUrl } from "../../../../shared/utils/mediaUrl.js"
+import { vt } from "@food/utils/adminVerticalLabels"
 
 const debugError = (...args) => {}
 
@@ -405,7 +406,7 @@ export default function PromotionalBanner() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">Link to Restaurant (Optional)</label>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">{vt("Link to Seller (Optional)")}</label>
                       <select
                         value={formData.restaurantId}
                         onChange={(e) => handleRestaurantChange(e.target.value)}

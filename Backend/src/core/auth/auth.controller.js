@@ -11,6 +11,7 @@ import {
   getProfile,
   updateAdminProfile,
   changeAdminPassword,
+  requestAdminPasswordChangeOtp,
   requestAdminForgotPasswordOtp,
   resetAdminPasswordWithOtp,
 } from "./auth.service.js";
@@ -166,13 +167,29 @@ export const updateAdminProfileController = async (req, res, next) => {
 export const changeAdminPasswordController = async (req, res, next) => {
   try {
     const { userId } = req.user;
-    const { currentPassword, newPassword } = validateAdminChangePasswordDto(
+    const { currentPassword, newPassword, otp } = validateAdminChangePasswordDto(
       req.body,
     );
-    await changeAdminPassword(userId, currentPassword, newPassword);
+    await changeAdminPassword(userId, currentPassword, newPassword, otp);
     return sendResponse(res, 200, "Password changed successfully", {
       success: true,
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const requestAdminPasswordChangeOtpController = async (req, res, next) => {
+  try {
+    const { userId } = req.user;
+    const { currentPassword, newPassword } = validateAdminChangePasswordDto(req.body);
+    const result = await requestAdminPasswordChangeOtp(userId, currentPassword, newPassword);
+    return sendResponse(
+      res,
+      200,
+      result.otpRequired ? `Code sent to ${result.sentTo}` : "No code needed",
+      result,
+    );
   } catch (error) {
     next(error);
   }

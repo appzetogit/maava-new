@@ -42,18 +42,20 @@ const startMaintenanceWorker = async () => {
         logger.warn(`Could not remove legacy subscription expiry schedule: ${err.message}`);
     }
 
-    // 1. Monthly Subscription Billing (00:30 on the 1st of every month, bills the closed month;
-    //    runBillingCatchUp also backfills months missed while the worker was down)
-    await maintenanceQueue.add(
-        'MONTHLY_SUBSCRIPTION_BILLING',
-        { type: 'MONTHLY_SUBSCRIPTION_BILLING' },
-        {
-            repeat: { pattern: '30 0 1 * *' }, // 00:30 on day 1 of each month
-            jobId: 'monthly_subscription_billing_job'
-        }
-    );
+    // Maava charges commission only. The monthly subscription billing schedule
+    // is removed for the same reason as the one above: Redis keeps it, and it
+    // would go on firing at 00:30 on the 1st of every month.
+    try {
+        await maintenanceQueue.removeRepeatable(
+            'MONTHLY_SUBSCRIPTION_BILLING',
+            { pattern: '30 0 1 * *' },
+            'monthly_subscription_billing_job'
+        );
+    } catch (err) {
+        logger.warn(`Could not remove subscription billing schedule: ${err.message}`);
+    }
 
-    // 2. FSSAI Expiry Check (Every day at 4 AM)
+    // FSSAI Expiry Check (Every day at 4 AM)
     await maintenanceQueue.add(
         'FSSAI_EXPIRY_CHECK',
         { type: 'FSSAI_EXPIRY_CHECK' },
@@ -67,7 +69,7 @@ const startMaintenanceWorker = async () => {
     worker.on('failed', (job, err) => logger.error(`Maintenance job ${job?.id} failed: ${err.message}`));
     worker.on('error', (err) => logger.error(`Maintenance worker error: ${err.message}`));
 
-    logger.info('Maintenance worker started with repeatable jobs (Monthly Subscription Billing & FSSAI)');
+    logger.info('Maintenance worker started with repeatable jobs (FSSAI expiry)');
     return worker;
 };
 

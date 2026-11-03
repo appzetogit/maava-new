@@ -8,10 +8,10 @@ import { FoodDeliveryPartner } from "../../modules/food/delivery/models/delivery
 import { FoodOrder } from "../../modules/food/orders/models/order.model.js";
 import { FoodReferralSettings } from "../../modules/food/admin/models/referralSettings.model.js";
 import { FoodReferralLog } from "../../modules/food/admin/models/referralLog.model.js";
-import { createOrUpdateOtp, verifyOtp } from "../otp/otp.service.js";
+import { createOrUpdateOtp, verifyOtp, sendOtpSms } from "../otp/otp.service.js";
 import { signAccessToken, signRefreshToken } from "./token.util.js";
 import { FoodRefreshToken } from "../refreshTokens/refreshToken.model.js";
-import { ValidationError, AuthError } from "./errors.js";
+import { ValidationError, AuthError, RateLimitError } from "./errors.js";
 import { config } from "../../config/env.js";
 import { logger } from "../../utils/logger.js";
 import { sendAdminResetOtpEmail } from "../../utils/email.js";
@@ -26,6 +26,7 @@ import {
   replaceFirebaseDeviceToken,
   upsertFirebaseDeviceToken,
 } from "../notifications/firebase.service.js";
+import { removeVoipDevicesByFcmToken } from "../notifications/voip.service.js";
 
 const ROLES = {
   USER: "USER",
@@ -288,12 +289,8 @@ export const verifyUserOtpAndLogin = async (
   const payload = {
     userId: user._id.toString(),
     role: user.role || "USER",
-    // Customers may stay signed in on several devices (phone, laptop, app), so a
-    // customer login keeps the account's current session version instead of
-    // bumping it; bumping evicted every other device. Restaurant and delivery
-    // logins still bump (one device each), and bumping the version remains the
-    // way to sign a customer out everywhere.
-    tokenVersion: Number(user.tokenVersion) || 0,
+    // One device per account: signing in here signs every other device out.
+    tokenVersion: await bumpTokenVersion(FoodUser, user._id),
   };
 
   const accessToken = signAccessToken(payload);
@@ -410,6 +407,20 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
     };
   }
 
+  // A rejected restaurant applies again through the same onboarding as a new one;
+  // registerRestaurant resubmits onto this record and sends it back for review.
+  // Answering needsRegistration (rather than an error) is what the installed apps
+  // already route into onboarding.
+  if (restaurant.status === "rejected") {
+    return {
+      needsRegistration: true,
+      reapply: true,
+      phone,
+      restaurantName: restaurant.restaurantName || "",
+      rejectionReason: restaurant.rejectionReason || "",
+    };
+  }
+
   // Update FCM token if provided
   if (fcmToken) {
     await saveLoginFcmToken({
@@ -441,13 +452,13 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
     }
   }
 
-  // Postpaid subscription model: no onboarding payment or subscription purchase
-  // is required to use the platform — dues are billed at each month end.
+  // Commission only: no onboarding payment or subscription is needed to use
+  // the platform.
 
   const payload = {
     userId: restaurant._id.toString(),
     role: ROLES.RESTAURANT,
-    tokenVersion: await bumpTokenVersion(FoodRestaurant, restaurant._id),
+    // No tokenVersion: restaurants may stay signed in on several devices at once.
   };
   const accessToken = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);
@@ -570,6 +581,9 @@ export const logout = async (refreshToken, fcmToken, platform) => {
     console.log(`[FCM-Logout] Starting logout-driven token removal: platform=${platform}, tokenPreview=${fcmToken?.slice(0, 10)}...`);
     try {
       await detachFirebaseDeviceTokenEverywhere(fcmToken);
+      // The iPhone's VoIP registration is paired with this FCM token; without
+      // this a logged-out phone would keep ringing for the restaurant.
+      await removeVoipDevicesByFcmToken(fcmToken);
       console.log("[FCM-Logout] Token removed from all collections successfully");
     } catch (err) {
       logger.warn({ err }, "Failed to remove FCM token from all collections during logout");
@@ -805,12 +819,24 @@ export const updateAdminProfile = async (userId, body) => {
   return { user: profile };
 };
 
-/** Change admin password. Only for ADMIN role. */
-export const changeAdminPassword = async (
-  userId,
-  currentPassword,
-  newPassword,
-) => {
+/*
+ * A super admin's password change is confirmed by an OTP sent to the owner's
+ * phone (config.adminPasswordOtpPhone), not the admin's own profile phone:
+ * someone holding a stolen session can edit the profile, but not that phone.
+ * Sub-admins change theirs with the current password alone, as before.
+ *
+ * Every failure here is a 400, never a 401: the admin panel answers a 401 by
+ * refreshing the session and replaying the request, which would spend two OTP
+ * attempts per try.
+ */
+const PASSWORD_OTP_RESEND_SECONDS = 30;
+const passwordOtpKey = (adminId) => `password-change:${adminId}`;
+const passwordOtpPhone = () =>
+  String(config.adminPasswordOtpPhone || "").replace(/\D/g, "").slice(-10);
+const maskPhone = (phone) => `******${String(phone).slice(-4)}`;
+const needsPasswordOtp = (admin) => admin.role !== "sub_admin";
+
+const loadAdminCheckingPassword = async (userId, currentPassword) => {
   if (!userId) {
     throw new AuthError("Invalid token payload");
   }
@@ -820,10 +846,97 @@ export const changeAdminPassword = async (
   }
   const isMatch = await admin.comparePassword(currentPassword);
   if (!isMatch) {
-    throw new AuthError("Current password is incorrect");
+    throw new ValidationError("Current password is incorrect");
   }
+  return admin;
+};
+
+/**
+ * Step one of a password change: check the current password, then text the
+ * code. The password check comes first so the button cannot be used to flood
+ * the owner's phone.
+ */
+export const requestAdminPasswordChangeOtp = async (userId, currentPassword, newPassword) => {
+  const admin = await loadAdminCheckingPassword(userId, currentPassword);
   if (!newPassword || String(newPassword).length < 6) {
     throw new ValidationError("New password must be at least 6 characters");
+  }
+  if (!needsPasswordOtp(admin)) {
+    return { otpRequired: false };
+  }
+
+  const phone = passwordOtpPhone();
+  if (phone.length !== 10) {
+    throw new ValidationError("No phone is set up to confirm password changes.");
+  }
+
+  const key = passwordOtpKey(admin._id);
+  const existing = await AdminResetOtp.findOne({ email: key });
+  const sinceLastMs = existing ? Date.now() - new Date(existing.updatedAt).getTime() : Infinity;
+  if (sinceLastMs < PASSWORD_OTP_RESEND_SECONDS * 1000) {
+    const wait = Math.ceil(PASSWORD_OTP_RESEND_SECONDS - sinceLastMs / 1000);
+    throw new RateLimitError(`Please wait ${wait}s before asking for another code.`, wait);
+  }
+
+  const otp = config.useDefaultOtp ? "123456" : String(crypto.randomInt(100000, 1000000));
+  const expiresInSeconds = (config.otpExpiryMinutes || 10) * 60;
+  await AdminResetOtp.findOneAndUpdate(
+    { email: key },
+    { otp, expiresAt: new Date(Date.now() + expiresInSeconds * 1000), attempts: 0 },
+    { upsert: true, new: true },
+  );
+  if (!config.useDefaultOtp) {
+    await sendOtpSms(phone, otp);
+  }
+  logger.info(`Password change OTP for admin ${admin.email} sent to ${maskPhone(phone)}`);
+
+  return {
+    otpRequired: true,
+    sentTo: maskPhone(phone),
+    expiresInSeconds,
+    resendAfterSeconds: PASSWORD_OTP_RESEND_SECONDS,
+  };
+};
+
+const consumePasswordChangeOtp = async (admin, otp) => {
+  const code = String(otp || "").replace(/\D/g, "");
+  if (!code) {
+    throw new ValidationError(
+      `Enter the code sent to ${maskPhone(passwordOtpPhone())} to confirm the change.`,
+    );
+  }
+  const record = await AdminResetOtp.findOne({ email: passwordOtpKey(admin._id) });
+  if (!record) {
+    throw new ValidationError("No code was requested, or it was already used. Send a new code.");
+  }
+  if (record.expiresAt < new Date()) {
+    await record.deleteOne();
+    throw new ValidationError("The code has expired. Send a new code.");
+  }
+  if (record.attempts >= (config.otpMaxAttempts || 5)) {
+    throw new ValidationError("Too many wrong codes. Send a new code.");
+  }
+  record.attempts += 1;
+  if (record.otp !== code) {
+    await record.save();
+    throw new ValidationError("That code is not right. Check the SMS and try again.");
+  }
+  await record.deleteOne();
+};
+
+/** Change admin password. Only for ADMIN role; a super admin also needs the OTP. */
+export const changeAdminPassword = async (
+  userId,
+  currentPassword,
+  newPassword,
+  otp,
+) => {
+  const admin = await loadAdminCheckingPassword(userId, currentPassword);
+  if (!newPassword || String(newPassword).length < 6) {
+    throw new ValidationError("New password must be at least 6 characters");
+  }
+  if (needsPasswordOtp(admin)) {
+    await consumePasswordChangeOtp(admin, otp);
   }
   admin.password = newPassword;
   await admin.save();
@@ -976,13 +1089,14 @@ export const refreshAccessToken = async (token) => {
   // Carry the session version forward, and refuse a refresh from a device that has
   // already been replaced. Without this, an evicted device could mint itself a
   // brand-new access token from its still-valid refresh token and stay signed in.
+  // Restaurants are multi-device, so their tokens carry no version at all; one
+  // issued before that change drops its version here instead of being refused.
   const sessionModel = {
     USER: FoodUser,
-    RESTAURANT: FoodRestaurant,
     DELIVERY_PARTNER: FoodDeliveryPartner,
   }[payload?.role];
 
-  let tokenVersion = payload?.tokenVersion;
+  let tokenVersion = sessionModel ? payload?.tokenVersion : undefined;
   if (sessionModel) {
     const owner = await sessionModel
       .findById(payload.userId)

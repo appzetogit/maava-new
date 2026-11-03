@@ -1,7 +1,7 @@
 import { verifyAccessToken } from './token.util.js';
 import { sendError } from '../../utils/response.js';
+import { logger } from '../../utils/logger.js';
 import { FoodUser } from '../users/user.model.js';
-import { FoodRestaurant } from '../../modules/food/restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../modules/food/delivery/models/deliveryPartner.model.js';
 
 export const requireAdmin = (req, res, next) => {
@@ -16,12 +16,20 @@ export const requireAdmin = (req, res, next) => {
  *
  * Admins are intentionally absent: the panel is routinely used across several
  * browser tabs and machines, so evicting the others on each sign-in would be a
- * regression rather than a safeguard.
+ * regression rather than a safeguard. Restaurants are absent for the same
+ * reason: one outlet runs the app on several phones and tablets at once.
  */
 const SESSION_SCOPED_MODELS = {
     USER: FoodUser,
-    RESTAURANT: FoodRestaurant,
     DELIVERY_PARTNER: FoodDeliveryPartner
+};
+
+/**
+ * One line per rejected session, saying why. A 401 makes the apps sign out, so
+ * "the app keeps logging me out" is answered by these lines and nothing else.
+ */
+const logRejected = (req, reason, extra = '') => {
+    logger.warn(`[AUTH-401] ${reason} ${req.method} ${req.originalUrl.split('?')[0]}${extra ? ` ${extra}` : ''}`);
 };
 
 export const authMiddleware = (req, res, next) => {
@@ -29,6 +37,7 @@ export const authMiddleware = (req, res, next) => {
     const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
 
     if (!token) {
+        logRejected(req, 'no-token', authHeader ? `header="${authHeader.slice(0, 12)}..."` : '');
         return sendError(res, 401, 'Authentication token missing');
     }
 
@@ -36,6 +45,7 @@ export const authMiddleware = (req, res, next) => {
     try {
         decoded = verifyAccessToken(token);
     } catch (error) {
+        logRejected(req, error?.name === 'TokenExpiredError' ? 'expired' : 'bad-token', `(${error?.message || error})`);
         return sendError(res, 401, 'Invalid or expired token');
     }
 
@@ -71,6 +81,7 @@ export const authMiddleware = (req, res, next) => {
             const stored = Number(doc.tokenVersion) || 0;
             const presented = decoded.tokenVersion;
             if (presented !== undefined && Number(presented) !== stored) {
+                logRejected(req, 'replaced-device', `role=${decoded.role} id=${decoded.userId} token=v${presented} current=v${stored}`);
                 return sendError(
                     res,
                     401,

@@ -3,6 +3,7 @@ import { Save, Loader2, DollarSign, Plus, Trash2, Edit, Check, X } from "lucide-
 import { Button } from "@food/components/ui/button"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -870,8 +871,8 @@ export default function FeeSettings() {
                   </>
                 )}
                 {customerMode === 'bands' && selectedZoneId && defaults?.baseDeliveryFee !== "" && defaults?.baseDeliveryFee !== undefined && (
-                  <p className="mt-3 text-xs text-amber-700">
-                    The default fees use per-km pricing, and a zone cannot switch it off yet — this zone will still be charged per km. Set per-km figures for this zone instead.
+                  <p className="mt-3 text-xs text-slate-500">
+                    The default fees charge per km. These bands replace that for this zone.
                   </p>
                 )}
               </>,
@@ -913,8 +914,8 @@ export default function FeeSettings() {
                   </>
                 )}
                 {riderMode === 'bands' && selectedZoneId && defaults?.riderBasePay !== "" && defaults?.riderBasePay !== undefined && (
-                  <p className="mt-3 text-xs text-amber-700">
-                    The default fees pay riders per km, and a zone cannot switch it off yet — riders here will still be paid per km.
+                  <p className="mt-3 text-xs text-slate-500">
+                    The default fees pay riders per km. This band pay replaces that for this zone.
                   </p>
                 )}
               </>,
@@ -927,9 +928,9 @@ export default function FeeSettings() {
               'Added to every bill in this zone.',
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {numField('platformFee', 'Platform fee (₹)', { placeholder: '0', hint: 'Per order, kept by the platform' })}
-                {numField('packagingFee', 'Packaging per order (₹)', { placeholder: '0', hint: 'Goes to the restaurant' })}
+                {numField('packagingFee', 'Packaging per order (₹)', { placeholder: '0', hint: vt('Goes to the seller') })}
                 {numField('packagingFeePerItem', 'Packaging per item (₹)', { placeholder: '0', hint: '3 dishes at ₹5 is ₹15' })}
-                {numField('gstRate', 'GST on food (%)', { step: '0.1', max: '100', placeholder: '0' })}
+                {numField('gstRate', vt('GST on product (%)'), { step: '0.1', max: '100', placeholder: '0' })}
                 {numField('deliveryFeeGstRate', 'GST on delivery (%)', { step: '0.1', max: '100', placeholder: '18', hint: 'Empty means 18%. 0 means none.' })}
                 {numField('quickDeliveryFee', 'Quick Mode extra (₹)', { placeholder: '0', hint: 'When the customer picks Quick Mode' })}
               </div>
@@ -1003,14 +1004,14 @@ export default function FeeSettings() {
                 <input type="number" min="0" step="0.5" value={example.km} onChange={(e) => setExample({ ...example, km: e.target.value })} className={inputCls} />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Food total (₹)</label>
+                <label className="block text-xs font-medium text-slate-600 mb-1">{vt("Product total (₹)")}</label>
                 <input type="number" min="0" step="10" value={example.basket} onChange={(e) => setExample({ ...example, basket: e.target.value })} className={inputCls} />
               </div>
             </div>
             <dl className="space-y-1.5 text-sm tabular-nums">
               {[
-                ['Food', exBasket],
-                exItemGst > 0 && ['GST on food', exItemGst],
+                [vt('Product'), exBasket],
+                exItemGst > 0 && [vt('GST on product'), exItemGst],
                 ['Delivery fee', exDelivery, exDeliveryNote],
                 exDeliveryGst > 0 && ['GST on delivery', exDeliveryGst],
                 exPlatform > 0 && ['Platform fee', exPlatform],

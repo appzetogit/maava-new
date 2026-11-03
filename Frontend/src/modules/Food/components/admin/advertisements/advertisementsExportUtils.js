@@ -1,6 +1,7 @@
+import { vt } from "@food/utils/adminVerticalLabels";
 // Export utility functions for advertisements
 export const exportAdvertisementsToCSV = (ads, filename = "advertisements") => {
-  const headers = ["SI", "Ads ID", "Ads Title", "Restaurant Name", "Restaurant Email", "Ads Type", "Duration"]
+  const headers = ["SI", "Ads ID", "Ads Title", vt("Seller Name"), vt("Seller Email"), "Ads Type", "Duration"]
   const rows = ads.map((ad, index) => [
     index + 1,
     ad.adsId || ad.sl,
@@ -28,7 +29,7 @@ export const exportAdvertisementsToCSV = (ads, filename = "advertisements") => {
 }
 
 export const exportAdvertisementsToExcel = (ads, filename = "advertisements") => {
-  const headers = ["SI", "Ads ID", "Ads Title", "Restaurant Name", "Restaurant Email", "Ads Type", "Duration"]
+  const headers = ["SI", "Ads ID", "Ads Title", vt("Seller Name"), vt("Seller Email"), "Ads Type", "Duration"]
   const rows = ads.map((ad, index) => [
     index + 1,
     ad.adsId || ad.sl,
@@ -56,7 +57,7 @@ export const exportAdvertisementsToExcel = (ads, filename = "advertisements") =>
 }
 
 export const exportAdvertisementsToPDF = (ads, filename = "advertisements") => {
-  const headers = ["SI", "Ads ID", "Ads Title", "Restaurant Name", "Restaurant Email", "Ads Type", "Duration"]
+  const headers = ["SI", "Ads ID", "Ads Title", vt("Seller Name"), vt("Seller Email"), "Ads Type", "Duration"]
   const rows = ads.map((ad, index) => [
     index + 1,
     ad.adsId || ad.sl,

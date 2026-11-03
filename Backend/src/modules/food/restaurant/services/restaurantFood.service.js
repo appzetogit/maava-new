@@ -308,10 +308,34 @@ const resolveCategoryForRestaurant = async (context, body = {}) => {
             name: { $regex: exact, $options: 'i' }
         })
             .sort({ createdAt: -1 })
-            .limit(2)
+            .limit(10)
             .lean();
+        // The same name can legitimately sit under two sections (Batteries in
+        // Home & Cleaning and in Electronics). The seller app sends only the
+        // name, and refusing left sellers unable to add the product at all, so
+        // pick one: the one this store already uses, else a sub-category over
+        // a top-level one, else the one with more products.
         if (matches.length > 1) {
-            throw new ValidationError('Multiple categories share this name. Please choose a specific category.');
+            const ids = matches.map((m) => m._id);
+            const [ownUse, allUse] = await Promise.all([
+                FoodItem.aggregate([
+                    { $match: { restaurantId: context.restaurantId, categoryId: { $in: ids } } },
+                    { $group: { _id: '$categoryId', n: { $sum: 1 } } },
+                ]),
+                FoodItem.aggregate([
+                    { $match: { categoryId: { $in: ids } } },
+                    { $group: { _id: '$categoryId', n: { $sum: 1 } } },
+                ]),
+            ]);
+            const own = new Map(ownUse.map((r) => [String(r._id), r.n]));
+            const all = new Map(allUse.map((r) => [String(r._id), r.n]));
+            const score = (c) => [own.get(String(c._id)) || 0, c.parentId ? 1 : 0, all.get(String(c._id)) || 0];
+            matches.sort((a, b) => {
+                const sa = score(a);
+                const sb = score(b);
+                for (let i = 0; i < sa.length; i += 1) if (sa[i] !== sb[i]) return sb[i] - sa[i];
+                return 0;
+            });
         }
         category = matches[0] || null;
     }

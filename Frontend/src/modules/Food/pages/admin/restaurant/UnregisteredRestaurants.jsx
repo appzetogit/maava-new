@@ -4,6 +4,7 @@ import {
   UtensilsCrossed, ArrowUpDown, Loader2, RefreshCw, AlertCircle, Eye, X
 } from "lucide-react";
 import { adminAPI } from "@food/api";
+import { vt } from "@food/utils/adminVerticalLabels";
 
 export default function UnregisteredRestaurants() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -28,7 +29,7 @@ export default function UnregisteredRestaurants() {
       setRestaurants(list);
     } catch (err) {
       console.error("Error fetching unregistered restaurants:", err);
-      setError(err.message || "Failed to fetch unregistered restaurants");
+      setError(err.message || vt("Failed to fetch unregistered sellers"));
       setRestaurants([]);
     } finally {
       setLoading(false);
@@ -109,7 +110,7 @@ export default function UnregisteredRestaurants() {
               <UtensilsCrossed className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">Unregistered Restaurant Leads</h1>
+              <h1 className="text-2xl font-bold text-slate-900">{vt("Unregistered Seller Leads")}</h1>
               <p className="text-sm text-slate-500 mt-0.5">Manage partner registration inquiries submitted from the homepage</p>
             </div>
           </div>
@@ -161,7 +162,7 @@ export default function UnregisteredRestaurants() {
           <div className="relative max-w-md w-full">
             <input
               type="text"
-              placeholder="Search by restaurant name, owner, phone, email..."
+              placeholder={vt("Search by seller name, owner, phone, email...")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-11 pr-4 py-3 w-full text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all placeholder:text-slate-400 text-slate-800"
@@ -182,7 +183,7 @@ export default function UnregisteredRestaurants() {
                   </th>
                   <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
                     <div className="flex items-center gap-1">
-                      <span>Restaurant Details</span>
+                      <span>{vt("Seller Details")}</span>
                       <ArrowUpDown className="w-3 h-3" />
                     </div>
                   </th>
@@ -387,7 +388,7 @@ export default function UnregisteredRestaurants() {
             <div className="p-6 space-y-6">
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100/80 space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Restaurant Name</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{vt("Seller Name")}</span>
                   <span className="text-sm font-semibold text-slate-800 block break-words">{selectedForView.restaurantName}</span>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100/80 space-y-1">

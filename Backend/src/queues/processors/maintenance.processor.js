@@ -10,17 +10,6 @@ export const processMaintenanceJob = async (job) => {
 
     logger.info(`[BullMQ:maintenance] type=${type} jobId=${job.id}`);
 
-    if (type === 'MONTHLY_SUBSCRIPTION_BILLING') {
-        try {
-            const { runBillingCatchUp } = await import('../../modules/food/restaurant/services/subscriptionBilling.service.js');
-            const results = await runBillingCatchUp();
-            logger.info(`[BullMQ:maintenance] MONTHLY_SUBSCRIPTION_BILLING complete: ${JSON.stringify(results)}`);
-        } catch (err) {
-            logger.error(`[BullMQ:maintenance] MONTHLY_SUBSCRIPTION_BILLING failed: ${err.message}`);
-            throw err;
-        }
-    }
-
     if (type === 'FSSAI_EXPIRY_CHECK') {
         try {
             const { syncExpiredFssaiNotifications } = await import('../../modules/food/restaurant/services/fssaiExpiry.service.js');

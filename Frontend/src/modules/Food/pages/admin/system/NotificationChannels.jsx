@@ -3,6 +3,7 @@ import { Bell, Info, Search, Download, ChevronDown, Settings, FileText, FileSpre
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@food/components/ui/dialog"
 import { exportNotificationsToCSV, exportNotificationsToExcel, exportNotificationsToPDF, exportNotificationsToJSON } from "@food/components/admin/notifications/notificationsExportUtils"
+import { vt } from "@food/utils/adminVerticalLabels"
 
 const adminNotifications = [
   {
@@ -274,7 +275,7 @@ const deliverymanNotifications = [
 
 const tabs = [
   { id: "admin", label: "Admin" },
-  { id: "restaurant", label: "Restaurant" },
+  { id: "restaurant", label: vt("Seller") },
   { id: "customers", label: "Customers" },
   { id: "deliveryman", label: "Deliveryman" }
 ]

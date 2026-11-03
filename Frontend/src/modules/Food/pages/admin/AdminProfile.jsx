@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@food/components/ui/card";
 import { toast } from "sonner";
+import PasswordOtpDialog from "@food/components/admin/PasswordOtpDialog";
 import { User, Mail, Phone, Save, Loader2, Upload, X, Pencil, Eye, EyeOff } from "lucide-react";
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -45,6 +46,8 @@ export default function AdminProfile() {
     phone: "",
     profileImage: "",
   });
+  // The passwords awaiting the SMS code; the dialog is open while this is set.
+  const [otpRequest, setOtpRequest] = useState(null);
   const [passwordData, setPasswordData] = useState({
     currentPassword: "",
     newPassword: "",
@@ -272,18 +275,8 @@ export default function AdminProfile() {
         window.dispatchEvent(new Event('adminAuthChanged'));
 
         if (wantsPasswordChange) {
-          try {
-            await adminAPI.changePassword(currentPassword, newPassword);
-            resetPasswordFields();
-            toast.success("Profile and password updated successfully");
-            setIsEditMode(false);
-          } catch (passwordError) {
-            debugError("Error updating admin password:", passwordError);
-            toast.error(
-              passwordError?.response?.data?.message || "Profile updated, but password change failed"
-            );
-            return;
-          }
+          // The profile is saved; the password waits for the SMS code.
+          setOtpRequest({ currentPassword, newPassword });
         } else {
           resetPasswordFields();
           toast.success("Profile updated successfully");
@@ -736,6 +729,25 @@ export default function AdminProfile() {
           </form>
         </CardContent>
       </Card>
+
+      <PasswordOtpDialog
+        request={otpRequest}
+        onDone={() => {
+          setOtpRequest(null);
+          resetPasswordFields();
+          toast.success("Profile and password updated successfully");
+          setIsEditMode(false);
+        }}
+        onError={(message) => {
+          debugError("Error updating admin password:", message);
+          setOtpRequest(null);
+          toast.error(`Profile saved, but the password was not changed: ${message}`);
+        }}
+        onClose={() => {
+          setOtpRequest(null);
+          toast.info("Profile saved. The password was not changed.");
+        }}
+      />
     </div>
   );
 }

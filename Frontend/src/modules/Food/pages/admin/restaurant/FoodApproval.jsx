@@ -11,6 +11,7 @@ import {
 } from "@food/components/ui/dialog"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -41,7 +42,7 @@ export default function FoodApproval() {
       debugError('Error fetching food approval requests:', error)
       if (!isMountedRef.current) return
       if (!silent) {
-        toast.error('Failed to load food approval requests')
+        toast.error(vt('Failed to load product approval requests'))
       }
       setFoodRequests([])
     } finally {
@@ -112,7 +113,7 @@ export default function FoodApproval() {
         toast.success('Add-on approved successfully')
       } else {
         await adminAPI.approveFoodItem(id)
-        toast.success('Food item approved successfully')
+        toast.success(vt('Product item approved successfully'))
       }
       
       await fetchFoodRequests()
@@ -146,7 +147,7 @@ export default function FoodApproval() {
         toast.success('Add-on rejected')
       } else {
         await adminAPI.rejectFoodItem(id, rejectReason)
-        toast.success('Food item rejected')
+        toast.success(vt('Product item rejected'))
       }
       
       await fetchFoodRequests()
@@ -182,7 +183,7 @@ export default function FoodApproval() {
         <div className="flex items-center gap-2">
           <CheckCircle2 className="w-5 h-5 text-green-500" />
           <h1 className="text-lg sm:text-xl font-semibold text-gray-900">
-            Food Approval
+            {vt("Product Approval")}
           </h1>
         </div>
       </div>
@@ -193,7 +194,7 @@ export default function FoodApproval() {
           {/* Section Header */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-semibold text-gray-900">Pending Food & Add-on Approvals</h2>
+              <h2 className="text-base font-semibold text-gray-900">{vt("Pending Product & Add-on Approvals")}</h2>
               <span className="inline-flex items-center rounded-full bg-orange-100 px-3 py-1 text-xs font-medium text-orange-600">
                 {totalRequests}
               </span>
@@ -232,7 +233,7 @@ export default function FoodApproval() {
               </span>
               <input
                 type="text"
-                placeholder="Search by name, category, restaurant or status"
+                placeholder={vt("Search by name, category, seller or status")}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-md border border-gray-300 bg-white py-1.5 pl-9 pr-3 text-sm focus:outline-none focus:border-[#006fbd] focus:ring-1 focus:ring-[#006fbd]"
@@ -255,7 +256,7 @@ export default function FoodApproval() {
                         S.No
                       </th>
                       <th className="px-3 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                        Restaurant
+                        {vt("Seller")}
                       </th>
                       <th className="px-3 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                         Category
@@ -284,7 +285,7 @@ export default function FoodApproval() {
                     {filteredRequests.length === 0 ? (
                       <tr>
                         <td colSpan="9" className="px-3 py-8 text-center text-sm text-gray-500">
-                          {loading ? "Loading..." : "No food or add-on records found."}
+                          {loading ? "Loading..." : vt("No product or add-on records found.")}
                         </td>
                       </tr>
                     ) : (
@@ -371,7 +372,7 @@ export default function FoodApproval() {
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto p-0 bg-white shadow-2xl rounded-2xl border-none">
           <DialogHeader className="p-6 pb-4 border-b border-gray-100 bg-slate-50/50">
             <DialogTitle className="text-xl font-bold text-gray-900">
-              {selectedRequest?.entityType === 'addon' ? 'Add-on Details' : 'Food Item Details'}
+              {selectedRequest?.entityType === 'addon' ? 'Add-on Details' : vt('Product Item Details')}
             </DialogTitle>
             <DialogDescription className="text-sm text-gray-500 mt-1">
               Review the submitted details before approval.
@@ -382,7 +383,7 @@ export default function FoodApproval() {
               {/* Restaurant Info */}
               <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100/50 flex items-center justify-between">
                 <div>
-                   <h3 className="font-bold text-xs text-blue-700 uppercase tracking-wider mb-1">Restaurant</h3>
+                   <h3 className="font-bold text-xs text-blue-700 uppercase tracking-wider mb-1">{vt("Seller")}</h3>
                    <p className="text-sm font-semibold text-gray-900">{selectedRequest.restaurantName || '-'}</p>
                    <p className="text-xs text-gray-500">ID: {selectedRequest.restaurantId || '-'}</p>
                 </div>
@@ -415,7 +416,7 @@ export default function FoodApproval() {
                 <div className="space-y-4">
                     {selectedRequest.foodType && (
                         <div>
-                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Food Type</label>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">{vt("Product Type")}</label>
                             <p className="text-sm text-gray-700">{selectedRequest.foodType}</p>
                         </div>
                     )}
@@ -517,7 +518,7 @@ export default function FoodApproval() {
                   id="rejectReason"
                   value={rejectReason}
                   onChange={(e) => setRejectReason(e.target.value)}
-                  placeholder="Tell the restaurant why this item was rejected..."
+                  placeholder={vt("Tell the seller why this item was rejected...")}
                   required
                   rows={4}
                   className="w-full rounded-xl border border-gray-200 bg-slate-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all"

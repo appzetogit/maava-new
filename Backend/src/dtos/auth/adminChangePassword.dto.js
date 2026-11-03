@@ -3,7 +3,9 @@ import { ValidationError } from '../../core/auth/errors.js';
 
 const schema = z.object({
     currentPassword: z.string().min(1, 'Current password is required'),
-    newPassword: z.string().min(6, 'New password must be at least 6 characters')
+    newPassword: z.string().min(6, 'New password must be at least 6 characters'),
+    // Required for a super admin; the service decides.
+    otp: z.string().trim().max(10).optional()
 });
 
 export const validateAdminChangePasswordDto = (body) => {

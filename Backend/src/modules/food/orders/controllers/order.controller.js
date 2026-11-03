@@ -457,8 +457,8 @@ export async function acceptOrderAdminController(req, res, next) {
     try {
         const adminId = req.user?.userId;
         const orderId = req.params.orderId;
-        const order = await orderService.updateOrderStatusAdmin(orderId, 'confirmed', 'Order accepted by admin', adminId);
-        return sendResponse(res, 200, 'Order accepted by admin', { order });
+        const { order, message } = await orderService.acceptOrderAdmin(orderId, adminId);
+        return sendResponse(res, 200, message, { order });
     } catch (err) {
         next(err);
     }

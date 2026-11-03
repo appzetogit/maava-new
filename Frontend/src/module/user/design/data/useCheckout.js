@@ -64,6 +64,9 @@ export function normalizePricing(p) {
     // counts only when it came back as appliedCoupon or actually discounted.
     couponApplied: Boolean(p.appliedCoupon?.code) || (Boolean(p.couponCode) && discount > 0),
     couponCode: code,
+    // Why the code the shopper typed did nothing: wrong code, expired, cart
+    // below its minimum. Shown instead of one generic "not applicable".
+    couponError: p.couponError || null,
     // Why delivery costs what it does; 'new_customer' means the welcome waived it.
     deliveryFeeReason: p.deliveryFeeReason || null,
     newCustomerFreeDelivery: p.newCustomerFreeDelivery || null,
@@ -209,6 +212,10 @@ export function useOffers(restaurantId, zoneId = null) {
             code: String(o.couponCode).toUpperCase(),
             title: String(o.title || o.description || ""),
             minOrder: num(o.minOrderValue),
+            // The backend marks a coupon the cart is too small for rather than
+            // hiding it, so the shopper can see what spending a bit more buys.
+            eligible: o.eligible !== false,
+            amountNeeded: num(o.amountNeeded),
           }))
         if (alive) setOffers({ status: "ready", list: [...new Map(list.map((o) => [o.code, o])).values()] })
       })

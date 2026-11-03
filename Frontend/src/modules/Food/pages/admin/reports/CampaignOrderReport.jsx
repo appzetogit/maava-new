@@ -23,6 +23,7 @@ import { emptyCampaignOrderReports, emptyCampaignOrderStats } from "@food/utils/
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
 import { exportReportsToCSV, exportReportsToExcel, exportReportsToPDF, exportReportsToJSON } from "@food/components/admin/reports/reportsExportUtils"
+import { vt } from "@food/utils/adminVerticalLabels"
 
 export default function CampaignOrderReport() {
   const [filters, setFilters] = useState({
@@ -73,7 +74,7 @@ export default function CampaignOrderReport() {
     const headers = [
       { key: "sl", label: "SI" },
       { key: "orderId", label: "Order ID" },
-      { key: "restaurant", label: "Restaurant" },
+      { key: "restaurant", label: vt("Seller") },
       { key: "customerName", label: "Customer Name" },
       { key: "orderAmount", label: "Order Amount" },
       { key: "paymentMethod", label: "Payment Method" },
@@ -148,14 +149,14 @@ export default function CampaignOrderReport() {
 
               <div className="relative flex-1 min-w-[180px]">
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Restaurant
+                  {vt("Seller")}
                 </label>
                 <select
                   value={filters.restaurant}
                   onChange={(e) => setFilters(prev => ({ ...prev, restaurant: e.target.value }))}
                   className="w-full px-3 py-2 pr-8 text-xs rounded-lg border border-slate-300 bg-white text-slate-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="All restaurants">All restaurants</option>
+                  <option value="All restaurants">{vt("All sellers")}</option>
                   <option value="Hungry Puppets">Hungry Puppets</option>
                   <option value="Café Monarch">Café Monarch</option>
                 </select>
@@ -351,7 +352,7 @@ export default function CampaignOrderReport() {
               <div className="relative flex-1 sm:flex-initial min-w-[220px]">
                 <input
                   type="text"
-                  placeholder="Search by Order ID, Restaurant, Customer"
+                  placeholder={vt("Search by Order ID, Seller, Customer")}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-3 pr-9 py-2 w-full text-xs rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -409,7 +410,7 @@ export default function CampaignOrderReport() {
                     Order Id
                   </th>
                   <th className="px-3 py-2 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">
-                    Restaurant
+                    {vt("Seller")}
                   </th>
                   <th className="px-3 py-2 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">
                     Customer Name

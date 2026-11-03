@@ -70,6 +70,19 @@ export async function fetchRazorpayPayment(paymentId) {
 }
 
 /**
+ * Every payment attempt made against a Razorpay order (failed ones included).
+ * @param {string} razorpayOrderId
+ * @returns {Promise<Array>} Razorpay payment entities
+ */
+export async function fetchRazorpayOrderPayments(razorpayOrderId) {
+    const instance = getRazorpayInstance();
+    if (!instance) throw new Error('Razorpay not configured');
+    if (!razorpayOrderId) throw new Error('razorpayOrderId is required');
+    const res = await instance.orders.fetchPayments(String(razorpayOrderId));
+    return Array.isArray(res?.items) ? res.items : [];
+}
+
+/**
  * Fetch a Razorpay order (server-side): its amount, receipt and status.
  * @param {string} orderId
  */

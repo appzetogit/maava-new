@@ -1085,6 +1085,8 @@ export const adminAPI = {
     }),
 
   /** Restaurant wallets (admin): balances, and recorded credits/debits */
+  getZoneEarnings: (params = {}) =>
+    apiClient.get("/food/admin/reports/zone-earnings", { params, contextModule: "admin" }),
   getRestaurantWallets: () =>
     apiClient.get("/food/admin/restaurant-wallets", { contextModule: "admin" }),
   getRestaurantWalletAdjustments: (restaurantId) =>

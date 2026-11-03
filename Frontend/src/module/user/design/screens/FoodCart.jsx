@@ -237,7 +237,8 @@ function CartBody({ cart, lines }) {
         setSheet(null)
         toast.success(`${code} applied · You saved ${money(quoted.discount)}`)
       } else {
-        toast.error("This coupon is not applicable to your order.")
+        // The server says why -- wrong code, expired, cart below the minimum.
+        toast.error(quoted?.couponError?.message || "This coupon is not applicable to your order.")
       }
     } catch (err) {
       toast.error(messageOf(err, "This coupon is not applicable to your order."))
@@ -927,13 +928,14 @@ function CouponSheetBody({ offers, subtotal, applied, applying, onApply, onRemov
       ) : (
         <ul className="fc-coupons__list">
           {offers.list.map((o) => {
-            const short = o.minOrder > 0 && subtotal < o.minOrder
+            const shortBy = o.amountNeeded || Math.max(0, o.minOrder - subtotal)
+            const short = o.eligible === false || (o.minOrder > 0 && subtotal < o.minOrder)
             return (
               <li key={o.id} className={short ? "fc-coupons__tile fc-coupons__tile--off" : "fc-coupons__tile"}>
                 <div>
                   <b>{o.code}</b>
                   {o.title && <small>{o.title}</small>}
-                  {short && <em>Min order {rupees(o.minOrder)}</em>}
+                  {short && <em>Add {rupees(shortBy)} more to use this</em>}
                 </div>
                 <button type="button" disabled={short || Boolean(applying)} onClick={() => onApply(o.code)}>
                   {applying === o.code ? <Loader2 className="fc-spin" aria-label="Applying" /> : "APPLY"}

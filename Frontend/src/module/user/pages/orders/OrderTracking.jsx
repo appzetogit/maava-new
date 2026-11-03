@@ -32,6 +32,7 @@ import { useOrders } from "../../context/OrdersContext"
 import { useProfile } from "../../context/ProfileContext"
 import { useLocation as useUserLocation } from "../../hooks/useLocation"
 import DeliveryTrackingMap from "../../components/DeliveryTrackingMap"
+import RefundProgressCard from "../../components/RefundProgressCard"
 import { orderAPI, restaurantAPI } from "@/lib/api"
 import circleIcon from "@/assets/circleicon.png"
 
@@ -558,7 +559,7 @@ export default function OrderTracking() {
         const successMessage = response.data?.message || 
           (paymentMethod === 'cash' || paymentMethod === 'cod' 
             ? 'Order cancelled successfully. No refund required as payment was not made.'
-            : 'Order cancelled successfully. Refund will be processed after admin approval.');
+            : 'Order cancelled. Your refund has started; follow it on this page.');
         toast.success(successMessage);
         setShowCancelDialog(false);
         setCancellationReason("");
@@ -857,6 +858,8 @@ export default function OrderTracking() {
 
       {/* Scrollable Content */}
       <div className="max-w-4xl mx-auto px-4 md:px-6 lg:px-8 py-4 md:py-6 space-y-4 md:space-y-6 pb-24 md:pb-32">
+        {/* Refund tracker for a cancelled prepaid order; renders nothing otherwise. */}
+        <RefundProgressCard orderId={orderId} refreshKey={order?.status} />
         {/* Food Cooking Status - Show until delivery partner accepts pickup */}
         {(() => {
           // Check if delivery partner has accepted pickup

@@ -1,40 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { Search, TrendingUp, ShoppingCart, XCircle, Star, Calendar, BarChart3, Users, Package, Clock, CreditCard, ChevronDown, Check, Store } from 'lucide-react'
+import { Search, TrendingUp, ShoppingCart, XCircle, Star, Calendar, BarChart3, Users, Package, Clock, ChevronDown, Check, Store } from 'lucide-react'
 import { adminAPI } from '@food/api'
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
-
-const EMPTY_SUBSCRIPTION_SUMMARY = {
-  plan: '',
-  planLabel: 'Not billed yet',
-  cycleFee: 0,
-  status: 'paid',
-  statusLabel: 'No outstanding dues',
-  currentBillingMonth: '',
-  currentMonthGmv: 0,
-  lastBilledMonth: null,
-  dueAmount: 0,
-  paidAmount: 0,
-  totalBilled: 0,
-  totalWaived: 0,
-  totalCollected: 0,
-  walletDeductionsTotal: 0,
-  invoiceCount: 0,
-  invoices: [],
-  lastPayment: null,
-}
-
-const formatSubscriptionPaymentLabel = (eventType = '') => {
-  const key = String(eventType || '').toLowerCase()
-  if (key === 'wallet_deduction') return 'Deducted from wallet'
-  if (key === 'manual_payment') return 'Manual payment recorded'
-  if (key === 'waiver') return 'Due waived'
-  if (key === 'adjustment') return 'Manual adjustment'
-  if (key === 'invoice_generated') return 'Monthly invoice generated'
-  if (key === 'legacy_carryforward') return 'Legacy balance carried forward'
-  return 'Subscription payment'
-}
 
 export default function PointOfSale() {
   const [restaurants, setRestaurants] = useState([])
@@ -43,7 +13,6 @@ export default function PointOfSale() {
   const [loading, setLoading] = useState(false)
   const [restaurantData, setRestaurantData] = useState(null)
   const [paymentSummary, setPaymentSummary] = useState(null)
-  const [subscriptionSummary, setSubscriptionSummary] = useState(EMPTY_SUBSCRIPTION_SUMMARY)
   const [showSearchResults, setShowSearchResults] = useState(false)
   const [showPickerDropdown, setShowPickerDropdown] = useState(false)
   const [pickerFilter, setPickerFilter] = useState('')
@@ -83,7 +52,7 @@ export default function PointOfSale() {
         ).trim()
         if (!id) return null
 
-        const resolvedName = getRestaurantName(restaurant) || `Restaurant ${id.slice(-6)}`
+        const resolvedName = getRestaurantName(restaurant) || `${vt("Seller")} ${id.slice(-6)}`
         const resolvedCode = getRestaurantCode(restaurant) || `REST${id.slice(-6).padStart(6, '0')}`
 
         return {
@@ -154,7 +123,6 @@ export default function PointOfSale() {
     } else {
       setRestaurantData(null)
       setPaymentSummary(null)
-      setSubscriptionSummary(EMPTY_SUBSCRIPTION_SUMMARY)
       setAnalyticsData({
         totalOrders: 0,
         cancelledOrders: 0,
@@ -237,14 +205,10 @@ export default function PointOfSale() {
       debugLog('Analytics response:', analyticsResponse)
       
       if (analyticsResponse?.data?.success && analyticsResponse.data.data) {
-        const { restaurant, analytics, paymentSummary: apiPaymentSummary, subscriptionSummary: apiSubscriptionSummary } = analyticsResponse.data.data
+        const { restaurant, analytics, paymentSummary: apiPaymentSummary } = analyticsResponse.data.data
         
         setRestaurantData(restaurant)
         setPaymentSummary(apiPaymentSummary || null)
-        setSubscriptionSummary({
-          ...EMPTY_SUBSCRIPTION_SUMMARY,
-          ...(apiSubscriptionSummary || {}),
-        })
         
         setAnalyticsData({
           totalOrders: Number(analytics.totalOrders) || 0,
@@ -279,7 +243,6 @@ export default function PointOfSale() {
       } else {
         // Fallback to empty data if API fails
         setPaymentSummary(null)
-        setSubscriptionSummary(EMPTY_SUBSCRIPTION_SUMMARY)
         setAnalyticsData({
           totalOrders: 0,
           cancelledOrders: 0,
@@ -331,7 +294,6 @@ export default function PointOfSale() {
       
       // Set empty data on error
       setPaymentSummary(null)
-      setSubscriptionSummary(EMPTY_SUBSCRIPTION_SUMMARY)
       setAnalyticsData({
         totalOrders: 0,
         cancelledOrders: 0,
@@ -422,7 +384,7 @@ export default function PointOfSale() {
 
   const getSelectedRestaurantName = () => {
     const restaurant = restaurants.find(r => r._id === selectedRestaurant)
-    return restaurant?.name || 'Select Restaurant'
+    return restaurant?.name || vt('Select Seller')
   }
 
   return (
@@ -431,8 +393,8 @@ export default function PointOfSale() {
         
         {/* Header Section */}
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-[#334257] mb-2">Restaurant POS Analytics & Benefits</h1>
-          <p className="text-sm text-[#8a94aa]">Track restaurant performance, order earnings, and subscription billing</p>
+          <h1 className="text-2xl font-bold text-[#334257] mb-2">{vt("Seller POS Analytics & Benefits")}</h1>
+          <p className="text-sm text-[#8a94aa]">Track restaurant performance and order earnings</p>
                 </div>
 
         {/* Restaurant Selection Card */}
@@ -457,7 +419,7 @@ export default function PointOfSale() {
                     // Delay to allow click on results
                     setTimeout(() => setShowSearchResults(false), 200)
                   }}
-                  placeholder="Type restaurant name or ID to search..."
+                  placeholder={vt("Type seller name or ID to search...")}
                   className="w-full h-11 pl-10 pr-3 rounded-md border border-[#e3e6ef] bg-white text-sm text-[#4a5671] focus:outline-none focus:ring-1 focus:ring-[#006fbd]"
                 />
                 
@@ -491,7 +453,7 @@ export default function PointOfSale() {
                 {/* No Results Message */}
                 {showSearchResults && searchQuery.trim() && filteredRestaurants.length === 0 && (
                   <div className="absolute z-50 w-full mt-1 bg-white border border-[#e3e6ef] rounded-md shadow-lg p-4">
-                    <p className="text-sm text-[#8a94aa] text-center">No restaurants found matching "{searchQuery}"</p>
+                    <p className="text-sm text-[#8a94aa] text-center">{vt("No sellers found matching \"")}{searchQuery}"</p>
                   </div>
                 )}
                   </div>
@@ -523,7 +485,7 @@ export default function PointOfSale() {
                     </div>
                     <div className="min-w-0">
                       <p className={`font-medium truncate ${selectedRestaurant ? 'text-[#334257]' : 'text-[#8a94aa]'}`}>
-                        {selectedRestaurant ? getSelectedRestaurantName() : 'Choose a restaurant'}
+                        {selectedRestaurant ? getSelectedRestaurantName() : vt('Choose a seller')}
                       </p>
                       {selectedRestaurant ? (
                         <p className="text-xs text-[#8a94aa] truncate mt-0.5">
@@ -638,7 +600,7 @@ export default function PointOfSale() {
             </div>
 
             {/* Key Metrics Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               {/* Total Orders */}
               <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
                 <div className="flex items-center justify-between mb-4">
@@ -693,29 +655,6 @@ export default function PointOfSale() {
                 <p className="text-xs text-[#8a94aa] mt-2">From {formatNumber(analyticsData.totalRatings)} reviews</p>
               </div>
 
-              {/* Subscription Plan */}
-              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-purple-100 rounded-lg">
-                    <CreditCard className="w-6 h-6 text-purple-600" />
-                  </div>
-                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
-                    subscriptionSummary.status === 'paid'
-                      ? 'bg-green-100 text-green-700'
-                      : 'bg-amber-100 text-amber-700'
-                  }`}>
-                    {subscriptionSummary.status === 'paid' ? 'Paid' : 'Due'}
-                  </span>
-                </div>
-                <h3 className="text-sm font-medium text-[#8a94aa] mb-1">Subscription Plan</h3>
-                <p className="text-2xl font-bold text-[#334257]">{subscriptionSummary.planLabel}</p>
-                <p className="text-xs text-[#8a94aa] mt-2">
-                  Last invoice: {formatCurrency(subscriptionSummary.cycleFee)}
-                  {subscriptionSummary.currentMonthGmv > 0
-                    ? ` · This month GMV: ${formatCurrency(subscriptionSummary.currentMonthGmv)}`
-                    : ''}
-                </p>
-              </div>
                   </div>
 
             {/* Profit & Revenue Section */}
@@ -782,7 +721,7 @@ export default function PointOfSale() {
             {/* Detailed Financial Breakdown */}
             <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
               <h3 className="text-lg font-semibold text-[#334257] mb-1">Financial Breakdown</h3>
-              <p className="text-xs text-[#8a94aa] mb-4">Order earnings plus current subscription billing status for this restaurant.</p>
+              <p className="text-xs text-[#8a94aa] mb-4">Order earnings for this restaurant.</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
                   <div className="flex justify-between items-center py-3 border-b border-[#e3e6ef]">
@@ -794,11 +733,11 @@ export default function PointOfSale() {
                     <span className="text-base font-semibold text-[#334257]">{formatCurrency(analyticsData.totalRevenue)}</span>
                   </div>
                   <div className="flex justify-between items-center py-3 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Restaurant Share (from orders)</span>
+                    <span className="text-sm text-[#8a94aa]">{vt("Seller Share (from orders)")}</span>
                     <span className="text-base font-semibold text-green-600">{formatCurrency(analyticsData.restaurantEarning)}</span>
                   </div>
                   <div className="flex justify-between items-center py-3 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Restaurant Profit</span>
+                    <span className="text-sm text-[#8a94aa]">{vt("Seller Profit")}</span>
                     <span className="text-base font-semibold text-emerald-700">{formatCurrency(analyticsData.restaurantProfit)}</span>
                   </div>
                 </div>
@@ -811,36 +750,15 @@ export default function PointOfSale() {
                     <span className="text-sm text-[#8a94aa]">Completion Rate</span>
                     <span className="text-base font-semibold text-green-600">{analyticsData.completionRate.toFixed(1)}%</span>
                   </div>
-                  <div className="rounded-lg border border-purple-100 bg-purple-50/60 p-4 space-y-3">
-                    <p className="text-sm font-semibold text-[#334257]">Subscription billing (monthly postpaid)</p>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-[#8a94aa]">Last billed plan</span>
-                      <span className="text-sm font-semibold text-[#334257]">{subscriptionSummary.planLabel}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-[#8a94aa]">This month GMV</span>
-                      <span className="text-sm font-semibold text-[#334257]">{formatCurrency(subscriptionSummary.currentMonthGmv)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-[#8a94aa]">Outstanding due</span>
-                      <span className={`text-sm font-semibold ${subscriptionSummary.dueAmount > 0 ? 'text-amber-700' : 'text-green-700'}`}>
-                        {formatCurrency(subscriptionSummary.dueAmount)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-[#8a94aa]">Total subscription collected</span>
-                      <span className="text-sm font-semibold text-[#006fbd]">{formatCurrency(subscriptionSummary.totalCollected)}</span>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
 
             {/* Restaurant Payments (from FoodTransaction ledger) */}
             <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
-              <h3 className="text-lg font-semibold text-[#334257] mb-1">Restaurant Payments (Completed Orders)</h3>
+              <h3 className="text-lg font-semibold text-[#334257] mb-1">{vt("Seller Payments (Completed Orders)")}</h3>
               <p className="text-xs text-[#8a94aa] mb-4">
-                Order payout breakdown from the transaction ledger. Subscription payments are shown separately on the right.
+                Order payout breakdown from the transaction ledger.
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-3">
@@ -869,7 +787,7 @@ export default function PointOfSale() {
                     <span className="text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.adminDiscountShare || 0)}</span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Restaurant Bear Discount</span>
+                    <span className="text-sm text-[#8a94aa]">{vt("Seller Bear Discount")}</span>
                     <span className="text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.restaurantDiscountShare || 0)}</span>
                   </div>
                   <div className="flex justify-between items-center py-2">
@@ -879,78 +797,8 @@ export default function PointOfSale() {
                 </div>
 
                 <div className="space-y-3">
-                  <div className="rounded-lg border border-purple-100 bg-purple-50/60 p-3 mb-1">
-                    <p className="text-sm font-semibold text-[#334257] mb-2">Subscription billing</p>
-                    <p className="text-xs text-[#8a94aa] mb-3">
-                      {subscriptionSummary.statusLabel}
-                      {subscriptionSummary.invoiceCount > 0
-                        ? ` · ${subscriptionSummary.invoiceCount} invoice${subscriptionSummary.invoiceCount === 1 ? '' : 's'}`
-                        : ''}
-                    </p>
-                  </div>
                   <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Last billed plan & fee</span>
-                    <span className="text-sm font-semibold text-[#334257]">
-                      {subscriptionSummary.planLabel} · {formatCurrency(subscriptionSummary.cycleFee)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Total billed</span>
-                    <span className="text-sm font-semibold text-[#334257]">{formatCurrency(subscriptionSummary.totalBilled)}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Total collected</span>
-                    <span className="text-sm font-semibold text-[#006fbd]">{formatCurrency(subscriptionSummary.totalCollected)}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Deducted from wallet</span>
-                    <span className="text-sm font-semibold text-[#334257]">{formatCurrency(subscriptionSummary.walletDeductionsTotal)}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Waived</span>
-                    <span className="text-sm font-semibold text-purple-700">{formatCurrency(subscriptionSummary.totalWaived)}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Outstanding subscription due</span>
-                    <span className={`text-sm font-semibold ${subscriptionSummary.dueAmount > 0 ? 'text-amber-700' : 'text-green-700'}`}>
-                      {formatCurrency(subscriptionSummary.dueAmount)}
-                    </span>
-                  </div>
-                  {subscriptionSummary.lastPayment ? (
-                    <div className="rounded-lg border border-[#e3e6ef] bg-[#f9fafc] p-3">
-                      <p className="text-xs font-semibold text-[#334257] mb-1">Last subscription payment</p>
-                      <p className="text-sm font-semibold text-[#334257]">
-                        {formatCurrency(subscriptionSummary.lastPayment.amount)}
-                      </p>
-                      <p className="text-xs text-[#8a94aa] mt-1">
-                        {formatSubscriptionPaymentLabel(subscriptionSummary.lastPayment.eventType)}
-                        {subscriptionSummary.lastPayment.date
-                          ? ` · ${new Date(subscriptionSummary.lastPayment.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
-                          : ''}
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-[#8a94aa]">No subscription payment recorded yet.</p>
-                  )}
-                  {Array.isArray(subscriptionSummary.invoices) && subscriptionSummary.invoices.length > 0 && (
-                    <div className="rounded-lg border border-[#e3e6ef] bg-[#f9fafc] p-3">
-                      <p className="text-xs font-semibold text-[#334257] mb-2">Monthly billing history</p>
-                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                        {subscriptionSummary.invoices.map((inv) => (
-                          <div key={inv.billingMonth} className="flex items-center justify-between text-xs">
-                            <span className="text-[#8a94aa]">{inv.billingMonthLabel || inv.billingMonth}</span>
-                            <span className="text-[#8a94aa] capitalize">{inv.planName}</span>
-                            <span className="font-semibold text-[#334257]">{formatCurrency(inv.totalAmount)}</span>
-                            <span className={`font-semibold ${inv.outstandingAmount > 0 ? 'text-amber-700' : 'text-green-700'}`}>
-                              {inv.outstandingAmount > 0 ? `Due ${formatCurrency(inv.outstandingAmount)}` : (inv.status === 'waived' ? 'Waived' : 'Paid')}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Restaurant share (orders)</span>
+                    <span className="text-sm text-[#8a94aa]">{vt("Seller share (orders)")}</span>
                     <span className="text-sm font-semibold text-green-700">{formatCurrency(paymentSummary?.restaurantShare || 0)}</span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
@@ -1001,7 +849,7 @@ export default function PointOfSale() {
                   <div className="p-2 bg-orange-100 rounded-lg">
                     <Package className="w-5 h-5 text-orange-600" />
                   </div>
-                  <h3 className="text-base font-semibold text-[#334257]">Restaurant Details</h3>
+                  <h3 className="text-base font-semibold text-[#334257]">{vt("Seller Details")}</h3>
                 </div>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
@@ -1072,9 +920,9 @@ export default function PointOfSale() {
             <div className="w-16 h-16 rounded-full border-2 border-dashed border-[#d1d7e6] flex items-center justify-center mx-auto mb-4">
               <Search className="w-8 h-8 text-[#8a94aa]" />
             </div>
-            <p className="text-base font-medium text-[#334257] mb-2">Select a Restaurant</p>
+            <p className="text-base font-medium text-[#334257] mb-2">{vt("Select a Seller")}</p>
             <p className="text-sm text-[#8a94aa] max-w-md mx-auto">
-              Please select a restaurant from the dropdown above to view detailed analytics, order earnings, and subscription billing.
+              {vt("Please select a seller from the dropdown above to view detailed analytics and order earnings.")}
             </p>
           </div>
         )}

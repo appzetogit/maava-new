@@ -4,18 +4,15 @@ import { connectRedis, closeRedis } from '../src/config/redis.js';
 import { config } from '../src/config/env.js';
 import { expireExpiredOffers } from '../src/modules/food/admin/services/admin.service.js';
 import { syncExpiredFssaiNotifications } from '../src/modules/food/restaurant/services/fssaiExpiry.service.js';
-import { runBillingCatchUp } from '../src/modules/food/restaurant/services/subscriptionBilling.service.js';
 import { logger } from '../src/utils/logger.js';
 
 let expireOffersInterval = null;
 let fssaiExpiryInterval = null;
-let subscriptionBillingInterval = null;
 
 const shutdown = async (signal) => {
     logger.info(`${signal} received, stopping scheduled jobs`);
     if (expireOffersInterval) clearInterval(expireOffersInterval);
     if (fssaiExpiryInterval) clearInterval(fssaiExpiryInterval);
-    if (subscriptionBillingInterval) clearInterval(subscriptionBillingInterval);
 
     try {
         await disconnectDB();
@@ -59,22 +56,11 @@ const start = async () => {
             }
         };
 
-        const runSubscriptionBilling = async () => {
-            try {
-                // Idempotent: bills only closed, not-yet-invoiced calendar months.
-                await runBillingCatchUp();
-            } catch (err) {
-                logger.error(`Monthly subscription billing error: ${err.message}`);
-            }
-        };
-
         await runExpire();
         await runFssaiExpirySync();
-        await runSubscriptionBilling();
 
         expireOffersInterval = setInterval(runExpire, 5 * 60 * 1000);
         fssaiExpiryInterval = setInterval(runFssaiExpirySync, 60 * 60 * 1000);
-        subscriptionBillingInterval = setInterval(runSubscriptionBilling, 6 * 60 * 60 * 1000);
 
         logger.info('Scheduled jobs runner started');
     } catch (err) {

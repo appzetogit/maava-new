@@ -57,7 +57,8 @@ export const validateDeliveryRegisterDto = (body) => {
 };
 
 const deliveryProfileUpdateSchema = z.object({
-    name: z.string().min(1).optional(),
+    name: z.string().trim().min(1, 'Name cannot be empty').optional(),
+    email: z.string().trim().email('Enter a valid email address').optional().or(z.literal('')),
     countryCode: z.string().optional(),
     address: z.string().optional(),
     city: z.string().optional(),
@@ -65,11 +66,11 @@ const deliveryProfileUpdateSchema = z.object({
     vehicleType: z.string().optional(),
     vehicleName: z.string().optional(),
     vehicleNumber: z.string().optional(),
-    drivingLicenseNumber: z
-        .string()
-        .regex(drivingLicenseRegex, 'Invalid driving license format')
-        .optional()
-        .or(z.literal('')),
+    // Riders type it as printed: lower case, spaces, dashes ("ts 07 2020-0012345").
+    drivingLicenseNumber: z.preprocess(
+        (v) => (typeof v === 'string' ? v.replace(/[\s-]/g, '').toUpperCase() : v),
+        z.string().regex(drivingLicenseRegex, 'Invalid driving licence number').optional().or(z.literal('')),
+    ),
     serviceType: z.enum(['food', 'quick', 'both', 'none']).optional(),
     fcmToken: z.string().optional().nullable(),
     platform: z.preprocess(

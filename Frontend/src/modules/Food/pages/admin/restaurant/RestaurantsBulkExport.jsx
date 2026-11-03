@@ -1,9 +1,10 @@
 import { Download, RefreshCw, FileSpreadsheet } from "lucide-react"
+import { vt } from "@food/utils/adminVerticalLabels"
 
 export default function RestaurantsBulkExport() {
   const handleExport = () => {
     // Handle export logic here
-    alert("Exporting all restaurant data...")
+    alert(vt("Exporting all seller data..."))
   }
 
   const handleReset = () => {
@@ -19,9 +20,9 @@ export default function RestaurantsBulkExport() {
             <Download className="w-5 h-5 text-emerald-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Export Restaurants</h1>
+            <h1 className="text-2xl font-bold text-slate-900">{vt("Export Sellers")}</h1>
             <p className="text-sm text-slate-500 mt-1">
-              Export restaurant data in bulk using filters
+              {vt("Export seller data in bulk using filters")}
             </p>
           </div>
         </div>
@@ -33,13 +34,13 @@ export default function RestaurantsBulkExport() {
           <div className="w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-lg">
             1
           </div>
-          <h2 className="text-xl font-bold text-slate-900">Export All Restaurant Data</h2>
+          <h2 className="text-xl font-bold text-slate-900">{vt("Export All Seller Data")}</h2>
         </div>
         <div className="ml-14">
           <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
             <div className="flex items-center gap-2 text-sm text-slate-600">
               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              <span>All restaurant data will be exported in Excel (.xlsx) format</span>
+              <span>{vt("All seller data will be exported in Excel (.xlsx) format")}</span>
             </div>
           </div>
         </div>

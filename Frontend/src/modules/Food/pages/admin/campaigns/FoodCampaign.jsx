@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react"
 import { Search, Download, ChevronDown, ArrowUpDown, Plus, Edit, Trash2, Megaphone, Settings } from "lucide-react"
 import { emptyFoodCampaigns } from "@food/utils/adminFallbackData"
+import { vt } from "@food/utils/adminVerticalLabels"
 
 export default function FoodCampaign() {
   const [searchQuery, setSearchQuery] = useState("")
@@ -39,7 +40,7 @@ export default function FoodCampaign() {
               <Megaphone className="w-5 h-5 text-white" />
             </div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold text-slate-900">Food Campaign</h1>
+              <h1 className="text-2xl font-bold text-slate-900">{vt("Product Campaign")}</h1>
               <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
                 {filteredCampaigns.length}
               </span>

@@ -12,6 +12,7 @@ import {
   Save,
   RotateCcw
 } from "lucide-react"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -170,7 +171,7 @@ export default function EmailTemplate() {
 
   const templates = [
     { id: "forgot-password", label: "Forgot Password" },
-    { id: "new-restaurant", label: "New Restaurant Registration" },
+    { id: "new-restaurant", label: vt("New Seller Registration") },
     { id: "new-deliveryman", label: "New Deliveryman Registration" },
     { id: "withdraw-request", label: "Withdraw Request" },
     { id: "campaign-join", label: "Campaign Join Request" },
@@ -289,7 +290,7 @@ export default function EmailTemplate() {
             <div className="flex items-center gap-2">
               <label className="text-sm font-semibold text-slate-700">
                 {activeTemplate === "forgot-password" && "Send Mail On Forget Password"}
-                {activeTemplate === "new-restaurant" && "Send Mail On New Restaurant Registration"}
+                {activeTemplate === "new-restaurant" && vt("Send Mail On New Seller Registration")}
                 {activeTemplate === "new-deliveryman" && "Send Mail On New Deliveryman Registration"}
                 {activeTemplate === "withdraw-request" && "Send Mail On Withdraw Request"}
                 {activeTemplate === "campaign-join" && "Send Mail On Campaign Join Request"}

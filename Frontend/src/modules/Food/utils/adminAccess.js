@@ -56,6 +56,7 @@ export const ADMIN_ACCESS_GROUPS = [
     { key: "tax_report", label: "Tax Report", pages: ["/admin/store/tax-report"] },
     { key: "restaurant_report", label: vt("Seller Report"), pages: ["/admin/store/restaurant-report"] },
     { key: "customer_report", label: "Customer Report", pages: ["/admin/store/customer-report"] },
+    { key: "zone_earnings", label: "Zone Earnings", pages: ["/admin/store/zone-earnings"] },
     { key: "restaurant_withdraws", label: vt("Seller Withdraws"), pages: ["/admin/store/restaurant-withdraws"] },
   ] },
   { group: "Banners & Pages", items: [

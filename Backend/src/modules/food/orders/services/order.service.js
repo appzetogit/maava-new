@@ -27,9 +27,11 @@ import {
     getRazorpayKeyId,
     isRazorpayConfigured,
     initiateRazorpayRefund,
-    fetchRazorpayPayment
+    fetchRazorpayPayment,
+    fetchRazorpayOrderPayments
 } from '../helpers/razorpay.helper.js';
 import { getIO, rooms } from '../../../../config/socket.js';
+import { buildRefundProgress } from './refundProgress.service.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 import { fetchPolyline } from '../utils/googleMaps.js';
 import { getFirebaseDB } from '../../../../config/firebase.js';
@@ -37,7 +39,7 @@ import * as foodTransactionService from './foodTransaction.service.js';
 import * as userWalletService from '../../user/services/userWallet.service.js';
 import {
   calculateOrderPricing,
-  calculateRiderEarning,
+  resolveUserDeliveryFee,
   getDeliveryDistanceKm,
   loadActiveFeeSettings,
   loadRestaurantForOrdering,
@@ -63,6 +65,7 @@ import {
   applyAggregateRating,
   buildDeliverySocketPayload,
   notifyRestaurantNewOrder,
+  endRestaurantOrderRing,
   canExposeOrderToRestaurant,
   isStatusAdvance,
   STATUS_PRIORITY,
@@ -81,7 +84,7 @@ const ORDER_ACCEPTANCE_WINDOW_SECONDS = 240;
  * The apps mirror this value to draw their countdown; this constant is the one
  * that actually decides, so change it here.
  */
-export const CANCELLATION_WINDOW_MS = 60_000;
+export const CANCELLATION_WINDOW_MS = 90_000;
 
 /**
  * Whether an order placed at [createdAt] may still be cancelled at [now].
@@ -114,9 +117,10 @@ function normalizeAcceptanceWindowFromSettings(settings) {
 function normalizeAcceptanceWindowSeconds(minutes) {
   const numeric = Number(minutes);
   if (!Number.isFinite(numeric)) return ORDER_ACCEPTANCE_WINDOW_SECONDS;
-  const roundedMinutes = Math.round(numeric);
+  // Half-minute steps, matching the admin setting (1.5 is a 90-second timer).
+  const roundedMinutes = Math.round(numeric * 2) / 2;
   if (roundedMinutes < 1 || roundedMinutes > 20) return ORDER_ACCEPTANCE_WINDOW_SECONDS;
-  return roundedMinutes * 60;
+  return Math.round(roundedMinutes * 60);
 }
 
 async function getOrderAcceptanceWindowSeconds() {
@@ -183,12 +187,65 @@ async function incrementCouponUsageForOrder(order, userId) {
   }
 }
 
+/**
+ * The Razorpay payment that actually paid for this order, if there is one: a
+ * captured or authorized attempt on its Razorpay order, for the exact amount.
+ * null when no attempt succeeded. Throws when Razorpay cannot be asked.
+ */
+async function findSuccessfulRazorpayPayment(orderLike) {
+  const rzOrderId = String(orderLike?.payment?.razorpay?.orderId || "").trim();
+  if (!rzOrderId) return null;
+  const expectedPaise = Math.round((Number(orderLike.pricing?.total) || 0) * 100);
+  const attempts = await fetchRazorpayOrderPayments(rzOrderId);
+  return (
+    attempts.find(
+      (p) =>
+        ["captured", "authorized"].includes(String(p?.status || "").toLowerCase()) &&
+        Number(p?.amount) === expectedPaise &&
+        String(p?.order_id || "") === rzOrderId,
+    ) || null
+  );
+}
+
 async function deletePendingPaymentOrder(orderLike) {
   if (!orderLike?._id) return false;
   if (String(orderLike.orderStatus || "").toLowerCase() !== "pending_payment") return false;
 
   const payStatus = String(orderLike.payment?.status || "").toLowerCase();
   if (payStatus === "paid" || payStatus === "refunded") return false;
+
+  // Never delete an order the customer has paid for.
+  //
+  // The app abandons a checkout when Razorpay's sheet reports failure or
+  // cancel -- and after the customer switches to their UPI app to pay, it can
+  // report that even though the payment went through. On 13 Oct a captured
+  // Rs 323 payment lost its order this way 52 seconds after paying, and with no
+  // webhook configured nothing could bring it back. So Razorpay is asked first:
+  // a successful attempt confirms the order instead, and when Razorpay cannot
+  // be reached the order is kept for the next try rather than deleted.
+  if (String(orderLike.payment?.method || "").toLowerCase() === "razorpay") {
+    let paid;
+    try {
+      paid = await findSuccessfulRazorpayPayment(orderLike);
+    } catch (err) {
+      logger.warn(`Kept pending order ${orderLike._id}: Razorpay check failed (${err?.message || err})`);
+      return false;
+    }
+    if (paid) {
+      const order = await FoodOrder.findById(orderLike._id);
+      if (order && String(order.orderStatus) === "pending_payment") {
+        logger.warn(`Order ${order._id} was about to be deleted but Razorpay payment ${paid.id} is ${paid.status}: confirming it instead`);
+        await confirmPaidOnlineOrder(order, {
+          paymentId: paid.id,
+          signature: null,
+          byRole: "SYSTEM",
+          byId: null,
+          note: "Payment found at Razorpay after checkout was abandoned; order confirmed",
+        });
+      }
+      return false;
+    }
+  }
 
   // An abandoned payment must not hold units forever. Restocked before the
   // delete, since the order rows are what say how much to give back.
@@ -435,6 +492,7 @@ async function expireUnacceptedOrders(filter = {}) {
         };
         io.to(rooms.user(updated.userId)).emit("order_status_update", payload);
         io.to(rooms.restaurant(updated.restaurantId)).emit("order_status_update", payload);
+        void endRestaurantOrderRing(updated);
       }
     } catch (err) {
       logger.warn(`expireUnacceptedOrders socket emit failed: ${err?.message || err}`);
@@ -733,8 +791,14 @@ export async function createOrder(userId, dto) {
     // every existing consumer -- the wallet credit, the earnings totals, the
     // trip history, the admin rider reports -- pays it out without knowing
     // tips exist. pricing.deliveryTip keeps it separately auditable.
+    //
+    // The rider is paid exactly the delivery charge the customer is shown, from
+    // the same zone settings and the same distance. Priced with no basket, so a
+    // free-delivery waiver (threshold or new-customer welcome) is the
+    // platform's gift to the customer and never comes out of the rider's pay.
     const riderEarning =
-      (calculateRiderEarning(feeSettings, distanceKm) || 0) + normalizedPricing.deliveryTip;
+      (Number(resolveUserDeliveryFee(feeSettings, { subtotal: 0, distanceKm }).deliveryFee) || 0) +
+      normalizedPricing.deliveryTip;
     
     // Calculate restaurant commission from subtotal
     let restaurantCommission = 0;
@@ -1050,9 +1114,37 @@ export async function verifyPayment(userId, dto) {
     throw new ValidationError("Payment verification failed");
   }
 
+  return confirmPaidOnlineOrder(order, {
+    paymentId: dto.razorpayPaymentId,
+    signature: dto.razorpaySignature,
+    byRole: "USER",
+    byId: userId,
+    note: "Payment verified, order confirmed",
+  });
+}
+
+/**
+ * Marks an online order paid and sends it to the restaurant: the second half of
+ * verifyPayment, shared with deletePendingPaymentOrder, which uses it to rescue
+ * an order whose payment Razorpay captured after the app had given up on it.
+ */
+export async function confirmPaidOnlineOrder(order, { paymentId, signature, byRole, byId, note }) {
+  // Three paths can confirm the same order -- the app's verify-payment, the
+  // Razorpay webhook, and the check before an abandoned checkout is deleted --
+  // and they can arrive together. Only the one that flips the status here
+  // carries on; the others return the order as it stands, so the restaurant is
+  // told once and the ledger written once.
+  const claimed = await FoodOrder.updateOne(
+    { _id: order._id, "payment.status": { $ne: "paid" } },
+    { $set: { "payment.status": "paid" } },
+  );
+  if (!claimed.modifiedCount) {
+    const current = await FoodOrder.findById(order._id).lean();
+    return { order: normalizeOrderForClient(current || order), payment: (current || order).payment };
+  }
   order.payment.status = "paid";
-  order.payment.razorpay.paymentId = dto.razorpayPaymentId;
-  order.payment.razorpay.signature = dto.razorpaySignature;
+  order.payment.razorpay.paymentId = paymentId;
+  if (signature) order.payment.razorpay.signature = signature;
   
   const from = order.orderStatus;
   const acceptanceWindowSeconds = await getOrderAcceptanceWindowSeconds();
@@ -1061,11 +1153,11 @@ export async function verifyPayment(userId, dto) {
   order.acceptanceDeadlineAt = buildAcceptanceDeadline(new Date(), acceptanceWindowSeconds);
 
   pushStatusHistory(order, {
-    byRole: "USER",
-    byId: userId,
+    byRole,
+    byId,
     from: from,
     to: "created",
-    note: "Payment verified, order confirmed",
+    note,
   });
   await order.save();
   void addOrderJob(
@@ -1097,14 +1189,14 @@ export async function verifyPayment(userId, dto) {
     logger.error(`[CRITICAL] Initial transaction failed for order ${order._id}: ${err.message}`);
   }
 
-  await incrementCouponUsageForOrder(order, userId);
+  await incrementCouponUsageForOrder(order, String(order.userId));
 
   await foodTransactionService.updateTransactionStatus(order._id, 'captured', {
     status: 'captured',
-    razorpayPaymentId: dto.razorpayPaymentId,
-    razorpaySignature: dto.razorpaySignature,
-    recordedByRole: "USER",
-    recordedById: new mongoose.Types.ObjectId(userId)
+    razorpayPaymentId: paymentId,
+    ...(signature ? { razorpaySignature: signature } : {}),
+    recordedByRole: byRole,
+    ...(byId ? { recordedById: new mongoose.Types.ObjectId(byId) } : {}),
   });
 
   // After online payment is verified, now notify restaurant about the new order.
@@ -1139,7 +1231,14 @@ export async function abandonOnlinePaymentOrder(userId, orderId) {
   }
 
   const deleted = await deletePendingPaymentOrder(order);
-  if (!deleted) throw new ValidationError("Could not abandon payment");
+  if (!deleted) {
+    // Razorpay had the payment after all: the order was confirmed, not dropped.
+    const current = await FoodOrder.findById(order._id).select("orderStatus payment.status").lean();
+    if (current?.payment?.status === "paid") {
+      return { deleted: false, confirmed: true, orderId: order._id.toString() };
+    }
+    throw new ValidationError("Could not abandon payment");
+  }
 
   return { deleted: true, orderId: order._id.toString() };
 }
@@ -1348,6 +1447,12 @@ export async function getOrderById(
     if (!drop.verified && secret) {
       out.handoverOtp = secret;
     }
+
+    // Where a cancelled order's money is: started, sent to the bank, expected by.
+    out.refundProgress = await buildRefundProgress(order).catch((err) => {
+      logger.warn(`refundProgress failed for order ${order?._id}: ${err?.message || err}`);
+      return null;
+    });
 
     // deliveryState.currentLocation is derived from order.lastRiderLocation, which
     // is only written once the rider emits a location-update FOR THIS ORDER — so
@@ -1579,7 +1684,9 @@ export async function cancelOrder(orderId, userId, reason) {
   });
   if (!order) throw new NotFoundError("Order not found");
 
-  const allowed = ["created"];
+  // Accepted orders stay cancellable too -- the customer's window runs from
+  // placement, not from acceptance. Once the food is packed it is not.
+  const allowed = ["created", "confirmed", "preparing"];
   if (!allowed.includes(order.orderStatus))
     throw new ValidationError("Order cannot be cancelled");
 
@@ -1590,7 +1697,7 @@ export async function cancelOrder(orderId, userId, reason) {
   // that leaves in time but lands after the window is refused.
   if (!isWithinCancellationWindow(order.createdAt)) {
     throw new ValidationError(
-      "The 1-minute cancellation window for this order has passed",
+      "The 90-second cancellation window for this order has passed",
     );
   }
 
@@ -1654,6 +1761,9 @@ export async function cancelOrder(orderId, userId, reason) {
     [
       { ownerType: "USER", ownerId: userId },
       { ownerType: "RESTAURANT", ownerId: order.restaurantId },
+      ...(order.dispatch?.deliveryPartnerId
+        ? [{ ownerType: "DELIVERY_PARTNER", ownerId: order.dispatch.deliveryPartnerId }]
+        : []),
     ],
     {
       title: "Order Cancelled ❌",
@@ -1679,6 +1789,11 @@ export async function cancelOrder(orderId, userId, reason) {
       };
       io.to(rooms.user(userId)).emit("order_status_update", payload);
       io.to(rooms.restaurant(order.restaurantId)).emit("order_status_update", payload);
+      void endRestaurantOrderRing(order);
+      // An accepted order may already have a rider heading to the restaurant.
+      if (order.dispatch?.deliveryPartnerId) {
+        io.to(rooms.delivery(order.dispatch.deliveryPartnerId)).emit("order_status_update", payload);
+      }
     }
   } catch (err) {
     logger.warn(`cancelOrder socket emit failed: ${err?.message || err}`);
@@ -2095,6 +2210,7 @@ export async function updateOrderStatusRestaurant(
       
       console.log(`[DEBUG] Emitting order_status_update to rooms: ${restRoom}, ${userRoom}`);
       io.to(restRoom).emit("order_status_update", payload);
+      void endRestaurantOrderRing(order);
       io.to(userRoom).emit("order_status_update", payload);
       
       // Notify assigned rider via socket if they exist
@@ -2710,6 +2826,7 @@ export async function deleteOrderAdmin(orderId, adminId) {
 
       if (order.userId) io.to(rooms.user(order.userId)).emit("order_deleted", payload);
       if (order.restaurantId) io.to(rooms.restaurant(order.restaurantId)).emit("order_deleted", payload);
+      void endRestaurantOrderRing(order);
       if (order.dispatch?.deliveryPartnerId) {
         io.to(rooms.delivery(order.dispatch.deliveryPartnerId)).emit("order_deleted", payload);
       }
@@ -2747,6 +2864,11 @@ export async function updateOrderStatusAdmin(orderId, orderStatus, note = "", ad
 
     const from = order.orderStatus;
     order.orderStatus = orderStatus;
+    // An admin acting on the order counts as acting on it, same as the restaurant
+    // accepting (updateOrderStatusRestaurant). Left in place, the acceptance deadline
+    // made expireUnacceptedOrders cancel admin-accepted orders as "Not accepted by
+    // restaurant" a minute later -- with a rider already on the way.
+    order.acceptanceDeadlineAt = null;
 
     const normalizedPaymentMethod = String(order.payment?.method || "cash").toLowerCase();
     const prevPaymentStatus = String(order.payment?.status || "cod_pending").toLowerCase();
@@ -2774,7 +2896,9 @@ export async function updateOrderStatusAdmin(orderId, orderStatus, note = "", ad
         }
     }
 
-    await order.save();
+    // Check only what changed: a few old imported orders have no store, and
+    // full validation made them impossible to cancel -- stuck for ever.
+    await order.save({ validateModifiedOnly: true });
 
     if (String(orderStatus) === "delivered") {
         try {
@@ -2844,6 +2968,7 @@ export async function updateOrderStatusAdmin(orderId, orderStatus, note = "", ad
             };
             io.to(rooms.user(order.userId)).emit("order_status_update", payload);
             io.to(rooms.restaurant(order.restaurantId)).emit("order_status_update", payload);
+            void endRestaurantOrderRing(order);
             if (order.dispatch?.deliveryPartnerId) {
                 io.to(rooms.delivery(order.dispatch.deliveryPartnerId)).emit("order_status_update", payload);
             }
@@ -2871,6 +2996,53 @@ export async function updateOrderStatusAdmin(orderId, orderStatus, note = "", ad
     }
 
     return normalizeOrderForClient(order);
+}
+
+/**
+ * The admin panel's Accept button.
+ *
+ * Admins mostly press it on orders the restaurant has already accepted but no
+ * rider has taken -- and that used to fail with "Cannot change order status
+ * from 'confirmed' to 'confirmed'", however many times it was pressed. An
+ * already-accepted order now succeeds and starts a fresh rider search instead.
+ *
+ * @returns {Promise<{order: object, message: string}>}
+ */
+export async function acceptOrderAdmin(orderId, adminId) {
+  const order = await FoodOrder.findOne(buildOrderIdentityFilter(orderId));
+  if (!order) throw new NotFoundError("Order not found");
+
+  if (order.orderStatus === "pending_payment") {
+    throw new ValidationError("The customer has not paid for this order yet, so it cannot be accepted");
+  }
+
+  if (order.orderStatus === "created") {
+    const updated = await updateOrderStatusAdmin(orderId, "confirmed", "Order accepted by admin", adminId);
+    return { order: updated, message: "Order accepted by admin" };
+  }
+
+  if (["confirmed", "preparing", "ready_for_pickup"].includes(order.orderStatus)) {
+    if (order.acceptanceDeadlineAt) {
+      await FoodOrder.updateOne({ _id: order._id }, { $set: { acceptanceDeadlineAt: null } });
+    }
+    if (order.dispatch?.deliveryPartnerId) {
+      return { order: normalizeOrderForClient(order), message: "Order is already accepted and has a delivery partner" };
+    }
+    await tryAutoAssign(order._id).catch((err) => {
+      logger.warn(`acceptOrderAdmin rider search failed for ${order._id}: ${err?.message || err}`);
+    });
+    const fresh = await FoodOrder.findById(order._id);
+    return {
+      order: normalizeOrderForClient(fresh),
+      message: fresh?.dispatch?.deliveryPartnerId
+        ? "Order is already accepted; a delivery partner has been assigned"
+        : "Order is already accepted; searching for a delivery partner",
+    };
+  }
+
+  throw new ValidationError(
+    `This order is already ${String(order.orderStatus).replace(/_/g, " ")}, so it cannot be accepted`,
+  );
 }
 
 export async function markOrderDeliveredAdmin(orderId, adminId, note = "") {

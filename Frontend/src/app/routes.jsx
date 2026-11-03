@@ -50,6 +50,9 @@ const RootEntryRoute = () => <Navigate to="/food/user/" replace />
 
 
 const PublicCmsPage = lazy(() => import('./PublicCmsPage'))
+// The business's public face: services, contact and legal details, which
+// WhatsApp API, payment and app-store reviewers check.
+const BusinessHome = lazy(() => import('./BusinessHome'))
 const AdminRouter = lazy(() => import('../modules/Food/components/admin/AdminRouter'))
 const SellerRouter = lazy(() => import('../modules/Food/components/restaurant/RestaurantRouter'))
 
@@ -100,6 +103,14 @@ const AppRoutes = () => {
     <Routes>
       {/* Root → Master Landing Page */}
       <Route path="/" element={<RootEntryRoute />} />
+      <Route
+        path="/home"
+        element={
+          <Suspense fallback={<PageLoader />}>
+            <BusinessHome />
+          </Suspense>
+        }
+      />
       {/*
         The previous customer app, mounted in place of the current one.
 

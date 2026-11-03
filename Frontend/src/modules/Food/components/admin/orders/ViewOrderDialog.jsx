@@ -12,6 +12,7 @@ import { getTimelineStatusLabel, getTimelineRoleLabel } from "@food/utils/orderS
 import { computeDeliveryFeeGst, formatDeliveryFeeBreakdownSubtext, getDeliveryFeeTotal, resolveDeliveryFeeGst } from "@food/utils/deliveryFeeDisplay"
 import { getCartCompareItemTotal, getLineCompareUnitPrice } from "@food/utils/foodVariants"
 import { DualMoney } from "@food/components/shared/FoodPriceDisplay"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -24,9 +25,9 @@ const getStatusColor = (orderStatus) => {
     "Scheduled": "bg-blue-100 text-blue-700",
     "Accepted": "bg-green-100 text-green-700",
     "Processing": "bg-orange-100 text-orange-700",
-    "Food On The Way": "bg-yellow-100 text-yellow-700",
+    "Out for Delivery": "bg-yellow-100 text-yellow-700",
     "Canceled": "bg-rose-100 text-rose-700",
-    "Cancelled by Restaurant": "bg-red-100 text-red-700",
+    "Cancelled by Seller": "bg-red-100 text-red-700",
     "Cancelled by User": "bg-orange-100 text-orange-700",
     "Payment Failed": "bg-red-100 text-red-700",
     "Refunded": "bg-sky-100 text-sky-700",
@@ -242,13 +243,13 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order }) {
                 <div className="space-y-1">
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Order Status</p>
                   <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(order.orderStatus)}`}>
-                    {order.orderStatus}
+                    {order.orderStatus === "Cancelled by Seller" ? vt("Cancelled by Seller") : order.orderStatus}
                   </span>
                   {order.cancellationReason && (
                     <p className="text-xs text-red-600 mt-1">
                       <span className="font-medium">
                         {order.cancelledBy === 'user' ? 'Cancelled by User - ' : 
-                         order.cancelledBy === 'restaurant' ? 'Cancelled by Restaurant - ' : 
+                         order.cancelledBy === 'restaurant' ? vt('Cancelled by Seller - ') : 
                          'Cancellation '}Reason:
                       </span> {order.cancellationReason}
                     </p>
@@ -330,9 +331,9 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order }) {
           {/* Restaurant Information */}
           {order.restaurant && (
             <div className="border-t border-slate-200 pt-4">
-              <h3 className="text-sm font-semibold text-slate-700 mb-4">Restaurant Information</h3>
+              <h3 className="text-sm font-semibold text-slate-700 mb-4">{vt("Seller Information")}</h3>
               <div className="space-y-1">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Restaurant Name</p>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{vt("Seller Name")}</p>
                 <p className="text-sm font-medium text-slate-900">{order.restaurant}</p>
               </div>
             </div>
@@ -576,11 +577,11 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order }) {
                   <span className="font-medium text-slate-900">{formatDialogMoney(transaction.amounts.totalCustomerPaid)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-600">Restaurant Payout</span>
+                  <span className="text-slate-600">{vt("Seller Payout")}</span>
                   <span className="font-medium text-slate-900">{formatDialogMoney(transaction.amounts.restaurantShare)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-600">Restaurant Commission</span>
+                  <span className="text-slate-600">{vt("Seller Commission")}</span>
                   <span className="font-medium text-slate-900">{formatDialogMoney(transaction.amounts.restaurantCommission)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
@@ -601,7 +602,7 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order }) {
                 )}
                 {Number(transaction.amounts.restaurantDiscountShare) > 0 && (
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-600">Discount Borne by Restaurant</span>
+                    <span className="text-slate-600">{vt("Discount Borne by Seller")}</span>
                     <span className="font-medium text-rose-600">-{formatDialogMoney(transaction.amounts.restaurantDiscountShare)}</span>
                   </div>
                 )}
@@ -613,7 +614,7 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order }) {
                 </div>
                 {transaction.settlement && (
                   <p className="text-xs text-slate-500 pt-1">
-                    Restaurant settlement: {transaction.settlement.isRestaurantSettled ? "Settled" : "Pending"}
+                    {vt("Seller settlement:")} {transaction.settlement.isRestaurantSettled ? "Settled" : "Pending"}
                     {transaction.settlement.restaurantSettledAt
                       ? ` (${new Date(transaction.settlement.restaurantSettledAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })})`
                       : ""}
@@ -675,7 +676,7 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order }) {
                         <div className={`flex-1 min-w-0 ${isLast ? "" : "pb-4"}`}>
                           <div className="flex justify-between items-start gap-2">
                             <p className={`text-sm font-semibold leading-tight ${isCancelled ? "text-rose-600" : "text-slate-900"}`}>
-                              {getTimelineStatusLabel(entry.to)}
+                              {String(entry.to || "").toLowerCase().trim() === "cancelled_by_restaurant" ? vt("Cancelled by Seller") : getTimelineStatusLabel(entry.to)}
                             </p>
                             <p className="text-xs text-slate-500 whitespace-nowrap">
                               {entry.at

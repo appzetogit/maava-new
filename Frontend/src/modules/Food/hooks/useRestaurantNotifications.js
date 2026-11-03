@@ -342,8 +342,6 @@ export const useRestaurantNotifications = () => {
       // - If frontend is on maava.in, backend might be api.maava.in or maava.in
       if (frontendHost.includes('maava.in')) {
         suggestedBackendUrl = `${frontendProtocol}//api.maava.in/api`;
-      } else if (frontendHost.includes('switcheats.com')) {
-        suggestedBackendUrl = `${frontendProtocol}//api.${frontendHost}/api`;
       }
       
       debugError('? CRITICAL: BLOCKING Socket.IO connection to localhost!');
@@ -527,6 +525,8 @@ export const useRestaurantNotifications = () => {
       if (restaurantId) {
         socketRef.current.emit('join-restaurant', restaurantId);
       }
+      // Status changes emitted while disconnected were lost; refetch the lists.
+      window.dispatchEvent(new CustomEvent('restaurant:order_status_update', { detail: null }));
     });
 
     // Listen for new order notifications
@@ -561,7 +561,11 @@ export const useRestaurantNotifications = () => {
       debugLog('?? Order status update:', data);
       
       const status = String(data?.orderStatus || data?.status || "").toLowerCase();
-      
+
+      // Every status change (rider picked up, delivered, cancelled…) must reach the
+      // order lists, not only the ones that clear a pending popup.
+      window.dispatchEvent(new CustomEvent('restaurant:order_status_update', { detail: data }));
+
       // Clear popup if the active order's status changes to anything other than "pending"
       // This handles cases where an Admin accepts/rejects the order while the popup is open
       if (status && status !== 'pending' && status !== 'created' && status !== 'confirmed') {

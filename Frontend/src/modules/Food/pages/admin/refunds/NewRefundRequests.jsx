@@ -8,6 +8,7 @@ import FilterPanel from "@food/components/admin/orders/FilterPanel"
 import ViewOrderDialog from "@food/components/admin/orders/ViewOrderDialog"
 import SettingsDialog from "@food/components/admin/orders/SettingsDialog"
 import { useGenericTableManagement } from "@food/components/admin/orders/useGenericTableManagement"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -191,7 +192,7 @@ export default function NewRefundRequests() {
                   <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase">Order ID</th>
                   <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase">Order Date</th>
                   <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase">Customer</th>
-                  <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase">Restaurant</th>
+                  <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase">{vt("Seller")}</th>
                   <th className="px-6 py-4 text-right text-[10px] font-bold text-slate-700 uppercase">Total Amount</th>
                   <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase">Cancellation Reason</th>
                   <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase">Refund Status</th>
@@ -234,7 +235,7 @@ export default function NewRefundRequests() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm text-red-600 max-w-xs">
-                          {order.cancellationReason || "Rejected by restaurant"}
+                          {order.cancellationReason || vt("Rejected by seller")}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">

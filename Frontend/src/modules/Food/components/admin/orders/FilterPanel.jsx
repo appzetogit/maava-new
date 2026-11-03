@@ -1,4 +1,5 @@
 import { X } from "lucide-react"
+import { vt } from "@food/utils/adminVerticalLabels"
 
 export default function FilterPanel({
   isOpen,
@@ -127,14 +128,14 @@ export default function FilterPanel({
           {restaurantOptions.length > 0 && (
             <div className="pt-2 border-t border-slate-100">
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                Restaurant
+                {vt("Seller")}
               </label>
               <select
                 value={filters.restaurantId || ""}
                 onChange={(e) => setFilters((prev) => ({ ...prev, restaurantId: e.target.value }))}
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all bg-white"
               >
-                <option value="">All Restaurants</option>
+                <option value="">{vt("All Sellers")}</option>
                 {restaurantOptions.map((restaurant) => (
                   <option key={restaurant.id} value={restaurant.id}>
                     {restaurant.name}

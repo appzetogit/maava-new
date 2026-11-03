@@ -168,7 +168,7 @@ export default function FoodsList() {
         if (!restaurantId || restaurantsMap.has(restaurantId)) return
         restaurantsMap.set(restaurantId, {
           id: restaurantId,
-          name: getRestaurantName(restaurant) || "Unknown Restaurant",
+          name: getRestaurantName(restaurant) || `Unknown ${noun.One}`,
         })
       })
 
@@ -207,7 +207,7 @@ export default function FoodsList() {
             restaurantName:
               f.restaurantName ||
               getRestaurantName(f.restaurant) ||
-              "Unknown Restaurant",
+              `Unknown ${noun.One}`,
             categoryId: String(f.categoryId || ""),
             categoryName: f.categoryName || "",
             price: getFoodDisplayPrice(f),
@@ -233,14 +233,14 @@ export default function FoodsList() {
           if (!restaurantId || restaurantsMap.has(restaurantId)) return
           restaurantsMap.set(restaurantId, {
             id: restaurantId,
-            name: food.restaurantName || "Unknown Restaurant",
+            name: food.restaurantName || `Unknown ${noun.One}`,
           })
         })
         return Array.from(restaurantsMap.values()).sort((a, b) => a.name.localeCompare(b.name))
       })
     } catch (error) {
       debugError("Error fetching foods:", error)
-      toast.error("Failed to load foods")
+      toast.error(`Failed to load ${noun.itemMany}`)
       setFoods([])
       setTotalFoods(0)
     } finally {
@@ -465,7 +465,7 @@ export default function FoodsList() {
   const handleFoodFormSubmit = async () => {
     if (!ensureActionAccess(foodFormMode === "edit" ? "edit" : "create")) return
     if (!foodForm.restaurantId) {
-      toast.error("Please select a restaurant")
+      toast.error(`Please select a ${noun.one}`)
       return
     }
     if (!String(foodForm.categoryName || "").trim()) {
@@ -473,7 +473,7 @@ export default function FoodsList() {
       return
     }
     if (!foodForm.name.trim()) {
-      toast.error("Food name is required")
+      toast.error(`${noun.ItemOne} name is required`)
       return
     }
 
@@ -567,7 +567,7 @@ export default function FoodsList() {
       } else {
         await adminAPI.createFood(payload)
       }
-      toast.success(foodFormMode === "edit" ? "Food updated successfully" : "Food added successfully")
+      toast.success(foodFormMode === "edit" ? `${noun.ItemOne} updated successfully` : `${noun.ItemOne} added successfully`)
       setShowFoodFormModal(false)
       setEditingFood(null)
       setFoodForm(createFoodForm())
@@ -577,7 +577,7 @@ export default function FoodsList() {
       await fetchAllFoods()
     } catch (error) {
       debugError("Error saving food:", error)
-      toast.error(error?.response?.data?.message || "Failed to save food")
+      toast.error(error?.response?.data?.message || `Failed to save ${noun.itemOne}`)
     } finally {
       setSubmittingFood(false)
     }
@@ -596,10 +596,10 @@ export default function FoodsList() {
       setDeleting(true)
       await adminAPI.deleteFood(food?._id || food?.id)
       await fetchAllFoods()
-      toast.success("Food item deleted successfully")
+      toast.success(`${noun.ItemOne} deleted successfully`)
     } catch (error) {
       debugError("Error deleting food:", error)
-      toast.error(error?.response?.data?.message || "Failed to delete food item")
+      toast.error(error?.response?.data?.message || `Failed to delete ${noun.itemOne}`)
     } finally {
       setDeleting(false)
     }
@@ -633,7 +633,7 @@ export default function FoodsList() {
 
   const handleBulkUpload = async () => {
     if (!bulkUploadRestaurantId) {
-      toast.error("Please select a restaurant first")
+      toast.error(`Please select a ${noun.one} first`)
       return
     }
     if (!bulkUploadFile) {
@@ -708,21 +708,21 @@ export default function FoodsList() {
   const handleBulkDelete = async () => {
     if (!ensureActionAccess("delete")) return
     if (!isRestaurantSelected) {
-      toast.error("Select a restaurant to bulk delete items")
+      toast.error(`Select a ${noun.one} to bulk delete items`)
       return
     }
     if (selectedDeleteCount === 0) {
-      toast.error("Select at least one food item")
+      toast.error(`Select at least one ${noun.itemOne}`)
       return
     }
 
     const restaurantName =
       restaurantOptions.find((restaurant) => restaurant.id === selectedRestaurant)?.name ||
-      "this restaurant"
+      `this ${noun.one}`
 
     if (
       !window.confirm(
-        `Delete ${selectedDeleteCount} food item(s) from ${restaurantName}? This cannot be undone.`
+        `Delete ${selectedDeleteCount} ${noun.itemOne}(s) from ${restaurantName}? This cannot be undone.`
       )
     ) {
       return
@@ -737,13 +737,13 @@ export default function FoodsList() {
         search: selectAllForRestaurant ? debouncedSearchQuery : undefined,
       })
       const deletedCount = response?.data?.data?.deletedCount ?? selectedDeleteCount
-      toast.success(`Deleted ${deletedCount} food item(s)`)
+      toast.success(`Deleted ${deletedCount} ${noun.itemOne}(s)`)
       setSelectedFoodIds(new Set())
       setSelectAllForRestaurant(false)
       await fetchAllFoods()
     } catch (error) {
       debugError("Error bulk deleting foods:", error)
-      toast.error(error?.response?.data?.message || "Failed to delete selected foods")
+      toast.error(error?.response?.data?.message || `Failed to delete selected ${noun.itemMany}`)
     } finally {
       setIsBulkDeleting(false)
     }
@@ -809,7 +809,7 @@ export default function FoodsList() {
             <div className="relative flex-1 sm:flex-initial min-w-[200px]">
               <input
                 type="text"
-                placeholder="Ex : Foods"
+                placeholder={`Ex : ${noun.ItemMany}`}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
@@ -819,7 +819,7 @@ export default function FoodsList() {
             <div className="flex flex-col gap-2 min-w-[240px]">
               <input
                 type="text"
-                placeholder="Search restaurant..."
+                placeholder={`Search ${noun.one}...`}
                 value={restaurantFilterSearch}
                 onChange={(e) => setRestaurantFilterSearch(e.target.value)}
                 className="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
@@ -829,7 +829,7 @@ export default function FoodsList() {
                 onChange={(e) => setSelectedRestaurant(e.target.value)}
                 className="px-4 py-2.5 min-w-[240px] text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
               >
-                <option value="all">All Restaurants</option>
+                <option value="all">All {noun.Many}</option>
                 {filteredRestaurantOptions.map((restaurant) => (
                   <option key={restaurant.id} value={restaurant.id}>
                     {restaurant.name}
@@ -899,7 +899,7 @@ export default function FoodsList() {
                   Title
                 </th>
                 <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                  Restaurant
+                  {noun.One}
                 </th>
                 <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                   Category
@@ -1069,7 +1069,7 @@ export default function FoodsList() {
       <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>
         <DialogContent className="max-w-xl p-0 overflow-hidden">
           <DialogHeader className="px-6 py-4 border-b border-slate-200 bg-slate-50">
-            <DialogTitle className="text-lg font-semibold text-slate-900">Food Details</DialogTitle>
+            <DialogTitle className="text-lg font-semibold text-slate-900">{noun.ItemOne} Details</DialogTitle>
           </DialogHeader>
           {selectedFood && (
             <div className="p-6 space-y-5">
@@ -1088,10 +1088,10 @@ export default function FoodsList() {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4 text-sm bg-slate-50 border border-slate-200 rounded-lg p-4">
-                <p><span className="font-semibold text-slate-700">Restaurant:</span> <span className="text-slate-900">{selectedFood.restaurantName || "-"}</span></p>
+                <p><span className="font-semibold text-slate-700">{noun.One}:</span> <span className="text-slate-900">{selectedFood.restaurantName || "-"}</span></p>
                 <p><span className="font-semibold text-slate-700">Price:</span> <span className="text-slate-900">{selectedFood.variants?.length ? `Starting from \u20B9${selectedFood.price}` : `\u20B9${selectedFood.price}`}</span></p>
                 <p><span className="font-semibold text-slate-700">Category:</span> <span className="text-slate-900">{selectedFood.categoryName || "-"}</span></p>
-                <p><span className="font-semibold text-slate-700">Food Type:</span> <span className="text-slate-900">{selectedFood.foodType || "-"}</span></p>
+                <p><span className="font-semibold text-slate-700">{noun.ItemOne} Type:</span> <span className="text-slate-900">{selectedFood.foodType || "-"}</span></p>
                 <p><span className="font-semibold text-slate-700">Approval:</span> <span className="text-slate-900 capitalize">{selectedFood.approvalStatus || "-"}</span></p>
               </div>
               {selectedFood.variants?.length ? (
@@ -1248,7 +1248,7 @@ export default function FoodsList() {
                 <p className="mt-1 text-xs text-slate-500">Shown with strikethrough when higher than selling price.</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Food Type</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">{noun.ItemOne} Type</label>
                 <select
                   value={foodForm.foodType}
                   onChange={(e) => setFoodForm((prev) => ({ ...prev, foodType: e.target.value }))}
@@ -1311,7 +1311,7 @@ export default function FoodsList() {
                         <div className="w-28 h-28">
                           <img
                             src={img.previewUrl}
-                            alt={`Food ${index + 1}`}
+                            alt={`${noun.ItemOne} ${index + 1}`}
                             className="w-full h-full object-cover"
                           />
                         </div>
@@ -1474,10 +1474,10 @@ export default function FoodsList() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-slate-900">Step 2: Select Restaurant</label>
+                  <label className="block text-sm font-semibold text-slate-900">Step 2: Select {noun.One}</label>
                   <input
                     type="text"
-                    placeholder="Search restaurant..."
+                    placeholder={`Search ${noun.one}...`}
                     value={bulkUploadRestaurantSearch}
                     onChange={(e) => setBulkUploadRestaurantSearch(e.target.value)}
                     className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400"

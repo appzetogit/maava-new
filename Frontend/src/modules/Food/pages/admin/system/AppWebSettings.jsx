@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Settings, Info, Smartphone, Apple } from "lucide-react"
+import { vt } from "@food/utils/adminVerticalLabels"
 
 function ToggleSwitch({ enabled, onToggle }) {
   return (
@@ -105,7 +106,7 @@ export default function AppWebSettings() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-700">Popular Foods</span>
+                <span className="text-xs text-slate-700">{vt("Popular Products")}</span>
                 <Info className="w-3.5 h-3.5 text-slate-400" />
               </div>
               <ToggleSwitch
@@ -115,7 +116,7 @@ export default function AppWebSettings() {
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-700">New Restaurants</span>
+                <span className="text-xs text-slate-700">{vt("New Sellers")}</span>
                 <Info className="w-3.5 h-3.5 text-slate-400" />
               </div>
               <ToggleSwitch
@@ -125,7 +126,7 @@ export default function AppWebSettings() {
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-700">Popular Restaurants</span>
+                <span className="text-xs text-slate-700">{vt("Popular Sellers")}</span>
                 <Info className="w-3.5 h-3.5 text-slate-400" />
               </div>
               <ToggleSwitch
@@ -135,7 +136,7 @@ export default function AppWebSettings() {
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-700">Most Reviewed Foods</span>
+                <span className="text-xs text-slate-700">{vt("Most Reviewed Products")}</span>
                 <Info className="w-3.5 h-3.5 text-slate-400" />
               </div>
               <ToggleSwitch
@@ -248,7 +249,7 @@ export default function AppWebSettings() {
         <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-3">
           <div className="flex items-center gap-2 mb-4">
             <Settings className="w-4 h-4 text-slate-600" />
-            <h2 className="text-sm font-semibold text-slate-900">Restaurant App Version Control</h2>
+            <h2 className="text-sm font-semibold text-slate-900">{vt("Seller App Version Control")}</h2>
           </div>
 
           <div className="space-y-4">
@@ -261,7 +262,7 @@ export default function AppWebSettings() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
-                    Minimum Restaurant App Version for Force Update (Android)
+                    {vt("Minimum Seller App Version for Force Update (Android)")}
                     <Info className="w-3 h-3 text-slate-400" />
                   </label>
                   <input
@@ -274,7 +275,7 @@ export default function AppWebSettings() {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
-                    Download URL for Restaurant App (Android)
+                    {vt("Download URL for Seller App (Android)")}
                     <Info className="w-3 h-3 text-slate-400" />
                   </label>
                   <input
@@ -297,7 +298,7 @@ export default function AppWebSettings() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
-                    Minimum Restaurant App Version for Force Update (Ios)
+                    {vt("Minimum Seller App Version for Force Update (Ios)")}
                     <Info className="w-3 h-3 text-slate-400" />
                   </label>
                   <input
@@ -310,7 +311,7 @@ export default function AppWebSettings() {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
-                    Download URL for Restaurant App (Ios)
+                    {vt("Download URL for Seller App (Ios)")}
                     <Info className="w-3 h-3 text-slate-400" />
                   </label>
                   <input

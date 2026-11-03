@@ -249,3 +249,74 @@ export const exportCustomersToJSON = (customers, filename = "customers") => {
   URL.revokeObjectURL(url)
 }
 
+// vCard 3.0 text values escape backslash, comma, semicolon and newlines.
+const vcardEscape = (value) =>
+  String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;")
+
+// Indian mobiles are stored as 10 digits; the contact needs +91 to dial from
+// any phone. Anything else is kept as typed.
+const vcardPhone = (phone) => {
+  const digits = String(phone || "").replace(/\D/g, "")
+  if (digits.length === 10) return `+91${digits}`
+  if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`
+  return String(phone || "").trim()
+}
+
+/**
+ * One contact per customer, for importing into a phone or Google Contacts.
+ * Customers with neither a phone nor an email are skipped: a contact with
+ * nothing to reach is noise in the address book.
+ */
+export const exportCustomersToVCF = (customers, filename = "customers") => {
+  if (!customers || customers.length === 0) {
+    alert("No customers to export")
+    return 0
+  }
+
+  const cards = []
+  for (const customer of customers) {
+    const phone = vcardPhone(customer.phone)
+    const email = String(customer.email || "").trim()
+    if (!phone && !email) continue
+
+    const name = String(customer.name || "").trim() || `Maava customer ${phone || email}`
+    const lines = [
+      "BEGIN:VCARD",
+      "VERSION:3.0",
+      `FN:${vcardEscape(name)}`,
+      `N:${vcardEscape(name)};;;;`,
+      "ORG:Maava customer",
+    ]
+    if (phone) lines.push(`TEL;TYPE=CELL:${phone}`)
+    if (email) lines.push(`EMAIL;TYPE=INTERNET:${vcardEscape(email)}`)
+    lines.push(
+      `NOTE:${vcardEscape(
+        `Orders: ${customer.totalOrder || 0}, spent Rs. ${Number(customer.totalOrderAmount || 0).toFixed(2)}, joined ${formatJoiningDateTime(customer.joiningDate)}`,
+      )}`,
+    )
+    lines.push("END:VCARD")
+    cards.push(lines.join("\r\n"))
+  }
+
+  if (cards.length === 0) {
+    alert("None of these customers has a phone number or email")
+    return 0
+  }
+
+  const blob = new Blob([cards.join("\r\n") + "\r\n"], { type: "text/vcard;charset=utf-8" })
+  const link = document.createElement("a")
+  const url = URL.createObjectURL(blob)
+  link.setAttribute("href", url)
+  const timestamp = new Date().toISOString().split("T")[0]
+  link.setAttribute("download", `${filename}_${timestamp}.vcf`)
+  link.style.visibility = "hidden"
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+  return cards.length
+}

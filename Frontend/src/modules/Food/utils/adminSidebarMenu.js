@@ -196,6 +196,7 @@ export const adminSidebarMenu = [
     label: "REPORT MANAGEMENT",
     items: [
       { type: "link", label: "Transaction Report", path: "/admin/store/transaction-report", icon: "FileText" },
+      { type: "link", label: "Zone Earnings", path: "/admin/store/zone-earnings", icon: "MapPin" },
       { type: "link", label: "Order Report", path: "/admin/store/order-report/regular", icon: "FileText" },
       { type: "link", label: "Tax Report", path: "/admin/store/tax-report", icon: "Receipt" },
       {

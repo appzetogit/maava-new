@@ -66,10 +66,13 @@ const normalizeFontFamily = (value, fallback) => {
     return POWER_SCANNING_FONT_OPTIONS.includes(raw) ? raw : fallback;
 };
 
+// Half-minute steps, so a 1:30 timer can be set.
+const roundToHalfMinute = (value) => Math.round(Number(value) * 2) / 2;
+
 const normalizeOrderAcceptanceMinutes = (value, fallback = 4) => {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return fallback;
-    return Math.max(1, Math.min(20, Math.round(numeric)));
+    return Math.max(1, Math.min(20, roundToHalfMinute(numeric)));
 };
 
 const buildPowerScanningPayload = (payload = {}, existing = POWER_SCANNING_DEFAULT) =>
@@ -209,7 +212,7 @@ export async function updateOrderAcceptanceSettings(req, res, next) {
             return res.status(400).json({ success: false, message: 'Order acceptance time is required' });
         }
 
-        const minutes = Math.round(numeric);
+        const minutes = roundToHalfMinute(numeric);
         if (minutes < 1 || minutes > 20) {
             return res.status(400).json({ success: false, message: 'Order acceptance time must be between 1 and 20 minutes' });
         }

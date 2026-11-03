@@ -2,7 +2,7 @@ import { useState, useEffect } from "react"
 import { useSearchParams } from "react-router-dom"
 import { Search, Download, ChevronDown, ChevronLeft, ChevronRight, Calendar, Eye, FileDown, FileSpreadsheet, FileText, X, Mail, Phone, MapPin, Package, IndianRupee, Calendar as CalendarIcon, User, CheckCircle, XCircle } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
-import { exportCustomersToCSV, exportCustomersToExcel, exportCustomersToPDF } from "@food/components/admin/customers/customersExportUtils"
+import { exportCustomersToCSV, exportCustomersToExcel, exportCustomersToPDF, exportCustomersToVCF } from "@food/components/admin/customers/customersExportUtils"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@food/components/ui/dialog"
@@ -11,6 +11,8 @@ const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 const PAGE_SIZE = 20
+// The most the customers API returns per request.
+const EXPORT_PAGE_SIZE = 1000
 
 export default function Customers() {
   const [searchQuery, setSearchQuery] = useState("")
@@ -23,6 +25,7 @@ export default function Customers() {
   const [userDetails, setUserDetails] = useState(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [showUserDetails, setShowUserDetails] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [filters, setFilters] = useState({
     orderDate: "",
     joiningDate: "",
@@ -177,34 +180,85 @@ export default function Customers() {
     }
   }
 
-  const handleExport = (format) => {
-    if (customers.length === 0) {
+  /**
+   * Every customer matching the current search and filters, page by page.
+   *
+   * The table holds only the page on screen (20 rows), and the export used to
+   * write out just those -- so a download of "all customers" had 20 in it.
+   */
+  const fetchAllCustomersForExport = async () => {
+    const chooseFirst = parseInt(filters.chooseFirst, 10)
+    const cap = Number.isFinite(chooseFirst) && chooseFirst > 0 ? chooseFirst : Infinity
+    const base = {
+      ...(searchQuery && { search: searchQuery }),
+      ...(filters.status && { status: filters.status }),
+      ...(filters.joiningDate && { joiningDate: filters.joiningDate }),
+      ...(filters.sortBy && { sortBy: filters.sortBy }),
+    }
+
+    const all = []
+    for (let p = 1; all.length < cap; p++) {
+      const response = await adminAPI.getCustomers({ ...base, page: p, limit: EXPORT_PAGE_SIZE })
+      const data = response?.data?.data || response?.data
+      const list = data?.customers || data?.users || []
+      if (!Array.isArray(list) || list.length === 0) break
+      all.push(...list)
+      const total = Number(data?.total)
+      if (list.length < EXPORT_PAGE_SIZE || (Number.isFinite(total) && all.length >= total)) break
+    }
+    // Serial numbers run across the whole file, not restart on every page.
+    return all.slice(0, cap).map((c, i) => ({ ...c, sl: i + 1 }))
+  }
+
+  const handleExport = async (format) => {
+    if (exporting) return
+    if (totalCustomers === 0) {
       toast.error("No customers to export")
       return
     }
 
     const filename = "customers"
+    setExporting(true)
+    const progress = toast.loading(`Preparing ${totalCustomers.toLocaleString("en-IN")} customers...`)
     try {
+      const all = await fetchAllCustomersForExport()
+      if (all.length === 0) {
+        toast.error("No customers to export", { id: progress })
+        return
+      }
+      const count = all.length.toLocaleString("en-IN")
       switch (format) {
         case "csv":
-          exportCustomersToCSV(customers, filename)
-          toast.success("CSV export started")
+          exportCustomersToCSV(all, filename)
+          toast.success(`CSV downloaded: ${count} customers`, { id: progress })
           break
         case "excel":
-          exportCustomersToExcel(customers, filename)
-          toast.success("Excel export started")
+          exportCustomersToExcel(all, filename)
+          toast.success(`Excel downloaded: ${count} customers`, { id: progress })
           break
         case "pdf":
-          exportCustomersToPDF(customers, filename)
-          toast.success("PDF download started")
+          exportCustomersToPDF(all, filename)
+          toast.success(`PDF downloaded: ${count} customers`, { id: progress })
           break
+        case "vcf": {
+          const contacts = exportCustomersToVCF(all, filename)
+          const skipped = all.length - contacts
+          toast.success(
+            `VCF downloaded: ${contacts.toLocaleString("en-IN")} contacts` +
+              (skipped > 0 ? ` (${skipped} without phone or email left out)` : ""),
+            { id: progress },
+          )
+          break
+        }
         default:
-          toast.error("Invalid export format")
+          toast.error("Invalid export format", { id: progress })
           break
       }
     } catch (error) {
       debugError("Export error:", error)
-      toast.error("Failed to export customers")
+      toast.error("Could not export customers. Try again.", { id: progress })
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -362,9 +416,9 @@ export default function Customers() {
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="px-4 py-2.5 text-sm font-medium rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-2 transition-all">
+                  <button disabled={exporting} className="px-4 py-2.5 text-sm font-medium rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-2 transition-all disabled:opacity-60 disabled:cursor-wait">
                     <Download className="w-4 h-4" />
-                    <span className="text-black font-bold">Export</span>
+                    <span className="text-black font-bold">{exporting ? "Exporting..." : "Export"}</span>
                     <ChevronDown className="w-3 h-3" />
                   </button>
                 </DropdownMenuTrigger>
@@ -382,6 +436,10 @@ export default function Customers() {
                   <DropdownMenuItem onClick={() => handleExport("pdf")} className="cursor-pointer">
                     <FileText className="w-4 h-4 mr-2" />
                     Export as PDF
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleExport("vcf")} className="cursor-pointer">
+                    <Phone className="w-4 h-4 mr-2" />
+                    Export as VCF (contacts)
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

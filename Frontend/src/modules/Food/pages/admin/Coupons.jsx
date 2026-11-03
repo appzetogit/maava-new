@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { Check, ChevronDown, Search, X } from "lucide-react"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -125,8 +126,8 @@ function RestaurantMultiSelect({ restaurants, value, onChange, error }) {
       >
         <span className={selectedIds.length ? "font-medium text-slate-700" : "text-slate-400"}>
           {selectedIds.length
-            ? `${selectedIds.length} restaurant${selectedIds.length === 1 ? "" : "s"} selected`
-            : "Choose restaurants"}
+            ? `${selectedIds.length} ${vt("seller")}${selectedIds.length === 1 ? "" : "s"} selected`
+            : vt("Choose sellers")}
         </span>
         <ChevronDown className={`h-4 w-4 text-slate-400 transition ${isOpen ? "rotate-180" : ""}`} />
       </button>
@@ -140,7 +141,7 @@ function RestaurantMultiSelect({ restaurants, value, onChange, error }) {
                 type="text"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search restaurants..."
+                placeholder={vt("Search sellers...")}
                 className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 autoFocus
               />
@@ -164,7 +165,7 @@ function RestaurantMultiSelect({ restaurants, value, onChange, error }) {
                   }`}>
                     {selected && <Check className="h-3.5 w-3.5" />}
                   </span>
-                  <span className="truncate font-medium">{restaurant.name || "Unnamed restaurant"}</span>
+                  <span className="truncate font-medium">{restaurant.name || vt("Unnamed seller")}</span>
                 </button>
               )
             }) : (
@@ -254,6 +255,33 @@ function PerCustomerLimitCell({ offer, onSaved }) {
       />
       <span className="text-xs text-slate-500">{Number(value) === 0 ? "∞" : "max"}</span>
     </div>
+  )
+}
+
+/**
+ * What the coupon does to a real basket, worked out the way checkout does:
+ * percentage of the item total, then the cap if there is one, rounded down.
+ * Shown on a ₹200 order, or on the minimum order when that is higher, so a cap
+ * that swallows the percentage is visible before the coupon is saved.
+ */
+function CouponPreview({ type, value, maxDiscount, minOrderValue }) {
+  const v = Number(value)
+  if (!Number.isFinite(v) || v <= 0) return null
+  const basket = Math.max(200, Number(minOrderValue) || 0)
+  const cap = Number(maxDiscount) > 0 ? Number(maxDiscount) : null
+  let off
+  if (type === "percentage") {
+    const raw = (basket * Math.min(v, 100)) / 100
+    off = Math.floor(cap ? Math.min(raw, cap) : raw)
+  } else {
+    off = Math.floor(Math.min(v, basket))
+  }
+  const capped = type === "percentage" && cap && (basket * v) / 100 > cap
+  return (
+    <p className={`mt-1.5 text-xs ${capped ? "text-amber-700" : "text-emerald-700"}`}>
+      On a ₹{basket} order: ₹{off} off, customer pays ₹{basket - off}.
+      {capped && ` Capped at ₹${cap}; clear Max Discount for the full ${v}%.`}
+    </p>
   )
 }
 
@@ -369,9 +397,8 @@ export default function Coupons() {
     const value = Number(f.discountValue)
     if (!String(f.couponCode || "").trim()) e.couponCode = "Coupon code is required"
     if (!Number.isFinite(value) || value <= 0) e.discountValue = "Discount must be greater than 0"
-    if (pct && (f.maxDiscount === "" || f.maxDiscount === null || f.maxDiscount === undefined)) {
-      e.maxDiscount = "Max discount is required for percentage coupons"
-    }
+    if (pct && value > 100) e.discountValue = "A percentage cannot be more than 100"
+    if (pct && f.maxDiscount !== "" && Number(f.maxDiscount) < 0) e.maxDiscount = "Max discount cannot be negative"
     if (f.minOrderValue !== "" && Number(f.minOrderValue) < 0) e.minOrderValue = "Min order cannot be negative"
     if (f.usageLimit !== "" && Number(f.usageLimit) < 1) e.usageLimit = "Usage limit must be at least 1"
     if (f.perUserLimit !== "" && (!Number.isInteger(Number(f.perUserLimit)) || Number(f.perUserLimit) < 0)) {
@@ -386,7 +413,7 @@ export default function Coupons() {
       e.restaurantBearPercentage = "Both shares must total 100%"
     }
     if (f.restaurantScope === "selected" && (!Array.isArray(f.restaurantIds) || f.restaurantIds.length === 0)) {
-      e.restaurantIds = "Select at least one restaurant"
+      e.restaurantIds = vt("Select at least one seller")
     }
     const start = f.startDate ? new Date(`${f.startDate}T00:00:00`) : null
     const end = f.endDate ? new Date(`${f.endDate}T00:00:00`) : null
@@ -524,7 +551,7 @@ export default function Coupons() {
     }
 
     if (formData.restaurantScope === "selected" && formData.restaurantIds.length === 0) {
-      setSubmitError("Please select at least one restaurant")
+      setSubmitError(vt("Please select at least one seller"))
       return
     }
 
@@ -547,7 +574,8 @@ export default function Coupons() {
         endDate: formData.endDate || undefined,
         startDate: formData.startDate || undefined,
         minOrderValue: formData.minOrderValue !== "" ? Number(formData.minOrderValue) : undefined,
-        maxDiscount: formData.discountType === "percentage" && formData.maxDiscount !== "" ? Number(formData.maxDiscount) : undefined,
+        // Blank means no cap.
+        maxDiscount: formData.discountType === "percentage" && Number(formData.maxDiscount) > 0 ? Number(formData.maxDiscount) : null,
         usageLimit: formData.usageLimit !== "" ? Number(formData.usageLimit) : undefined,
         perUserLimit: formData.perUserLimit !== "" ? Number(formData.perUserLimit) : undefined,
         isFirstOrderOnly: Boolean(formData.isFirstOrderOnly),
@@ -621,7 +649,7 @@ export default function Coupons() {
         {/* Header */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-4">
-            <h1 className="text-2xl font-bold text-slate-900">Restaurant Offers & Coupons</h1>
+            <h1 className="text-2xl font-bold text-slate-900">{vt("Seller Offers & Coupons")}</h1>
             <button
               type="button"
               onClick={() => {
@@ -681,6 +709,12 @@ export default function Coupons() {
                     className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.discountValue ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
                   />
                   {errors.discountValue && <p className="mt-1 text-xs text-red-600">{errors.discountValue}</p>}
+                  <CouponPreview
+                    type={formData.discountType}
+                    value={formData.discountValue}
+                    maxDiscount={formData.maxDiscount}
+                    minOrderValue={formData.minOrderValue}
+                  />
                 </div>
 
                 <div>
@@ -697,14 +731,14 @@ export default function Coupons() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Restaurant Scope</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">{vt("Seller Scope")}</label>
                   <StyledSelect
                     value={formData.restaurantScope}
                     onChange={(value) => handleFormChange("restaurantScope", value)}
-                    ariaLabel="Restaurant scope"
+                    ariaLabel={vt("Seller scope")}
                     options={[
-                      { value: "all", label: "All Restaurants" },
-                      { value: "selected", label: "Selected Restaurants" },
+                      { value: "all", label: vt("All Sellers") },
+                      { value: "selected", label: vt("Selected Sellers") },
                     ]}
                   />
                 </div>
@@ -796,14 +830,14 @@ export default function Coupons() {
               </div>
 
                 <div title={formData.discountType === "flat-price" ? "Max discount is not applicable for flat coupons" : ""}>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Max Discount (₹, optional)</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Max Discount (₹, optional, leave blank for no limit)</label>
                 <input
                   type="number"
                   min="0"
                   step="1"
                     value={formData.maxDiscount}
                     onChange={(e) => handleFormChange("maxDiscount", e.target.value)}
-                  placeholder="e.g. 100"
+                  placeholder="No limit"
                     disabled={formData.discountType === "flat-price"}
                     className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.maxDiscount ? "border-red-500" : "border-slate-300"} bg-white disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
                 />
@@ -826,7 +860,7 @@ export default function Coupons() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Restaurant Bear (%)</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">{vt("Seller Bear (%)")}</label>
                 <input
                   type="number"
                   min="0"
@@ -885,7 +919,7 @@ export default function Coupons() {
 
                 {formData.restaurantScope === "selected" && (
                   <div className="md:col-span-2 lg:col-span-3">
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Select Restaurants</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">{vt("Select Sellers")}</label>
                     <RestaurantMultiSelect
                       restaurants={restaurants}
                       value={formData.restaurantIds}
@@ -920,7 +954,7 @@ export default function Coupons() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
             <input
               type="text"
-              placeholder="Search by restaurant name, dish name, or coupon code..."
+              placeholder={vt("Search by seller name, dish name, or coupon code...")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -962,7 +996,7 @@ export default function Coupons() {
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">SI</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Restaurant</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">{vt("Seller")}</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Dish</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Coupon Code</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Customer Scope</th>
@@ -987,7 +1021,7 @@ export default function Coupons() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm font-medium text-slate-900">
-                          {offer.restaurantScope === "all" || offer.restaurantName === "All Restaurants" ? "All Restaurants" : offer.restaurantName}
+                          {offer.restaurantScope === "all" || offer.restaurantName === "All Restaurants" ? vt("All Sellers") : offer.restaurantName}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">

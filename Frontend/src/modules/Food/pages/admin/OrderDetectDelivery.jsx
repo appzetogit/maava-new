@@ -7,6 +7,7 @@ import OrderDetectDeliveryTable from "@food/components/admin/orders/OrderDetectD
 import ViewOrderDetectDeliveryDialog from "@food/components/admin/orders/ViewOrderDetectDeliveryDialog"
 import SettingsDialog from "@food/components/admin/orders/SettingsDialog"
 import { useGenericTableManagement } from "@food/components/admin/orders/useGenericTableManagement"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -249,7 +250,7 @@ const transformOrder = (order, index) => {
     orderId: order.orderId,
     userName: order.customerName || order.userName || user?.name || 'Unknown',
     userNumber: order.customerPhone || order.userNumber || user?.phone || order.deliveryAddress?.phone || 'N/A',
-    restaurantName: order.restaurantName || order.restaurant || restaurant?.restaurantName || 'Unknown Restaurant',
+    restaurantName: order.restaurantName || order.restaurant || restaurant?.restaurantName || vt('Unknown Seller'),
     deliveryBoyName,
     deliveryBoyNumber,
     status: displayStatus,
@@ -457,7 +458,7 @@ export default function OrderDetectDelivery() {
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-500 mb-1">Restaurant Accepted</p>
+              <p className="text-sm text-slate-500 mb-1">{vt("Seller Accepted")}</p>
               <p className="text-2xl font-bold text-emerald-600">{stats.restaurantAccepted}</p>
             </div>
             <div className="p-3 bg-emerald-50 rounded-lg">
@@ -543,7 +544,7 @@ export default function OrderDetectDelivery() {
           si: "Serial Number",
           orderId: "Order ID",
           userInfo: "User Name & Number",
-          restaurantName: "Restaurant Name",
+          restaurantName: vt("Seller Name"),
           deliveryBoy: "Delivery Boy Name & Number",
           status: "Status",
           actions: "Actions",

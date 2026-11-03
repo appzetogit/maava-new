@@ -4,6 +4,7 @@ import { emptyRestaurantVATReports, emptyRestaurantVATStats } from "@food/utils/
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
 import { exportReportsToCSV, exportReportsToExcel, exportReportsToPDF, exportReportsToJSON } from "@food/components/admin/reports/reportsExportUtils"
+import { vt } from "@food/utils/adminVerticalLabels"
 
 export default function RestaurantVATReport() {
   const [searchQuery, setSearchQuery] = useState("")
@@ -43,7 +44,7 @@ export default function RestaurantVATReport() {
     }
     const headers = [
       { key: "sl", label: "SI" },
-      { key: "restaurantName", label: "Restaurant Info" },
+      { key: "restaurantName", label: vt("Seller Info") },
       { key: "totalOrder", label: "Total Order" },
       { key: "totalOrderAmount", label: "Total Order Amount" },
       { key: "taxAmount", label: "Tax Amount" },
@@ -51,7 +52,7 @@ export default function RestaurantVATReport() {
     switch (format) {
       case "csv": exportReportsToCSV(filteredReports, headers, "restaurant_vat_report"); break
       case "excel": exportReportsToExcel(filteredReports, headers, "restaurant_vat_report"); break
-      case "pdf": exportReportsToPDF(filteredReports, headers, "restaurant_vat_report", "Restaurant VAT Report"); break
+      case "pdf": exportReportsToPDF(filteredReports, headers, "restaurant_vat_report", vt("Seller VAT Report")); break
       case "json": exportReportsToJSON(filteredReports, "restaurant_vat_report"); break
     }
   }
@@ -76,7 +77,7 @@ export default function RestaurantVATReport() {
       <div className="w-full max-w-full">
         {/* Page Header */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-          <h1 className="text-2xl font-bold text-slate-900">Restaurant Tax Report</h1>
+          <h1 className="text-2xl font-bold text-slate-900">{vt("Seller Tax Report")}</h1>
         </div>
 
         {/* Filter Section */}
@@ -108,14 +109,14 @@ export default function RestaurantVATReport() {
 
               <div className="relative flex-1 min-w-[200px]">
                 <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Select Restaurant
+                  {vt("Select Seller")}
                 </label>
                 <select
                   value={filters.restaurant}
                   onChange={(e) => setFilters(prev => ({ ...prev, restaurant: e.target.value }))}
                   className="w-full px-4 py-2.5 pr-8 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="All Restaurants">All Restaurants</option>
+                  <option value="All Restaurants">{vt("All Sellers")}</option>
                   <option value="Café Monarch">Café Monarch</option>
                   <option value="Hungry Puppets">Hungry Puppets</option>
                   <option value="Cheesy Restaurant">Cheesy Restaurant</option>
@@ -235,7 +236,7 @@ export default function RestaurantVATReport() {
         {/* All Restaurant Taxes Section */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-            <h2 className="text-xl font-bold text-slate-900">All Restaurant Taxes</h2>
+            <h2 className="text-xl font-bold text-slate-900">{vt("All Seller Taxes")}</h2>
 
             <div className="flex items-center gap-3">
               <div className="relative flex-1 sm:flex-initial min-w-[200px]">
@@ -306,7 +307,7 @@ export default function RestaurantVATReport() {
                       SI
                     </th>
                     <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                      Restaurant Info
+                      {vt("Seller Info")}
                     </th>
                     <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                       Total Order
@@ -370,7 +371,7 @@ export default function RestaurantVATReport() {
           </DialogHeader>
           <div className="px-6 pb-6">
             <p className="text-sm text-slate-700">
-              Restaurant VAT report settings and preferences will be available here.
+              {vt("Seller VAT report settings and preferences will be available here.")}
             </p>
           </div>
           <div className="px-6 pb-6 flex items-center justify-end">

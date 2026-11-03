@@ -8,6 +8,7 @@ import { Label } from "@food/components/ui/label"
 import { Button } from "@food/components/ui/button"
 import { adminAPI, uploadAPI, zoneAPI } from "@food/api"
 import { toast } from "sonner"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => { console.warn(...args) }
 const debugError = (...args) => { console.error(...args) }
@@ -413,8 +414,8 @@ export default function AddRestaurant() {
   // Validation functions
   const validateStep1 = () => {
     const errors = []
-    if (!step1.restaurantName?.trim()) errors.push("Restaurant name is required")
-    if (typeof step1.pureVegRestaurant !== "boolean") errors.push("Please select whether restaurant is pure veg")
+    if (!step1.restaurantName?.trim()) errors.push(vt("Seller name is required"))
+    if (typeof step1.pureVegRestaurant !== "boolean") errors.push(vt("Please select whether seller is pure veg"))
     if (!step1.ownerName?.trim()) errors.push("Owner name is required")
     if (step1.ownerName?.trim() && (!NAME_REGEX.test(step1.ownerName.trim()) || !hasLetters(step1.ownerName))) {
       errors.push("Owner name must contain valid characters")
@@ -458,7 +459,7 @@ export default function AddRestaurant() {
   const validateStep2 = () => {
     const errors = []
     if (!step2.menuImages || step2.menuImages.length === 0) errors.push("At least one menu image is required")
-    if (!step2.profileImage) errors.push("Restaurant profile image is required")
+    if (!step2.profileImage) errors.push(vt("Seller profile image is required"))
     if (!step2.cuisines || step2.cuisines.length === 0) errors.push("Please select at least one cuisine")
     if (!step2.estimatedDeliveryTime?.trim()) errors.push("Estimated delivery time is required")
     if (!step2.openingTime?.trim()) errors.push("Opening time is required")
@@ -541,7 +542,7 @@ export default function AddRestaurant() {
     if (step === 1) {
       const duplicateOwnerPhone = await checkDuplicateRestaurantPhone(step1.ownerPhone)
       if (duplicateOwnerPhone) {
-        const msg = "Restaurant already exists with the same mobile number"
+        const msg = vt("Seller already exists with the same mobile number")
         setFormErrors({ ownerPhone: msg })
         toast.error(msg)
         return
@@ -563,14 +564,14 @@ export default function AddRestaurant() {
       // Upload all images first
       let profileImageData = null
       if (step2.profileImage instanceof File) {
-        profileImageData = await handleUpload(step2.profileImage, "switcheats/restaurant/profile")
+        profileImageData = await handleUpload(step2.profileImage, "maava/restaurant/profile")
       } else if (step2.profileImage?.url) {
         profileImageData = step2.profileImage
       }
 
       let menuImagesData = []
       for (const file of step2.menuImages.filter(f => f instanceof File)) {
-        const uploaded = await handleUpload(file, "switcheats/restaurant/menu")
+        const uploaded = await handleUpload(file, "maava/restaurant/menu")
         menuImagesData.push(uploaded)
       }
       const existingMenuUrls = step2.menuImages.filter(img => !(img instanceof File) && (img?.url || (typeof img === 'string' && img.startsWith('http'))))
@@ -578,7 +579,7 @@ export default function AddRestaurant() {
 
       let panImageData = null
       if (step3.panImage instanceof File) {
-        panImageData = await handleUpload(step3.panImage, "switcheats/restaurant/pan")
+        panImageData = await handleUpload(step3.panImage, "maava/restaurant/pan")
       } else if (step3.panImage?.url) {
         panImageData = step3.panImage
       }
@@ -586,7 +587,7 @@ export default function AddRestaurant() {
       let gstImageData = null
       if (step3.gstRegistered && step3.gstImage) {
         if (step3.gstImage instanceof File) {
-          gstImageData = await handleUpload(step3.gstImage, "switcheats/restaurant/gst")
+          gstImageData = await handleUpload(step3.gstImage, "maava/restaurant/gst")
         } else if (step3.gstImage?.url) {
           gstImageData = step3.gstImage
         }
@@ -594,7 +595,7 @@ export default function AddRestaurant() {
 
       let fssaiImageData = null
       if (step3.fssaiImage instanceof File) {
-        fssaiImageData = await handleUpload(step3.fssaiImage, "switcheats/restaurant/fssai")
+        fssaiImageData = await handleUpload(step3.fssaiImage, "maava/restaurant/fssai")
       } else if (step3.fssaiImage?.url) {
         fssaiImageData = step3.fssaiImage
       }
@@ -642,17 +643,17 @@ export default function AddRestaurant() {
       const data = response?.data?.data ?? response?.data
       if (response?.data?.success !== false && data) {
         await clearPersistedFormData()
-        toast.success("Restaurant created successfully!")
+        toast.success(vt("Seller created successfully!"))
         setShowSuccessDialog(true)
         setTimeout(() => {
           navigate("/admin/store/sellers")
         }, 2000)
       } else {
-        throw new Error(response?.data?.message || "Failed to create restaurant")
+        throw new Error(response?.data?.message || vt("Failed to create seller"))
       }
     } catch (error) {
       debugError("Error creating restaurant:", error)
-      const errorMsg = error?.response?.data?.message || error?.message || "Failed to create restaurant. Please try again."
+      const errorMsg = error?.response?.data?.message || error?.message || vt("Failed to create seller. Please try again.")
       toast.error(errorMsg)
       setFormErrors({ submit: errorMsg })
     } finally {
@@ -905,10 +906,10 @@ export default function AddRestaurant() {
   const renderStep1 = () => (
     <div className="space-y-6">
       <section className="bg-white p-4 sm:p-6 rounded-md">
-        <h2 className="text-lg font-semibold text-black mb-4">Restaurant information</h2>
+        <h2 className="text-lg font-semibold text-black mb-4">{vt("Seller information")}</h2>
         <div className="space-y-4">
           <div>
-            <Label className="text-xs text-gray-700">Restaurant name*</Label>
+            <Label className="text-xs text-gray-700">{vt("Seller name*")}</Label>
             <Input
               value={step1.restaurantName || ""}
               onChange={(e) => setStep1({ ...step1, restaurantName: e.target.value })}
@@ -943,7 +944,7 @@ export default function AddRestaurant() {
               </button>
             </div>
             <p className="text-[11px] text-gray-500 mt-1">
-              This helps users filter restaurants by dietary preference.
+              {vt("This helps users filter sellers by dietary preference.")}
             </p>
           </div>
         </div>
@@ -982,7 +983,7 @@ export default function AddRestaurant() {
               onBlur={async () => {
                 const duplicateOwnerPhone = await checkDuplicateRestaurantPhone(step1.ownerPhone)
                 if (duplicateOwnerPhone) {
-                  setFormErrors((prev) => ({ ...prev, ownerPhone: "Restaurant already exists with the same mobile number" }))
+                  setFormErrors((prev) => ({ ...prev, ownerPhone: vt("Seller already exists with the same mobile number") }))
                 }
               }}
               className="mt-1 bg-white text-sm text-black placeholder-black"
@@ -998,7 +999,7 @@ export default function AddRestaurant() {
       </section>
 
       <section className="bg-white p-4 sm:p-6 rounded-md space-y-4">
-        <h2 className="text-lg font-semibold text-black">Restaurant contact & location</h2>
+        <h2 className="text-lg font-semibold text-black">{vt("Seller contact & location")}</h2>
         <div className="relative">
           <Label className="text-xs text-gray-700">Search location</Label>
           <div className="relative">
@@ -1007,7 +1008,7 @@ export default function AddRestaurant() {
               value={locationSearchValue}
               onChange={(e) => setLocationSearchValue(e.target.value)}
               className="mt-1 bg-white text-sm"
-              placeholder="Search and select restaurant address..."
+              placeholder={vt("Search and select seller address...")}
             />
             {isSearchingLocation && (
               <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -1078,7 +1079,7 @@ export default function AddRestaurant() {
             })}
           </select>
           <p className="text-[11px] text-gray-500 mt-1">
-            Choose the service zone where your restaurant will be available.
+            {vt("Choose the service zone where your seller will be available.")}
           </p>
         </div>
         <div>
@@ -1087,7 +1088,7 @@ export default function AddRestaurant() {
             value={step1.primaryContactNumber || ""}
             onChange={(e) => setStep1({ ...step1, primaryContactNumber: sanitizeDigits(e.target.value).slice(0, 10) })}
             className="mt-1 bg-white text-sm text-black placeholder-black"
-            placeholder="Restaurant's primary contact number"
+            placeholder={vt("Seller's primary contact number")}
             inputMode="numeric"
             maxLength={10}
           />
@@ -1188,7 +1189,7 @@ export default function AddRestaurant() {
         </div>
 
         <div className="space-y-2">
-          <Label className="text-xs font-medium text-gray-700">Restaurant profile image*</Label>
+          <Label className="text-xs font-medium text-gray-700">{vt("Seller profile image*")}</Label>
           <div className="flex items-center gap-4">
             <div className="h-16 w-16 rounded-full bg-gray-100 flex items-center justify-center overflow-hidden">
               {step2.profileImage ? (
@@ -1493,7 +1494,7 @@ export default function AddRestaurant() {
       <header className="px-4 py-4 sm:px-6 sm:py-5 bg-white flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Building2 className="w-5 h-5 text-blue-600" />
-          <div className="text-sm font-semibold text-black">Add New Restaurant</div>
+          <div className="text-sm font-semibold text-black">{vt("Add New Seller")}</div>
         </div>
         <div className="text-xs text-gray-600">Step {step} of 3</div>
       </header>
@@ -1521,7 +1522,7 @@ export default function AddRestaurant() {
             disabled={isSubmitting}
             className="text-sm bg-black text-white px-6"
           >
-            {step === 3 ? (isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating... </> : "Create Restaurant") : isSubmitting ? "Saving..." : "Continue"}
+            {step === 3 ? (isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating... </> : vt("Create Seller")) : isSubmitting ? "Saving..." : "Continue"}
           </Button>
         </div>
       </footer>
@@ -1539,9 +1540,9 @@ export default function AddRestaurant() {
               </div>
             </div>
             <DialogHeader>
-              <DialogTitle className="text-2xl font-bold text-slate-900 mb-2">Restaurant Created Successfully!</DialogTitle>
+              <DialogTitle className="text-2xl font-bold text-slate-900 mb-2">{vt("Seller Created Successfully!")}</DialogTitle>
               <DialogDescription className="text-sm text-slate-600">
-                The restaurant has been created successfully.
+                {vt("The seller has been created successfully.")}
               </DialogDescription>
             </DialogHeader>
           </div>

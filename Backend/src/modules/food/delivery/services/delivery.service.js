@@ -199,7 +199,7 @@ export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
     }
 
     const {
-        name, countryCode, address, city, state,
+        name, email, countryCode, address, city, state,
         vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
         serviceType, fcmToken, platform
     } = payload;
@@ -207,6 +207,7 @@ export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
     if (serviceType !== undefined) partner.serviceType = serviceType;
 
     if (name) partner.name = name;
+    if (email !== undefined) partner.email = String(email || '').trim().toLowerCase();
     if (countryCode !== undefined) partner.countryCode = countryCode;
     if (address !== undefined) partner.address = address;
     if (city !== undefined) partner.city = city;

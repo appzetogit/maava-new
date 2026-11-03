@@ -4,6 +4,7 @@ import { emptyExpenseReports } from "@food/utils/adminFallbackData"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
 import { exportReportsToCSV, exportReportsToExcel, exportReportsToPDF, exportReportsToJSON } from "@food/components/admin/reports/reportsExportUtils"
+import { vt } from "@food/utils/adminVerticalLabels"
 
 export default function ExpenseReport() {
   const [searchQuery, setSearchQuery] = useState("")
@@ -131,16 +132,16 @@ export default function ExpenseReport() {
 
               <div className="relative">
                 <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Restaurant
+                  {vt("Seller")}
                 </label>
                 <select
                   value={filters.restaurant}
                   onChange={(e) => setFilters(prev => ({ ...prev, restaurant: e.target.value }))}
                   className="w-full px-4 py-2.5 pr-8 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="All restaurants">All restaurants</option>
-                  <option value="Restaurant 1">Restaurant 1</option>
-                  <option value="Restaurant 2">Restaurant 2</option>
+                  <option value="All restaurants">{vt("All sellers")}</option>
+                  <option value="Restaurant 1">{vt("Seller 1")}</option>
+                  <option value="Restaurant 2">{vt("Seller 2")}</option>
                 </select>
                 <ChevronDown className="absolute right-2 bottom-2.5 w-4 h-4 text-slate-500 pointer-events-none" />
               </div>

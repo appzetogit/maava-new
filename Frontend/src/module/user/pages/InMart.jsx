@@ -1098,6 +1098,33 @@ export default function InMart() {
 
   const [inMartHeroBanner, setInMartHeroBanner] = useState(null)
 
+  // "Store closed" when no Mart store serving the customer's location is open.
+  // Re-checked every minute so it clears on its own at opening time.
+  const [storeStatus, setStoreStatus] = useState({ isOpen: true })
+  useEffect(() => {
+    let cancelled = false
+    const check = async () => {
+      let coords = {}
+      try {
+        const loc = JSON.parse(localStorage.getItem("userLocation") || "null")
+        const lat = Number(loc?.latitude ?? loc?.lat)
+        const lng = Number(loc?.longitude ?? loc?.lng)
+        if (Number.isFinite(lat) && Number.isFinite(lng)) coords = { lat, lng }
+      } catch { /* no stored location: ask without one */ }
+      // ?storeClosedPreview shows the closed header on this screen only, so it
+      // can be checked during opening hours without closing a real store.
+      const status = await inmartAPI.getStoreStatus(coords)
+      // ?storeClosedPreview forces the closed view on this screen only; the
+      // hours in it are still the stores' real ones from the server.
+      const preview = new URLSearchParams(window.location.search).has("storeClosedPreview")
+      if (!cancelled) setStoreStatus(preview ? { ...status, hasStores: true, isOpen: false } : status)
+    }
+    check()
+    const timer = setInterval(check, 60000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [])
+  const storeClosed = storeStatus?.hasStores !== false && storeStatus?.isOpen === false
+
   useEffect(() => {
     const fetchInMartHeroBanner = async () => {
       try {
@@ -1260,6 +1287,22 @@ export default function InMart() {
               zIndex={20}
             />
           </div>
+
+          {/* Store closed: same wording as the app's Mart header. */}
+          {storeClosed && (
+            <div className="relative z-20 px-4 sm:px-6 lg:px-8 xl:px-12 mt-3" role="status" aria-live="polite">
+              <div className="max-w-7xl lg:max-w-[1400px] xl:max-w-[1600px] mx-auto">
+                <p className="text-xs sm:text-sm font-semibold text-gray-800">
+                  {storeStatus.opensAt
+                    ? `Please come back at ${String(storeStatus.opensAt).toLowerCase()}`
+                    : storeStatus.hours
+                      ? `Please come back between ${String(storeStatus.hours).toLowerCase()}`
+                      : "Please come back later"}
+                </p>
+                <p className="text-3xl sm:text-4xl font-black tracking-tight text-gray-900 leading-tight">Store closed</p>
+              </div>
+            </div>
+          )}
 
           {/* Hero Section with Search */}
           <section className="relative z-20 w-full px-4 sm:px-6 lg:px-8 xl:px-12 mt-4 sm:mt-6 md:mt-8 py-4 sm:py-8">

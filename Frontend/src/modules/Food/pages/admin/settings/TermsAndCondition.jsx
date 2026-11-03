@@ -4,6 +4,7 @@ import api from "@food/api"
 import { API_ENDPOINTS } from "@food/api/config"
 import { Textarea } from "@food/components/ui/textarea"
 import { legalHtmlToPlainText, plainTextToLegalHtml } from "@food/utils/legalContentFormat"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -120,7 +121,7 @@ export default function TermsAndCondition() {
               className="bg-white border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 outline-none"
             >
               <option value="USER">User App</option>
-              <option value="RESTAURANT">Restaurant App</option>
+              <option value="RESTAURANT">{vt("Seller App")}</option>
               <option value="DELIVERY">Delivery App</option>
               <option value="ALL">All Modules (Default)</option>
             </select>

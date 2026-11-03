@@ -6,6 +6,7 @@ import { Button } from "@food/components/ui/button"
 import { Label } from "@food/components/ui/label"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
 import { ArrowLeft, Loader2, Trash2, Upload } from "lucide-react"
+import { vt } from "@food/utils/adminVerticalLabels"
 
 const debugError = (..._args) => {}
 
@@ -185,7 +186,7 @@ export default function EditRestaurant() {
         const data = res?.data?.data || null
         if (!mounted) return
         if (!res?.data?.success || !data) {
-          setError(res?.data?.message || "Failed to load restaurant")
+          setError(res?.data?.message || vt("Failed to load seller"))
           setRestaurant(null)
           return
         }
@@ -197,7 +198,7 @@ export default function EditRestaurant() {
       } catch (e) {
         debugError(e)
         if (!mounted) return
-        setError(e?.response?.data?.message || "Failed to load restaurant")
+        setError(e?.response?.data?.message || vt("Failed to load seller"))
       } finally {
         if (mounted) setLoading(false)
       }
@@ -351,9 +352,9 @@ export default function EditRestaurant() {
       if (updated) {
         setRestaurant((prev) => ({ ...(prev || {}), ...updated }))
       }
-      alert("Restaurant details updated successfully")
+      alert(vt("Seller details updated successfully"))
     } catch (e) {
-      alert(e?.response?.data?.message || "Failed to update restaurant details")
+      alert(e?.response?.data?.message || vt("Failed to update seller details"))
     } finally {
       setSavingDetails(false)
     }
@@ -436,9 +437,9 @@ export default function EditRestaurant() {
         setRestaurant((prev) => ({ ...(prev || {}), ...updated }))
         setMediaForm(normalizeMediaFormFromRestaurant(updated))
       }
-      alert("Restaurant media updated successfully")
+      alert(vt("Seller media updated successfully"))
     } catch (e) {
-      alert(e?.response?.data?.message || "Failed to update restaurant media")
+      alert(e?.response?.data?.message || vt("Failed to update seller media"))
     } finally {
       setSavingMedia(false)
     }
@@ -484,9 +485,9 @@ export default function EditRestaurant() {
       if (updatedRestaurant) {
         setRestaurant((prev) => ({ ...(prev || {}), ...updatedRestaurant }))
       }
-      alert("Restaurant location updated successfully")
+      alert(vt("Seller location updated successfully"))
     } catch (e) {
-      alert(e?.response?.data?.message || "Failed to update restaurant location")
+      alert(e?.response?.data?.message || vt("Failed to update seller location"))
     } finally {
       setSavingLocation(false)
     }
@@ -505,7 +506,7 @@ export default function EditRestaurant() {
               <ArrowLeft className="w-4 h-4 text-slate-700" />
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">Edit Restaurant</h1>
+              <h1 className="text-2xl font-bold text-slate-900">{vt("Edit Seller")}</h1>
               <p className="text-sm text-slate-500">
                 {restaurant?.name || restaurant?.restaurantName || restaurantId}
               </p>
@@ -541,7 +542,7 @@ export default function EditRestaurant() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label>Restaurant Name</Label>
+                  <Label>{vt("Seller Name")}</Label>
                   <Input value={detailsForm.name} onChange={(e) => setDetailsForm((p) => ({ ...p, name: e.target.value }))} />
                 </div>
                 <div>
@@ -632,14 +633,14 @@ export default function EditRestaurant() {
                 <div>
                   <Label>Cover Image</Label>
                   <p className="text-xs text-slate-500 mt-1">
-                    The hero image on the restaurant page. Replacing it also updates the page banner.
+                    {vt("The hero image on the seller page. Replacing it also updates the page banner.")}
                   </p>
                   <div className="mt-2">
                     {mediaForm.coverImage ? (
                       <div className="relative w-full h-40 rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
                         <img
                           src={mediaForm.coverImage}
-                          alt="Restaurant cover"
+                          alt={vt("Seller cover")}
                           className="w-full h-full object-cover"
                         />
                         <button
@@ -810,7 +811,7 @@ export default function EditRestaurant() {
                   <Label>Search location</Label>
                   <Input
                     ref={locationSearchInputRef}
-                    placeholder="Start typing your restaurant address..."
+                    placeholder={vt("Start typing your seller address...")}
                     className="mt-1 bg-white text-sm text-black! dark:text-white! placeholder:text-gray-500 dark:placeholder:text-gray-400 caret-black dark:caret-white"
                     style={{ color: "#000", WebkitTextFillColor: "#000" }}
                   />

@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { Search, Download, ChevronDown, ChevronLeft, ChevronRight, Eye, Settings, ArrowUpDown, Loader2, X, MapPin, Phone, Mail, Clock, Star, Building2, User, FileText, FileSpreadsheet, CreditCard, Calendar, Image as ImageIcon, ExternalLink, ShieldX, AlertTriangle, Trash2, Plus, Percent } from "lucide-react"
 import { adminAPI, restaurantAPI, uploadAPI } from "@food/api"
+import { toast } from "sonner"
 import { clearModuleAuth } from "@food/utils/auth"
 import { resolveMediaUrl } from "../../../../../shared/utils/mediaUrl.js"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
@@ -13,6 +14,7 @@ import { verticalNouns } from "@food/utils/adminVerticalLabels"
 import locationIcon from "@food/assets/Dashboard-icons/image1.png"
 import restaurantIcon from "@food/assets/Dashboard-icons/image2.png"
 import inactiveIcon from "@food/assets/Dashboard-icons/image3.png"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -198,6 +200,11 @@ export default function RestaurantsList() {
   const [selectedRestaurant, setSelectedRestaurant] = useState(null)
   const [restaurantDetails, setRestaurantDetails] = useState(null)
   const [restaurantOutletTimings, setRestaurantOutletTimings] = useState(null)
+  // Store hours and the online switch, both editable here so an admin can set
+  // them for a seller (the seller has the same controls in their own app).
+  const [timingsDraft, setTimingsDraft] = useState(null)
+  const [savingTimings, setSavingTimings] = useState(false)
+  const [togglingOnline, setTogglingOnline] = useState(false)
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [banConfirmDialog, setBanConfirmDialog] = useState(null) // { restaurant, action: 'ban' | 'unban' }
   const [banning, setBanning] = useState(false)
@@ -381,7 +388,7 @@ export default function RestaurantsList() {
           navigate("/admin/login", { replace: true, state: { from: "/admin/store/sellers" } })
           return
         }
-        setError(serverMessage || err.message || "Failed to fetch restaurants")
+        setError(serverMessage || err.message || `Failed to fetch ${noun.many}`)
         setRestaurants([])
         setTotalRestaurants(0)
       } finally {
@@ -768,6 +775,20 @@ export default function RestaurantsList() {
       if (outletTimings && typeof outletTimings === "object" && !Array.isArray(outletTimings)) {
         setRestaurantOutletTimings(outletTimings)
       }
+      // A store with no hours saved yet still gets seven editable rows.
+      setTimingsDraft(
+        Object.fromEntries(
+          DAY_ORDER.map((day) => {
+            const d = outletTimings?.[day] || {}
+            const isOpen = d.isOpen !== false
+            return [day, {
+              isOpen,
+              openingTime: (isOpen && d.openingTime) || "09:00",
+              closingTime: (isOpen && d.closingTime) || "22:00",
+            }]
+          })
+        )
+      )
     } catch (err) {
       debugError("Error fetching restaurant details:", err)
       // Use the restaurant data we already have
@@ -855,10 +876,10 @@ export default function RestaurantsList() {
       }
 
       setIsEditingLocation(false)
-      alert("Restaurant location updated successfully")
+      alert(`${noun.One} location updated successfully`)
     } catch (err) {
       debugError("Error saving restaurant location:", err)
-      alert(err?.response?.data?.message || "Failed to update restaurant location")
+      alert(err?.response?.data?.message || `Failed to update ${noun.one} location`)
     } finally {
       setSavingLocation(false)
     }
@@ -1041,6 +1062,44 @@ export default function RestaurantsList() {
     setIsSearchingLocation(false)
   }
 
+  // Online / offline, the same switch the seller has in their app. Off keeps
+  // the store closed to customers even inside its opening hours.
+  const handleToggleStoreOnline = async (restaurantId, nextOnline) => {
+    setTogglingOnline(true)
+    try {
+      await adminAPI.updateRestaurant(restaurantId, { isAcceptingOrders: nextOnline })
+      setRestaurantDetails((prev) => (prev ? { ...prev, isAcceptingOrders: nextOnline } : prev))
+      toast.success(nextOnline ? "Store is online" : "Store is offline")
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Could not change the store's status")
+    } finally {
+      setTogglingOnline(false)
+    }
+  }
+
+  const handleSaveTimings = async (restaurantId) => {
+    if (!timingsDraft) return
+    const bad = DAY_ORDER.find((day) => {
+      const d = timingsDraft[day]
+      return d?.isOpen && (!d.openingTime || !d.closingTime || d.openingTime === d.closingTime)
+    })
+    if (bad) {
+      toast.error(`${bad}: set an opening and a closing time, and they cannot be the same`)
+      return
+    }
+    setSavingTimings(true)
+    try {
+      const res = await adminAPI.updateRestaurantOutletTimings(restaurantId, timingsDraft)
+      const saved = res?.data?.data?.outletTimings
+      if (saved) setRestaurantOutletTimings(saved)
+      toast.success("Store hours saved")
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Could not save the store hours")
+    } finally {
+      setSavingTimings(false)
+    }
+  }
+
   const handleSaveDetails = async () => {
     if (!selectedRestaurant) return
     const restaurantId = selectedRestaurant._id || selectedRestaurant.id
@@ -1051,7 +1110,7 @@ export default function RestaurantsList() {
       let profileImage = undefined
       if (profileImageFile) {
         const uploadRes = await uploadAPI.uploadMedia(profileImageFile, {
-          folder: "switcheats/restaurant/profile",
+          folder: "maava/restaurant/profile",
         })
         const media = uploadRes?.data?.data?.file || uploadRes?.data?.data || uploadRes?.data?.file
         if (media?.url) {
@@ -1125,10 +1184,10 @@ export default function RestaurantsList() {
       setLocationSuggestions([])
       setShowLocationSuggestions(false)
       setIsSearchingLocation(false)
-      alert("Restaurant details updated successfully")
+      alert(`${noun.One} details updated successfully`)
     } catch (err) {
       debugError("Error updating restaurant details:", err)
-      alert(err?.response?.data?.message || "Failed to update restaurant details")
+      alert(err?.response?.data?.message || `Failed to update ${noun.one} details`)
     } finally {
       setSavingDetails(false)
     }
@@ -1197,12 +1256,12 @@ export default function RestaurantsList() {
           )
         )
         setBanConfirmDialog(null)
-        alert(`Restaurant ${isBanning ? 'banned' : 'unbanned'} locally. Please check backend connection.`)
+        alert(`${noun.One} ${isBanning ? 'banned' : 'unbanned'} locally. Please check backend connection.`)
       }
 
     } catch (err) {
       debugError("Error banning/unbanning restaurant:", err)
-      alert(`Failed to ${action} restaurant. Please try again.`)
+      alert(`Failed to ${action} ${noun.one}. Please try again.`)
     } finally {
       setBanning(false)
     }
@@ -1241,15 +1300,15 @@ export default function RestaurantsList() {
         setDeleteConfirmDialog(null)
 
         // Show success message
-        alert(`Restaurant "${restaurant.name}" deleted successfully!`)
+        alert(`${noun.One} "${restaurant.name}" deleted successfully!`)
       } catch (apiErr) {
         debugError("API Error:", apiErr)
-        alert(apiErr.response?.data?.message || "Failed to delete restaurant. Please try again.")
+        alert(apiErr.response?.data?.message || `Failed to delete ${noun.one}. Please try again.`)
       }
 
     } catch (err) {
       debugError("Error deleting restaurant:", err)
-      alert("Failed to delete restaurant. Please try again.")
+      alert(`Failed to delete ${noun.one}. Please try again.`)
     } finally {
       setDeleting(false)
     }
@@ -1306,7 +1365,7 @@ export default function RestaurantsList() {
                 <p className="text-2xl font-bold text-slate-900">{activeRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
-                <img src={restaurantIcon} alt="Restaurant" className="w-8 h-8" />
+                <img src={restaurantIcon} alt={noun.One} className="w-8 h-8" />
               </div>
             </div>
           </div>
@@ -1590,14 +1649,14 @@ export default function RestaurantsList() {
                                 ? "text-green-600 hover:bg-green-50"
                                 : "text-red-600 hover:bg-red-50"
                                 }`}
-                              title={!restaurant.isActive ? "Unban Restaurant" : "Ban Restaurant"}
+                              title={!restaurant.isActive ? `Unban ${noun.One}` : `Ban ${noun.One}`}
                             >
                               <ShieldX className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => handleDeleteRestaurant(restaurant)}
                               className="p-1.5 rounded text-red-600 hover:bg-red-50 transition-colors"
-                              title="Delete Restaurant"
+                              title={vt("Delete Seller")}
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -1654,7 +1713,7 @@ export default function RestaurantsList() {
             {/* Modal Header */}
             <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0 z-10">
               <div>
-                <h2 className="text-2xl font-bold text-slate-900">Restaurant Details</h2>
+                <h2 className="text-2xl font-bold text-slate-900">{vt("Seller Details")}</h2>
                 <p className="text-sm text-slate-500 mt-1">Detailed overview and information</p>
               </div>
               <div className="flex items-center gap-2">
@@ -1736,7 +1795,7 @@ export default function RestaurantsList() {
                     </div>
 
                     <div>
-                      <label className="block text-xs text-slate-500 mb-1">Restaurant Name</label>
+                      <label className="block text-xs text-slate-500 mb-1">{vt("Seller Name")}</label>
                       <input type="text" value={detailsForm.name} onChange={(e) => setDetailsForm((prev) => ({ ...prev, name: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
                     </div>
                     <div>
@@ -1767,7 +1826,7 @@ export default function RestaurantsList() {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-500 mb-1">Restaurant Email</label>
+                      <label className="block text-xs text-slate-500 mb-1">{vt("Seller Email")}</label>
                       <input type="email" value={detailsForm.email} onChange={(e) => setDetailsForm((prev) => ({ ...prev, email: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
                     </div>
                     <div>
@@ -1806,7 +1865,7 @@ export default function RestaurantsList() {
                         <div>
                           <h4 className="text-base font-semibold text-slate-900">Location Editor</h4>
                           <p className="text-xs text-indigo-700 mt-1">
-                            Update restaurant location using dropdown suggestions and service zone selection.
+                            Update {noun.one} location using dropdown suggestions and service zone selection.
                           </p>
                         </div>
                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-white text-indigo-700 text-xs font-semibold">
@@ -1847,7 +1906,7 @@ export default function RestaurantsList() {
                                 setTimeout(() => setShowLocationSuggestions(false), 150)
                               }}
                               className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm pr-10"
-                              placeholder="Start typing your restaurant address..."
+                              placeholder={vt("Start typing your seller address...")}
                             />
                             {isSearchingLocation && (
                               <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -1977,21 +2036,6 @@ export default function RestaurantsList() {
                   restaurantOutletTimings && typeof restaurantOutletTimings === "object" && !Array.isArray(restaurantOutletTimings)
                     ? restaurantOutletTimings
                     : null
-                const outletDayRows = outletTimingsByDay
-                  ? DAY_ORDER
-                    .map((day) => {
-                      const dayData = outletTimingsByDay?.[day]
-                      if (!dayData || typeof dayData !== "object") return null
-                      const isOpen = dayData.isOpen !== false
-                      return {
-                        day,
-                        isOpen,
-                        openingTime: isOpen ? dayData.openingTime || "" : "",
-                        closingTime: isOpen ? dayData.closingTime || "" : "",
-                      }
-                    })
-                    .filter(Boolean)
-                  : []
                 const openDaysVal =
                   (Array.isArray(r?.openDays) && r.openDays.length ? r.openDays : null) ||
                   (Array.isArray(r?.onboarding?.step2?.openDays) && r.onboarding.step2.openDays.length ? r.onboarding.step2.openDays : null) ||
@@ -2039,7 +2083,7 @@ export default function RestaurantsList() {
                     <div className="w-32 h-32 rounded-3xl overflow-hidden bg-slate-50 shrink-0 shadow-inner group">
                       <img
                         src={profileImgUrl || PLACEHOLDER_128}
-                        alt={r?.restaurantName || r?.name || "Restaurant"}
+                        alt={r?.restaurantName || r?.name || noun.One}
                         className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                         onError={(e) => {
                           e.target.src = PLACEHOLDER_128
@@ -2187,7 +2231,7 @@ export default function RestaurantsList() {
                           <div className="flex items-center gap-3">
                             <Mail className="w-5 h-5 text-slate-400" />
                             <div>
-                              <p className="text-xs text-slate-500">Restaurant Email</p>
+                              <p className="text-xs text-slate-500">{vt("Seller Email")}</p>
                               <p className="text-sm font-medium text-slate-900">{r.email}</p>
                             </div>
                           </div>
@@ -2202,21 +2246,89 @@ export default function RestaurantsList() {
                     <div>
                       <h4 className="text-lg font-semibold text-slate-900 mb-4">Timings & Status</h4>
                       <div className="space-y-3">
-                        {outletDayRows.length > 0 && (
+                        {/* Online switch: off closes the store to customers now,
+                            whatever its hours say. */}
+                        <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3">
                           <div>
-                            <p className="text-xs text-slate-500 mb-1">Outlet Timings (Day-wise)</p>
-                            <div className="space-y-1.5">
-                              {outletDayRows.map((slot) => (
-                                <div key={slot.day} className="flex items-center justify-between text-sm">
-                                  <span className="text-slate-600 font-medium">{slot.day}</span>
-                                  <span className="text-slate-900">
-                                    {slot.isOpen
-                                      ? `${formatTime12Hour(slot.openingTime)} – ${formatTime12Hour(slot.closingTime)}`
-                                      : "Closed"}
-                                  </span>
-                                </div>
-                              ))}
+                            <p className="text-sm font-semibold text-slate-800">Accepting orders</p>
+                            <p className="text-xs text-slate-500">
+                              {r?.isAcceptingOrders === false
+                                ? "Offline — customers see Store closed"
+                                : "Online — open during the hours below"}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={r?.isAcceptingOrders !== false}
+                            disabled={togglingOnline}
+                            onClick={() => handleToggleStoreOnline(r?._id || r?.id, r?.isAcceptingOrders === false)}
+                            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+                              r?.isAcceptingOrders === false ? "bg-slate-300" : "bg-emerald-500"
+                            }`}
+                          >
+                            <span
+                              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${
+                                r?.isAcceptingOrders === false ? "left-0.5" : "left-[22px]"
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {/* Store hours, per day. Saved for this store only. */}
+                        {timingsDraft && (
+                          <div className="rounded-lg border border-slate-200 p-3">
+                            <p className="text-sm font-semibold text-slate-800 mb-2">Store hours</p>
+                            <div className="space-y-2">
+                              {DAY_ORDER.map((day) => {
+                                const d = timingsDraft[day] || { isOpen: false }
+                                const set = (patch) =>
+                                  setTimingsDraft((prev) => ({ ...prev, [day]: { ...prev[day], ...patch } }))
+                                return (
+                                  <div key={day} className="flex flex-wrap items-center gap-2 text-sm">
+                                    <label className="flex w-32 items-center gap-2 text-slate-700">
+                                      <input
+                                        type="checkbox"
+                                        checked={d.isOpen !== false}
+                                        onChange={(e) => set({ isOpen: e.target.checked })}
+                                        className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+                                      />
+                                      {day}
+                                    </label>
+                                    {d.isOpen !== false ? (
+                                      <>
+                                        <input
+                                          type="time"
+                                          value={d.openingTime || ""}
+                                          onChange={(e) => set({ openingTime: e.target.value })}
+                                          className="rounded border border-slate-300 px-2 py-1"
+                                        />
+                                        <span className="text-slate-400">to</span>
+                                        <input
+                                          type="time"
+                                          value={d.closingTime || ""}
+                                          onChange={(e) => set({ closingTime: e.target.value })}
+                                          className="rounded border border-slate-300 px-2 py-1"
+                                        />
+                                      </>
+                                    ) : (
+                                      <span className="text-slate-500">Closed all day</span>
+                                    )}
+                                  </div>
+                                )
+                              })}
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveTimings(r?._id || r?.id)}
+                              disabled={savingTimings}
+                              className="mt-3 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                            >
+                              {savingTimings ? "Saving…" : "Save store hours"}
+                            </button>
+                            <p className="mt-2 text-xs text-slate-500">
+                              Customers outside these hours are told when the store opens again, and cannot order.
+                            </p>
                           </div>
                         )}
                         {estimatedDeliveryTimeVal && (
@@ -2270,7 +2382,7 @@ export default function RestaurantsList() {
                         )}
                         {coverImages.length > 0 && (
                           <div>
-                            <p className="text-xs text-slate-500 mb-2">Restaurant Photos</p>
+                            <p className="text-xs text-slate-500 mb-2">{vt("Seller Photos")}</p>
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                               {coverImages.map((url, idx) => (
                                 <a
@@ -2279,11 +2391,11 @@ export default function RestaurantsList() {
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="relative aspect-4/5 rounded-lg overflow-hidden border border-slate-200 bg-slate-50 hover:border-slate-300"
-                                  title="Open restaurant photo"
+                                  title={vt("Open seller photo")}
                                 >
                                   <img
                                     src={url}
-                                    alt={`Restaurant ${idx + 1}`}
+                                    alt={`${noun.One} ${idx + 1}`}
                                     className="w-full h-full object-cover"
                                     loading="lazy"
                                     onError={(e) => {
@@ -2396,7 +2508,7 @@ export default function RestaurantsList() {
                         )}
                         {r.restaurantId && (
                           <div>
-                            <p className="text-xs text-slate-500 mb-1">Restaurant ID</p>
+                            <p className="text-xs text-slate-500 mb-1">{vt("Seller ID")}</p>
                             <p className="font-medium text-slate-900">{formatRestaurantId(r.restaurantId)}</p>
                           </div>
                         )}
@@ -2599,7 +2711,7 @@ export default function RestaurantsList() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                         {r.onboarding.step1.restaurantName && (
                           <div>
-                            <p className="text-xs text-slate-500 mb-1">Restaurant Name (at registration)</p>
+                            <p className="text-xs text-slate-500 mb-1">{noun.One} Name (at registration)</p>
                             <p className="font-medium text-slate-900">{r.onboarding.step1.restaurantName}</p>
                           </div>
                         )}
@@ -2754,7 +2866,7 @@ export default function RestaurantsList() {
                         )}
                         {r?.restaurantId && (
                           <div>
-                            <p className="text-xs text-slate-500 mb-1">Restaurant ID</p>
+                            <p className="text-xs text-slate-500 mb-1">{vt("Seller ID")}</p>
                             <p className="font-medium text-slate-900">{formatRestaurantId(r.restaurantId)}</p>
                           </div>
                         )}
@@ -2807,7 +2919,7 @@ export default function RestaurantsList() {
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">
-                    {banConfirmDialog.action === 'ban' ? 'Ban Restaurant' : 'Unban Restaurant'}
+                    {banConfirmDialog.action === 'ban' ? `Ban ${noun.One}` : `Unban ${noun.One}`}
                   </h3>
                   <p className="text-sm text-slate-600">
                     {banConfirmDialog.restaurant.name}
@@ -2817,8 +2929,8 @@ export default function RestaurantsList() {
 
               <p className="text-sm text-slate-700 mb-6">
                 {banConfirmDialog.action === 'ban'
-                  ? 'Are you sure you want to ban this restaurant? They will not be able to receive orders or access their account.'
-                  : 'Are you sure you want to unban this restaurant? They will be able to receive orders and access their account again.'
+                  ? `Are you sure you want to ban this ${noun.one}? They will not be able to receive orders or access their account.`
+                  : `Are you sure you want to unban this ${noun.one}? They will be able to receive orders and access their account again.`
                 }
               </p>
 
@@ -2844,7 +2956,7 @@ export default function RestaurantsList() {
                       {banConfirmDialog.action === 'ban' ? 'Banning...' : 'Unbanning...'}
                     </span>
                   ) : (
-                    banConfirmDialog.action === 'ban' ? 'Ban Restaurant' : 'Unban Restaurant'
+                    banConfirmDialog.action === 'ban' ? `Ban ${noun.One}` : `Unban ${noun.One}`
                   )}
                 </button>
               </div>
@@ -2863,7 +2975,7 @@ export default function RestaurantsList() {
                   <Trash2 className="w-6 h-6 text-red-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900">Delete Restaurant</h3>
+                  <h3 className="text-lg font-bold text-slate-900">Delete {noun.One}</h3>
                   <p className="text-sm text-slate-600">
                     {deleteConfirmDialog.restaurant.name}
                   </p>
@@ -2871,7 +2983,7 @@ export default function RestaurantsList() {
               </div>
 
               <p className="text-sm text-slate-700 mb-6">
-                Are you sure you want to delete this restaurant? This action cannot be undone and will permanently remove all restaurant data, including orders, menu items, and settings.
+                Are you sure you want to delete this {noun.one}? This action cannot be undone and will permanently remove all {noun.one} data, including orders, menu items, and settings.
               </p>
 
               <div className="flex items-center gap-3">
@@ -2893,7 +3005,7 @@ export default function RestaurantsList() {
                       Deleting...
                     </span>
                   ) : (
-                    "Delete Restaurant"
+                    `Delete ${noun.One}`
                   )}
                 </button>
               </div>

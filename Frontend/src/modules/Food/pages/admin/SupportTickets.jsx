@@ -22,6 +22,7 @@ import {
   DialogFooter,
 } from "@food/components/ui/dialog"
 import { Textarea } from "@food/components/ui/textarea"
+import { vt } from "@food/utils/adminVerticalLabels"
 
 const PAGE_SIZE = 20
 
@@ -35,13 +36,13 @@ const STATUS_OPTIONS = [
 const SOURCE_OPTIONS = [
   { value: "all", label: "All Sources" },
   { value: "user", label: "User App" },
-  { value: "restaurant", label: "Restaurant Panel" },
+  { value: "restaurant", label: vt("Seller Panel") },
 ]
 
 const USER_TYPE_OPTIONS = [
   { value: "", label: "All Types" },
   { value: "order", label: "Order" },
-  { value: "restaurant", label: "Restaurant" },
+  { value: "restaurant", label: vt("Seller") },
   { value: "other", label: "Other" },
 ]
 
@@ -50,7 +51,7 @@ const RESTAURANT_CATEGORY_OPTIONS = [
   { value: "orders", label: "Orders" },
   { value: "payments", label: "Payments" },
   { value: "menu", label: "Menu" },
-  { value: "restaurant", label: "Restaurant" },
+  { value: "restaurant", label: vt("Seller") },
   { value: "technical", label: "Technical" },
   { value: "other", label: "Other" },
 ]
@@ -138,7 +139,7 @@ export default function SupportTickets() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   const getUserLabel = (ticket) => {
-    if (ticket.source === "restaurant") return "Restaurant Panel"
+    if (ticket.source === "restaurant") return vt("Seller Panel")
     const user = ticket.user || {}
     const name = user.name || ticket.userName || ""
     const phone = user.phone || ticket.userPhone || ""
@@ -269,7 +270,7 @@ export default function SupportTickets() {
             <div>
               <h1 className="text-2xl font-bold text-slate-900">Support Tickets</h1>
               <p className="text-sm text-slate-600 mt-1">
-                Review and respond to user and restaurant support requests.
+                {vt("Review and respond to user and seller support requests.")}
               </p>
             </div>
           </div>
@@ -341,7 +342,7 @@ export default function SupportTickets() {
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                placeholder="Search by issue, description, user, restaurant, or ticket ID..."
+                placeholder={vt("Search by issue, description, user, seller, or ticket ID...")}
                 className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -507,7 +508,7 @@ export default function SupportTickets() {
                           <p className="text-slate-700 mt-1">{getUserLabel(ticket)}</p>
                         </div>
                         <div>
-                          <p className="text-xs uppercase tracking-wide text-slate-400">Restaurant</p>
+                          <p className="text-xs uppercase tracking-wide text-slate-400">{vt("Seller")}</p>
                           <p className="text-slate-700 mt-1">{getRestaurantLabel(ticket)}</p>
                         </div>
                         <div>
@@ -654,7 +655,7 @@ export default function SupportTickets() {
                   <div className="flex items-center gap-3 mb-4">
                     <div className="w-1 h-6 bg-violet-500 rounded" />
                     <h3 className="text-base font-semibold text-slate-900">
-                      {selectedTicket.source === "restaurant" ? "Restaurant" : "Customer"}
+                      {selectedTicket.source === "restaurant" ? vt("Seller") : "Customer"}
                     </h3>
                   </div>
                   <div className="pl-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -663,7 +664,7 @@ export default function SupportTickets() {
                       <p className="text-sm text-slate-900 font-semibold">{getUserLabel(selectedTicket)}</p>
                     </div>
                     <div>
-                      <p className="text-xs font-medium text-slate-500 mb-1 uppercase tracking-wide">Restaurant</p>
+                      <p className="text-xs font-medium text-slate-500 mb-1 uppercase tracking-wide">{vt("Seller")}</p>
                       <p className="text-sm text-slate-900 font-semibold">{getRestaurantLabel(selectedTicket)}</p>
                     </div>
                   </div>
@@ -736,12 +737,12 @@ export default function SupportTickets() {
             <Textarea
               value={responseText}
               onChange={(e) => setResponseText(e.target.value)}
-              placeholder="Write your response to the customer or restaurant..."
+              placeholder={vt("Write your response to the customer or seller...")}
               rows={6}
               className="min-h-[180px] resize-y rounded-xl border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-800 shadow-sm focus-visible:border-blue-500 focus-visible:ring-4 focus-visible:ring-blue-100"
             />
             <p className="mt-2 text-xs text-slate-500">
-              This message will be visible in the support ticket for the user or restaurant.
+              {vt("This message will be visible in the support ticket for the user or seller.")}
             </p>
           </div>
 

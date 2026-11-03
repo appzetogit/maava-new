@@ -1,5 +1,5 @@
 import express from 'express';
-import { searchController, searchProductsController, listAdminCategoriesController } from '../controllers/search.controller.js';
+import { searchController, searchProductsController, listAdminCategoriesController, storeStatusController } from '../controllers/search.controller.js';
 import { cacheResponse } from '../../../../middleware/cache.js';
 
 const router = express.Router();
@@ -24,5 +24,12 @@ router.get('/products', cacheResponse(30, 'search_products', { browserTtlSeconds
  * GET /api/v1/food/search/categories/admin
  */
 router.get('/categories/admin', cacheResponse(1800, 'search_categories_admin', { browserTtlSeconds: 300 }), listAdminCategoriesController);
+
+/**
+ * Is any store in the zone open? Drives the Mart "store is closed" banner.
+ * GET /api/v1/quick/search/store-status?zoneId=
+ * Short cache: opening and closing is by the minute.
+ */
+router.get('/store-status', cacheResponse(30, 'store_status', { browserTtlSeconds: 15 }), storeStatusController);
 
 export default router;

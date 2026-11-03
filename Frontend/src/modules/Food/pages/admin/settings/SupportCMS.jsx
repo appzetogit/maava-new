@@ -4,6 +4,7 @@ import api from "@food/api"
 import { API_ENDPOINTS } from "@food/api/config"
 import { Textarea } from "@food/components/ui/textarea"
 import { legalHtmlToPlainText, plainTextToLegalHtml } from "@food/utils/legalContentFormat"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugError = (...args) => {}
 const SUPPORT_EMAIL_REGEX = /^(?!.*\.\.)([A-Za-z0-9]+[._%+-]?)*[A-Za-z0-9]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}$/
 const INDIAN_MOBILE_REGEX = /^[6-9]\d{9}$/
@@ -147,7 +148,7 @@ export default function SupportCMS() {
               className="bg-white border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 outline-none"
             >
               <option value="USER">User App</option>
-              <option value="RESTAURANT">Restaurant App</option>
+              <option value="RESTAURANT">{vt("Seller App")}</option>
               <option value="DELIVERY">Delivery App</option>
               <option value="ALL">All Modules (Default)</option>
             </select>

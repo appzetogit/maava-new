@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
 import { exportReportsToCSV, exportReportsToExcel, exportReportsToPDF, exportReportsToJSON } from "@food/components/admin/reports/reportsExportUtils"
+import { vt } from "@food/utils/adminVerticalLabels"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -320,7 +321,7 @@ export default function FeedbackExperienceReport() {
                   >
                     <option value="">All Modules</option>
                     <option value="user">User</option>
-                    <option value="restaurant">Restaurant</option>
+                    <option value="restaurant">{vt("Seller")}</option>
                     <option value="delivery">Delivery</option>
                   </select>
                   <ChevronDown className="absolute right-2 bottom-2.5 w-4 h-4 text-slate-500 pointer-events-none" />

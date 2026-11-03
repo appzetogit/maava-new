@@ -8,18 +8,30 @@ import { FoodOffer } from '../../admin/models/offer.model.js';
 import { FoodOfferUsage } from '../../admin/models/offerUsage.model.js';
 import { FoodRestaurantMenu } from '../models/restaurantMenu.model.js';
 import { FoodItem } from '../../admin/models/food.model.js';
+import { addServedCategoryTags } from './servedCategoryTags.service.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
 import { FoodRestaurantOutletTimings } from '../models/outletTimings.model.js';
 import { attachOutletTimingsToRestaurants } from './outletTimings.service.js';
-import { getRestaurantOperationalStatus } from '../helpers/restaurantAvailability.helper.js';
+import { getRestaurantOperationalStatus, getRestaurantAvailabilityStatus } from '../helpers/restaurantAvailability.helper.js';
+
+/**
+ * Mart only: `isAcceptingOrders` in the public store list means "can take an
+ * order right now" -- the seller's switch AND today's hours. Apps already in
+ * shops decide the Mart header's "Store closed" from this one field, so a
+ * store shut for the night with its switch left on read as open. The raw
+ * switch stays available as `acceptingOrdersSwitch`. Food is unchanged.
+ */
+const withEffectiveOpen = (r) => {
+    if (currentVertical() !== 'quick') return r;
+    const isOpenNow = getRestaurantAvailabilityStatus(r).isOpen === true;
+    return { ...r, acceptingOrdersSwitch: r.isAcceptingOrders !== false, isAcceptingOrders: isOpenNow, isOpenNow };
+};
 import { shouldRetryUnscoped } from '../../shared/zoneServiceability.js';
 import { currentVertical } from '../../../../core/vertical/verticalScope.js';
 import {
     calculateDistanceKm,
     normalizeRestaurantLocation,
 } from '../../shared/geo.utils.js';
-import { getRestaurantSubscriptionSettings } from '../../admin/services/admin.service.js';
-import { GST_RATE } from './subscriptionPlan.service.js';
 import {
     createRazorpayOrder,
     getRazorpayKeyId,
@@ -665,56 +677,10 @@ export const uploadRestaurantAttachment = async (file, folderType = 'profile') =
     return { url };
 };
 
-const computeOnboardingFeeWithGst = (baseFee) => {
-    const fee = Math.max(0, Number(baseFee) || 0);
-    const gstAmount = Math.round(fee * GST_RATE * 100) / 100;
-    const total = Math.round((fee + gstAmount) * 100) / 100;
-    return { baseFee: fee, gstAmount, total };
-};
-
-export const createRestaurantOnboardingFeeOrder = async ({ ownerPhone }) => {
-    const settings = await getRestaurantSubscriptionSettings();
-    const fee = Math.max(0, Number(settings?.onboardingFee) || 0);
-    if (fee <= 0) {
-        throw new ValidationError('Onboarding fee is not required');
-    }
-
-    const { baseFee, gstAmount, total } = computeOnboardingFeeWithGst(fee);
-
-    const { last10 } = normalizePhone(ownerPhone);
-    if (!last10) {
-        throw new ValidationError('Owner phone is required to create onboarding fee payment');
-    }
-
-    const amountPaise = Math.round(total * 100);
-
-    if (!isRazorpayConfigured()) {
-        return {
-            onboardingFeeAmount: baseFee,
-            onboardingFeeGst: gstAmount,
-            onboardingFeeTotal: total,
-            razorpay: {
-                key: getRazorpayKeyId() || 'rzp_test_dummy',
-                orderId: `order_dev_onboarding_${last10}_${Date.now()}`,
-                amount: amountPaise,
-                currency: 'INR',
-            },
-        };
-    }
-
-    const receipt = `onboarding_${last10}_${Date.now()}`;
-    const order = await createRazorpayOrder(amountPaise, 'INR', receipt);
-    return {
-        onboardingFeeAmount: baseFee,
-        onboardingFeeGst: gstAmount,
-        onboardingFeeTotal: total,
-        razorpay: {
-            key: getRazorpayKeyId(),
-            orderId: String(order.id),
-            amount: Number(order.amount) || amountPaise,
-            currency: order.currency || 'INR',
-        },
-    };
+// Maava charges commission only: no onboarding fee, so there is never a fee
+// payment to create. Kept so older registration screens get a clear answer.
+export const createRestaurantOnboardingFeeOrder = async () => {
+    throw new ValidationError('Onboarding fee is not required');
 };
 
 export const registerRestaurant = async (payload, files) => {
@@ -809,13 +775,10 @@ export const registerRestaurant = async (payload, files) => {
         .select('restaurantName status')
         .lean();
 
-    if (existing) {
-        if (existing.status === 'rejected') {
-            throw new ValidationError(
-                `This number is already registered to "${existing.restaurantName}", which was not approved. ` +
-                'Please contact support to re-apply rather than creating a second store.'
-            );
-        }
+    // A rejected store re-applies onto its own record rather than a second one, so
+    // its orders, wallet and history stay attached to the same restaurant.
+    const reapplyOf = existing?.status === 'rejected' ? existing : null;
+    if (existing && !reapplyOf) {
         throw new ValidationError(
             `This number is already registered to "${existing.restaurantName}". Please sign in instead.`
         );
@@ -921,46 +884,13 @@ export const registerRestaurant = async (payload, files) => {
     const estimatedDeliveryTimeText = String(estimatedDeliveryTime || '').trim();
     const estimatedDeliveryTimeMinutes = parseEstimatedDeliveryMinutes(estimatedDeliveryTimeText);
 
-    const subscriptionSettings = await getRestaurantSubscriptionSettings();
-    const requiredOnboardingFee = Math.max(0, Number(subscriptionSettings?.onboardingFee) || 0);
-    const { total: requiredOnboardingFeeTotal } = computeOnboardingFeeWithGst(requiredOnboardingFee);
-    let onboardingFeeFields = {};
-
-    if (requiredOnboardingFee > 0) {
-        if (!onboardingFeePaid) {
-            throw new ValidationError('Onboarding fee payment is required before completing registration');
-        }
-        const paidAmount = Math.max(0, Number(onboardingFeeAmount) || 0);
-        if (Math.abs(paidAmount - requiredOnboardingFeeTotal) > 0.01) {
-            throw new ValidationError('Onboarding fee amount does not match the configured fee');
-        }
-        const orderId = String(razorpayOrderId || '').trim();
-        const paymentId = String(razorpayPaymentId || '').trim();
-        const signature = String(razorpaySignature || '').trim();
-        if (!orderId || !paymentId || !signature) {
-            throw new ValidationError('Complete onboarding fee payment details are required');
-        }
-        const verified = isRazorpayConfigured()
-            ? verifyPaymentSignature(orderId, paymentId, signature)
-            : true;
-        if (!verified) {
-            throw new ValidationError('Onboarding fee payment verification failed');
-        }
-        onboardingFeeFields = {
-            onboardingFeePaid: true,
-            onboardingFeeAmount: requiredOnboardingFeeTotal,
-            onboardingFeePaidAt: new Date(),
-            onboardingFeePaymentMethod: paymentType || 'razorpay',
-            onboardingFeePaymentOrderId: orderId,
-            onboardingFeePaymentId: paymentId,
-            onboardingFeePaymentSignature: signature,
-        };
-    }
+    // No onboarding fee: Maava charges commission only.
+    const onboardingFeeFields = {};
 
     try {
         const latNum = toFiniteNumber(latitude);
         const lngNum = toFiniteNumber(longitude);
-        const restaurant = await FoodRestaurant.create({
+        const fields = {
             restaurantName,
             restaurantNameNormalized,
             ownerName,
@@ -1014,10 +944,35 @@ export const registerRestaurant = async (payload, files) => {
             // Keep coverImages (the public page banner array) seeded from onboarding so the
             // restaurant page isn't blank before they manage banners themselves.
             coverImages: coverImage ? [coverImage, ...galleryImages] : galleryImages,
-            // Postpaid subscription model: monthly invoices from GMV at month end.
             ...onboardingFeeFields,
             ...images
-        });
+        };
+
+        let restaurant;
+        if (reapplyOf) {
+            // Fields the form left out keep what is on file instead of being erased.
+            for (const key of Object.keys(fields)) {
+                if (fields[key] === undefined) delete fields[key];
+            }
+            // Likewise the photos the owner did not upload again.
+            const IMAGE_FIELDS = ['profileImage', 'panImage', 'gstImage', 'fssaiImage', 'coverImage', 'menuImages', 'galleryImages', 'coverImages'];
+            for (const key of IMAGE_FIELDS) {
+                const v = fields[key];
+                if (v === '' || v == null || (Array.isArray(v) && v.length === 0)) delete fields[key];
+            }
+            restaurant = await FoodRestaurant.findById(reapplyOf._id);
+            if (!restaurant) throw new ValidationError('Restaurant not found. Please try again.');
+            restaurant.set(fields);
+            // Back to review. approvedAt goes too: a pending store with a past
+            // approval may sign in, and a re-application must not until approved.
+            restaurant.status = 'pending';
+            restaurant.rejectionReason = '';
+            restaurant.rejectedAt = undefined;
+            restaurant.approvedAt = undefined;
+            await restaurant.save();
+        } else {
+            restaurant = await FoodRestaurant.create(fields);
+        }
 
         // Seed day-wise outlet timings at onboarding from the initial opening/closing fields.
         // Later manual changes by restaurant are preserved (we only insert if missing).
@@ -1051,8 +1006,10 @@ export const registerRestaurant = async (payload, files) => {
         try {
             const { notifyAdminsSafely } = await import('../../../../core/notifications/firebase.service.js');
             void notifyAdminsSafely({
-                title: 'New Restaurant Registration 🏪',
-                body: `A new restaurant "${restaurant.restaurantName}" has registered and is pending approval.`,
+                title: reapplyOf ? 'Restaurant Re-applied 🏪' : 'New Restaurant Registration 🏪',
+                body: reapplyOf
+                    ? `"${restaurant.restaurantName}" was rejected earlier and has applied again. It is pending approval.`
+                    : `A new restaurant "${restaurant.restaurantName}" has registered and is pending approval.`,
                 data: {
                     type: 'new_registration',
                     subType: 'restaurant',
@@ -1964,12 +1921,14 @@ export const uploadRestaurantMenuImages = async (restaurantId, files = []) => {
 };
 
 export const listApprovedRestaurants = async (query = {}) => {
-    const result = await listApprovedRestaurantsScoped(query);
+    let result = await listApprovedRestaurantsScoped(query);
     if (shouldRetryUnscoped({ total: result.total, zoneIdRaw: query.zoneId, isZoneFallback: query._zoneFallback })) {
         const fallback = await listApprovedRestaurantsScoped({ ...query, zoneId: undefined, _zoneFallback: true });
-        if (fallback.total > 0) return { ...fallback, wasFallback: true };
+        if (fallback.total > 0) result = { ...fallback, wasFallback: true };
     }
-    return result;
+    // The home screen's food tiles filter by cuisine text; add the tiles each
+    // restaurant's dishes really match (see servedCategoryTags.service.js).
+    return { ...result, restaurants: await addServedCategoryTags(result.restaurants) };
 };
 
 const listApprovedRestaurantsScoped = async (query = {}) => {
@@ -2192,7 +2151,7 @@ const listApprovedRestaurantsScoped = async (query = {}) => {
 
         return {
             restaurants: restaurantsWithTimings.map((r) =>
-                normalizePublicRestaurantGeo(r, lat, lng),
+                withEffectiveOpen(normalizePublicRestaurantGeo(r, lat, lng)),
             ),
             total,
             page,
@@ -2292,7 +2251,7 @@ const listApprovedRestaurantsScoped = async (query = {}) => {
 
     return {
         restaurants: restaurantsWithTimings.map((r) =>
-            normalizePublicRestaurantGeo(r, lat, lng),
+            withEffectiveOpen(normalizePublicRestaurantGeo(r, lat, lng)),
         ),
         total,
         page,
@@ -2437,19 +2396,11 @@ export const listPublicOffers = async (query = {}) => {
         }
     }
 
-    // If subtotal is provided, filter by minOrderValue
-    if (subtotal !== undefined && subtotal !== null && subtotal !== '' && !isNaN(Number(subtotal))) {
-        const numericSubtotal = Number(subtotal);
-        if (numericSubtotal > 0) {
-            filter.$and.push({
-                $or: [
-                    { minOrderValue: { $exists: false } },
-                    { minOrderValue: null },
-                    { minOrderValue: { $lte: numericSubtotal } }
-                ]
-            });
-        }
-    }
+    // A coupon the cart has not reached the minimum for stays in the list,
+    // marked `eligible: false` with how much more to add. Dropping it left
+    // the shopper with an empty coupon list and no idea one existed.
+    const numericSubtotal = Number(subtotal);
+    const hasSubtotal = Number.isFinite(numericSubtotal) && numericSubtotal > 0;
 
     const list = await FoodOffer.find(filter)
         .sort({ createdAt: -1 })
@@ -2471,9 +2422,12 @@ export const listPublicOffers = async (query = {}) => {
                 ? (restaurant?.restaurantName || 'Selected Restaurants')
                 : 'All Restaurants';
 
+        // A capped percentage says so: "10% OFF" that pays out Rs 10 on a Rs 420
+        // bill reads as a broken coupon to the customer.
+        const cap = Number(o.maxDiscount) || 0;
         const title =
             o.discountType === 'percentage'
-                ? `${Number(o.discountValue) || 0}% OFF`
+                ? `${Number(o.discountValue) || 0}% OFF${cap > 0 ? ` up to ₹${cap}` : ''}`
                 : `Flat ₹${Number(o.discountValue) || 0} OFF`;
 
         return {
@@ -2497,7 +2451,12 @@ export const listPublicOffers = async (query = {}) => {
             restaurantRating: typeof restaurant?.rating === 'number' ? restaurant.rating : 0,
             endDate: o.endDate || null,
             showInCart: o.showInCart !== false,
-            minOrderValue: o.minOrderValue ?? 0
+            minOrderValue: o.minOrderValue ?? 0,
+            // For the greyed-out row: false means the cart is too small.
+            eligible: !hasSubtotal || numericSubtotal >= (Number(o.minOrderValue) || 0),
+            amountNeeded: hasSubtotal
+                ? Math.max(0, (Number(o.minOrderValue) || 0) - numericSubtotal)
+                : 0
         };
     });
 

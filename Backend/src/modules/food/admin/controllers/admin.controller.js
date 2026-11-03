@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import * as adminService from '../services/admin.service.js';
+import { getZoneEarnings as getZoneEarningsService } from '../services/zoneEarnings.service.js';
 import { reviewCashSettlement as reviewCashSettlementService } from '../../delivery/services/cashSettlement.service.js';
 import * as featureSettingsService from '../services/featureSettings.service.js';
 import { validateCategoryListQuery, validateCategoryRejectDto, validateCategoryUpsertDto } from '../validators/category.validator.js';
@@ -1822,34 +1823,6 @@ export async function bulkDeleteFoodItems(req, res, next) {
     }
 }
 
-// ----- Subscription Settings -----
-export async function getRestaurantSubscriptionSettings(req, res, next) {
-    try {
-        const data = await adminService.getRestaurantSubscriptionSettings();
-        res.status(200).json({ success: true, message: 'Subscription settings fetched successfully', data });
-    } catch (error) {
-        next(error);
-    }
-}
-
-export async function updateRestaurantSubscriptionSettings(req, res, next) {
-    try {
-        const data = await adminService.updateRestaurantSubscriptionSettings(req.body);
-        res.status(200).json({ success: true, message: 'Subscription settings updated successfully', data });
-    } catch (error) {
-        next(error);
-    }
-}
-
-export async function getRestaurantSubscriptionHistory(req, res, next) {
-    try {
-        const data = await adminService.getAdminRestaurantSubscriptionHistory(req.query || {});
-        res.status(200).json({ success: true, message: 'Restaurant subscription history fetched successfully', data });
-    } catch (error) {
-        next(error);
-    }
-}
-
 // ----- Feature Settings -----
 export async function getFeatureSettings(req, res, next) {
     try {
@@ -1868,6 +1841,67 @@ export async function updateFeatureSetting(req, res, next) {
             return res.status(404).json({ success: false, message: 'Feature not found' });
         }
         res.status(200).json({ success: true, message: 'Feature setting updated successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ----- Restaurant wallet adjustments -----
+
+/** GET /restaurants/:id/wallet-adjustments: the corrections recorded on a restaurant's wallet. */
+export async function getRestaurantWalletAdjustments(req, res, next) {
+    try {
+        const result = await adminService.listRestaurantWalletAdjustments(req.params.id);
+        if (!result) return res.status(404).json({ success: false, message: 'Restaurant not found' });
+        res.status(200).json({ success: true, message: 'Wallet adjustments fetched', data: result });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * POST /restaurants/:id/wallet-adjustments { amount, reason }: credit (positive)
+ * or debit (negative) a restaurant's wallet. Super admins only: it changes
+ * what a restaurant can withdraw.
+ */
+export async function createRestaurantWalletAdjustment(req, res, next) {
+    try {
+        if (!ensureSuperAdmin(req, res)) return;
+        const result = await adminService.createRestaurantWalletAdjustment(req.params.id, req.body || {}, req.user?.userId);
+        if (!result) return res.status(404).json({ success: false, message: 'Restaurant not found' });
+        res.status(201).json({ success: true, message: 'Wallet adjustment recorded', data: result });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/** GET /reports/zone-earnings?from&to&zoneId&paymentMethod: delivered-order earnings per zone. */
+export async function getZoneEarnings(req, res, next) {
+    try {
+        const data = await getZoneEarningsService(req.query);
+        res.status(200).json({ success: true, message: 'Zone earnings fetched', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/** GET /restaurant-wallets: every approved restaurant's wallet as its app shows it. */
+export async function listRestaurantWallets(req, res, next) {
+    try {
+        const data = await adminService.listRestaurantWallets();
+        res.status(200).json({ success: true, message: 'Restaurant wallets fetched', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/** POST /restaurants/:id/wallet-balance { balance, reason }: set a wallet to an exact balance. Super admins only. */
+export async function setRestaurantWalletBalance(req, res, next) {
+    try {
+        if (!ensureSuperAdmin(req, res)) return;
+        const result = await adminService.setRestaurantWalletBalance(req.params.id, req.body || {}, req.user?.userId);
+        if (!result) return res.status(404).json({ success: false, message: 'Restaurant not found' });
+        res.status(200).json({ success: true, message: result.message || 'Wallet balance updated', data: result });
     } catch (error) {
         next(error);
     }

@@ -8,6 +8,11 @@ import {
   sendNotificationToOwner,
   sendNotificationToOwners,
 } from "../../../../core/notifications/firebase.service.js";
+import {
+  VOIP_RING_DURATION_MS,
+  ringRestaurantForOrder,
+  stopRestaurantRingForOrder,
+} from "../../../../core/notifications/voip.service.js";
 import { getIO, rooms } from '../../../../config/socket.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 
@@ -618,6 +623,38 @@ export async function notifyRestaurantNewOrder(orderDoc) {
     if (orderDoc.customerName) bodyText += `\nCustomer: ${orderDoc.customerName}`;
     if (addressStr) bodyText += `\nAddress: ${addressStr}`;
 
+    // iOS: a VoIP push rings the iPhone like a phone call (CallKit), even when
+    // the app was killed. Those iPhones are then left out of the FCM alert
+    // below so they don't ring twice; Android and any iPhone the VoIP push
+    // didn't reach still get FCM as before.
+    const orderMongoId = orderDoc._id?.toString?.() || "";
+    let voipRangFcmTokens = [];
+    try {
+      const voip = await ringRestaurantForOrder({
+        restaurantId: orderDoc.restaurantId?._id || orderDoc.restaurantId,
+        orderId: orderMongoId,
+        title: `New order #${orderDoc.order_id || orderMongoId}`,
+        body: [
+          total > 0 ? `₹${total}` : "",
+          itemCount ? `${itemCount} item${itemCount === 1 ? "" : "s"}` : "",
+          orderDoc.customerName ? str(orderDoc.customerName) : "",
+        ].filter(Boolean).join(" · "),
+        data: {
+          orderMongoId,
+          orderDisplayId: str(orderDoc.order_id || orderDoc._id),
+          link: `/restaurant/orders/${orderMongoId}`,
+        },
+      });
+      voipRangFcmTokens = voip.deliveredFcmTokens;
+      if (voip.successCount > 0) {
+        logger.info(`[VoIP] iPhone ring delivered for order ${orderMongoId} (${voip.successCount} device(s)); those skip FCM`);
+      } else if (!voip.skipped) {
+        logger.warn(`[VoIP] iPhone ring FAILED for order ${orderMongoId} (0/${voip.failureCount} device(s)); falling back to FCM`);
+      }
+    } catch (err) {
+      logger.warn(`[VoIP] New-order ring failed for ${orderMongoId}, FCM still goes out: ${err?.message || err}`);
+    }
+
     // Two messages, not one — see notifyOwnersActionableAlert.
     //
     // Accept/Reject can only be attached by the app itself, and the app is only
@@ -625,7 +662,7 @@ export async function notifyRestaurantNewOrder(orderDoc) {
     // notification block silently removed the buttons, because Android renders
     // such a message and never wakes the handler that would have added them.
     await notifyOwnersActionableAlert(
-      [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId }],
+      [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId, excludeTokens: voipRangFcmTokens }],
       {
         title: "New order received",
         body: bodyText,
@@ -682,6 +719,37 @@ export async function notifyRestaurantNewOrder(orderDoc) {
     );
   } catch {
     // Do not block order/payment flow if notification fails.
+  }
+}
+
+/**
+ * Stops the iPhone ring once the order no longer waits on the restaurant —
+ * accepted, rejected, cancelled, timed out or deleted — instead of letting it
+ * ring out its full duration.
+ *
+ * Sent at most once per order, and only while the ring can still be going:
+ * every VoIP push makes iOS show the call screen, so a late "stop" would flash
+ * an empty call. Never throws and isn't meant to be awaited.
+ */
+export async function endRestaurantOrderRing(orderDoc) {
+  try {
+    if (!orderDoc?._id || !orderDoc.restaurantId) return;
+    const ringStartedAfter = new Date(Date.now() - VOIP_RING_DURATION_MS - 5000);
+    const claimed = await FoodOrder.findOneAndUpdate(
+      {
+        _id: orderDoc._id,
+        restaurantNotifiedAt: { $gte: ringStartedAfter },
+        restaurantRingEndedAt: null,
+      },
+      { $set: { restaurantRingEndedAt: new Date() } },
+    );
+    if (!claimed) return;
+    await stopRestaurantRingForOrder({
+      restaurantId: orderDoc.restaurantId?._id || orderDoc.restaurantId,
+      orderId: orderDoc._id.toString(),
+    });
+  } catch (err) {
+    logger.warn(`[VoIP] Stop-ring failed for ${orderDoc?._id}: ${err?.message || err}`);
   }
 }
 
