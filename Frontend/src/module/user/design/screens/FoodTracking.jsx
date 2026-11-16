@@ -555,7 +555,7 @@ function CancelledCard({ order, status, onReorder, onHome }) {
       <p>{order.cancellationReason || (status === "cancelled_by_restaurant" ? "The restaurant was unable to accept this order." : "This order has been cancelled.")}</p>
       {refunded && (
         <p className="ft-ended__note">
-          Your refund of {rupees(order.pricing?.total)} is being processed and will be credited to your original payment method within 5–7 working days.
+          Your refund of {rupees(order.pricing?.total)} has been initiated and will be credited to your account within 3–5 working days.
         </p>
       )}
       <div className="ft-ended__actions">

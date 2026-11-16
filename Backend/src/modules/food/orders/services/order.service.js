@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
-import { runWithVertical } from '../../../../core/vertical/verticalScope.js';
+import { runWithVertical, currentVertical } from '../../../../core/vertical/verticalScope.js';
+import { refundRazorpayPaymentOnce } from '../../../../core/payments/razorpayRefund.service.js';
 import { FoodOrder, FoodSettings } from '../models/order.model.js';
 // import { paymentSnapshotFromOrder } from './foodOrderPayment.service.js';
 import { logger } from '../../../../utils/logger.js';
@@ -31,7 +32,7 @@ import {
     fetchRazorpayOrderPayments
 } from '../helpers/razorpay.helper.js';
 import { getIO, rooms } from '../../../../config/socket.js';
-import { buildRefundProgress } from './refundProgress.service.js';
+import { buildRefundProgress, REFUND_INITIATED_MESSAGE } from './refundProgress.service.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 import { fetchPolyline } from '../utils/googleMaps.js';
 import { getFirebaseDB } from '../../../../config/firebase.js';
@@ -388,13 +389,26 @@ async function applyCancellationRefund(order, { cancelledBy = 'system', refundAm
       return { attempted: true, processed: false, reason: 'missing_razorpay_payment_id', method: paymentMethod };
     }
 
-    const refundResult = await initiateRazorpayRefund(paymentId, amount);
-    if (refundResult.success) {
+    // Once per payment, whoever asks: the customer, the restaurant, an admin, the
+    // acceptance timeout and the reconciliation job can all cancel the same order.
+    const refundResult = await refundRazorpayPaymentOnce({
+      paymentId,
+      amount,
+      reason: 'order_cancelled',
+      source: `cancel_${cancelledBy}`,
+      orderId: order._id,
+      razorpayOrderId: order.payment?.razorpay?.orderId || '',
+      vertical: order.vertical || '',
+    });
+    if (refundResult.success || refundResult.inProgress) {
+      // 'pending' until Razorpay hands it to the bank; the refund.processed
+      // webhook moves it on to 'processed'.
+      const sentToBank = String(refundResult.status || '').toLowerCase() === 'processed';
       order.payment.status = 'refunded';
       order.payment.refund = {
-        status: 'processed',
+        status: sentToBank ? 'processed' : 'pending',
         amount,
-        refundId: refundResult.refundId,
+        refundId: refundResult.refundId || '',
         processedAt: new Date(),
       };
       return { attempted: true, processed: true, method: paymentMethod, refundId: refundResult.refundId };
@@ -900,7 +914,13 @@ export async function createOrder(userId, dto) {
       if (amountPaise < 100)
         throw new ValidationError("Amount too low for online payment");
       try {
-        const rzOrder = await createRazorpayOrder(amountPaise, "INR", order._id.toString());
+        // The notes let the webhook and the reconciliation job tell an order
+        // payment from a wallet top-up or a rider deposit on the same account.
+        const rzOrder = await createRazorpayOrder(amountPaise, "INR", order._id.toString(), {
+          kind: "food_order",
+          order_id: order._id.toString(),
+          vertical: order.vertical || currentVertical(),
+        });
         razorpayPayload = {
           key: getRazorpayKeyId(),
           orderId: rzOrder.id,
@@ -1005,7 +1025,7 @@ export async function createOrder(userId, dto) {
         void notifyOwnersSafely([{ ownerType: "USER", ownerId: userId }], {
           title: "Order Confirmed! 🍔",
           body: `Your order #${order.order_id || order._id} from ${restaurant.restaurantName || "the restaurant"} has been placed successfully.`,
-          image: "https://res.cloudinary.com/drbbc0l3a/image/upload/v1770098888/appzeto/business/logo/g0mvyt8uug5rtfiqcdeh.png",
+          image: "https://ik.imagekit.io/7fbrbwgbc/cloudinary/drbbc0l3a/appzeto/business/logo/g0mvyt8uug5rtfiqcdeh.png",
           data: {
             type: "order_created",
             orderId: String(order._id),
@@ -1241,6 +1261,106 @@ export async function abandonOnlinePaymentOrder(userId, orderId) {
   }
 
   return { deleted: true, orderId: order._id.toString() };
+}
+
+
+/**
+ * Razorpay took the customer's money but the order cannot go ahead: confirming
+ * it threw, or the amount paid is not the order total. The order is cancelled
+ * and the payment refunded (speed normal), and the customer is told so, rather
+ * than being left with a deduction and no order.
+ *
+ * Only an order still in pending_payment is touched. One that a parallel
+ * verify-payment already sent to the restaurant is live, and is left alone.
+ *
+ * Runs in the order's own vertical: the webhook and the job have no request scope.
+ */
+export async function cancelPaidPendingOrderAndRefund(orderMongoId, { paymentId, paidAmount, reason, note }) {
+  const now = new Date();
+  const order = await FoodOrder.findOneAndUpdate(
+    { _id: orderMongoId, orderStatus: "pending_payment" },
+    {
+      $set: {
+        orderStatus: "cancelled_by_admin",
+        note: note || "Payment received but the order could not be placed",
+        "payment.status": "paid",
+        "payment.razorpay.paymentId": paymentId,
+        acceptanceDeadlineAt: null,
+      },
+      $push: {
+        statusHistory: {
+          at: now,
+          byRole: "SYSTEM",
+          from: "pending_payment",
+          to: "cancelled_by_admin",
+          note: `${note || "Order could not be placed"} (${reason}); payment ${paymentId} refunded`,
+        },
+      },
+    },
+    { new: true },
+  ).setOptions({ skipVerticalScope: true });
+  if (!order) return { cancelled: false };
+
+  return runWithVertical(order.vertical || config.defaultVertical, async () => {
+    try {
+      await restoreOrderStock(order);
+      await releaseCouponUsageForOrder(order);
+    } catch (err) {
+      logger.warn(`cancelPaidPendingOrderAndRefund stock/coupon release failed for ${order._id}: ${err?.message || err}`);
+    }
+
+    const refundAmount = Number(paidAmount) > 0 ? Number(paidAmount) : Number(order.pricing?.total) || 0;
+    let refund = { processed: false };
+    try {
+      refund = await applyCancellationRefund(order, { cancelledBy: "system", refundAmount });
+    } catch (err) {
+      logger.error(`cancelPaidPendingOrderAndRefund refund threw for ${order._id}: ${err?.message || err}`);
+      order.payment.refund = { status: "failed", amount: refundAmount };
+    }
+    await order.save({ validateModifiedOnly: true });
+
+    logger.warn(
+      `[PaymentRecovery] Order ${order._id} cancelled and refunded (${reason}); payment ${paymentId}; refund ${refund.processed ? "initiated" : "FAILED, will retry"}`,
+    );
+
+    void notifyOwnersSafely([{ ownerType: "USER", ownerId: order.userId }], {
+      title: "We couldn't place your order",
+      body: `Your payment for order #${order.order_id || order._id} was received, but the order could not be placed. ${REFUND_INITIATED_MESSAGE}`,
+      data: {
+        type: "order_cancelled",
+        orderId: String(order._id),
+        orderMongoId: String(order._id),
+      },
+    }).catch((e) => logger.warn(`refund push failed for ${order._id}: ${e?.message || e}`));
+
+    try {
+      const io = getIO();
+      if (io) {
+        io.to(rooms.user(order.userId)).emit("order_status_update", {
+          orderMongoId: String(order._id),
+          orderId: String(order._id),
+          orderStatus: order.orderStatus,
+          message: REFUND_INITIATED_MESSAGE,
+        });
+      }
+    } catch (err) {
+      logger.warn(`cancelPaidPendingOrderAndRefund socket emit failed: ${err?.message || err}`);
+    }
+
+    return { cancelled: true, refunded: Boolean(refund.processed), orderId: String(order._id) };
+  });
+}
+
+/**
+ * The stale pending-payment cleanup, for both verticals, without the per-request
+ * throttle. It used to run only when someone listed orders, and only for the
+ * vertical of that request.
+ */
+export async function sweepStalePendingPaymentOrders() {
+  for (const vertical of ["food", "quick"]) {
+    lastExpiredCleanupAt = 0;
+    await runWithVertical(vertical, () => expireStalePendingPaymentOrders());
+  }
 }
 
 // ----- Auto-assign -----
@@ -1755,7 +1875,7 @@ export async function cancelOrder(orderId, userId, reason) {
   const isOnlinePaid =
     finalPaymentMethod === "razorpay" &&
     (finalPaymentStatus === "paid" || finalPaymentStatus === "refunded");
-  const refundDetail = isOnlinePaid ? ` Your refund of ₹${order.pricing.total} is being processed and will be credited to your original payment method within 5-7 working days.` : "";
+  const refundDetail = isOnlinePaid ? ` ${REFUND_INITIATED_MESSAGE}` : "";
   
   await notifyOwnersSafely(
     [
@@ -1768,7 +1888,7 @@ export async function cancelOrder(orderId, userId, reason) {
     {
       title: "Order Cancelled ❌",
       body: `Order #${order.order_id || order._id} has been cancelled successfully.${refundDetail}`,
-      image: "https://res.cloudinary.com/drbbc0l3a/image/upload/v1770098888/appzeto/business/logo/g0mvyt8uug5rtfiqcdeh.png",
+      image: "https://ik.imagekit.io/7fbrbwgbc/cloudinary/drbbc0l3a/appzeto/business/logo/g0mvyt8uug5rtfiqcdeh.png",
       data: {
         type: "order_cancelled",
         orderId: String(order._id.toString()),
@@ -2182,7 +2302,7 @@ export async function updateOrderStatusRestaurant(
     body = "Your order is ready and waiting to be picked up.";
   } else if (String(orderStatus).includes("cancel")) {
     const isOnlinePaid = order.payment.method === "razorpay" && (order.payment.status === "paid" || order.payment.status === "refunded");
-    const refundDetail = isOnlinePaid ? ` Your refund of ₹${order.pricing.total} is being processed and will be credited to your original payment method within 5-7 working days.` : "";
+    const refundDetail = isOnlinePaid ? ` ${REFUND_INITIATED_MESSAGE}` : "";
     
     title = "Order Cancelled ❌";
     body = (note && String(note).trim()) ? note : `Unfortunately, your order has been cancelled by the restaurant.${refundDetail}`;
@@ -2289,7 +2409,7 @@ export async function updateOrderStatusRestaurant(
       {
         title: title,
         body: body,
-        image: "https://res.cloudinary.com/drbbc0l3a/image/upload/v1770098888/appzeto/business/logo/g0mvyt8uug5rtfiqcdeh.png",
+        image: "https://ik.imagekit.io/7fbrbwgbc/cloudinary/drbbc0l3a/appzeto/business/logo/g0mvyt8uug5rtfiqcdeh.png",
         data: {
           type: "order_status_update",
           orderId: order._id.toString(),
@@ -2941,6 +3061,11 @@ export async function updateOrderStatusAdmin(orderId, orderStatus, note = "", ad
     } else if (String(orderStatus).includes("cancel")) {
         title = "Order Cancelled ❌";
         body = (note && String(note).trim()) ? note : `Unfortunately, your order has been cancelled by support.`;
+        const refundStarted =
+            order.payment?.method === "razorpay" &&
+            ["refunded", "paid"].includes(String(order.payment?.status || "")) &&
+            ["pending", "processed"].includes(String(order.payment?.refund?.status || ""));
+        if (refundStarted) body = `${body} ${REFUND_INITIATED_MESSAGE}`;
     }
 
     await notifyOwnersSafely(notifyList, {

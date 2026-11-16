@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
 import { useParams } from "react-router-dom"
+import { describeCombo } from "@food/utils/comboItems"
 import { motion, AnimatePresence } from "framer-motion"
 import { 
   ArrowLeft, 
@@ -264,6 +265,9 @@ export default function OrderDetailPage({
                   <p className="text-[11px] font-bold text-gray-400 mt-1 uppercase tracking-tighter">
                     {item.quantity} × {formatMoney(item.price)}
                   </p>
+                  {item.comboItems?.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-1">{describeCombo(item.comboItems)}</p>
+                  )}
                   {item.addons && item.addons.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {item.addons.map((addon, aIdx) => (

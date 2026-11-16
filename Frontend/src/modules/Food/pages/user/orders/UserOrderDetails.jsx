@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
+import { describeCombo } from "@food/utils/comboItems"
 import {
   ArrowLeft,
   ShoppingBag,
@@ -546,6 +547,9 @@ export default function UserOrderDetails() {
                 </div>
                 <span className="text-sm text-gray-700 dark:text-gray-300 font-medium">
                   {qty} x {item.name}{item.variantName ? ` (${item.variantName})` : ""}
+                  {item.comboItems?.length > 0 && (
+                    <span className="block text-xs font-normal text-gray-500 dark:text-gray-400">{describeCombo(item.comboItems)}</span>
+                  )}
                 </span>
               </div>
               <DualMoney

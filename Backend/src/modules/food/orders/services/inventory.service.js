@@ -16,14 +16,24 @@ import { logger } from '../../../../utils/logger.js';
  * is every document that existed before this file.
  */
 
-/** Same item can appear on several lines (different variants); the shelf sees the sum. */
+/**
+ * Same item can appear on several lines (different variants); the shelf sees the sum.
+ * A combo has no stock of its own, so its line counts as the dishes inside it.
+ */
 export function totalQuantityByItem(items = []) {
   const totals = new Map();
-  for (const item of items) {
-    const id = String(item?.itemId || '');
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) continue;
-    const qty = Math.max(1, Number(item?.quantity) || 1);
+  const add = (rawId, qty) => {
+    const id = String(rawId || '');
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return;
     totals.set(id, (totals.get(id) || 0) + qty);
+  };
+  for (const item of items) {
+    const qty = Math.max(1, Number(item?.quantity) || 1);
+    if (Array.isArray(item?.comboItems) && item.comboItems.length > 0) {
+      for (const dish of item.comboItems) add(dish?.itemId, qty * Math.max(1, Number(dish?.quantity) || 1));
+      continue;
+    }
+    add(item?.itemId, qty);
   }
   return totals;
 }

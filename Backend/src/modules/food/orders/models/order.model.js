@@ -57,6 +57,26 @@ const orderItemSchema = new mongoose.Schema(
                 )
             ],
             default: []
+        },
+        /**
+         * What a combo line contained at order time, per one combo. The kitchen
+         * reads it, and a cancellation restocks from it, so editing the combo
+         * later cannot change a past order or restock the wrong dishes.
+         */
+        comboItems: {
+            type: [
+                new mongoose.Schema(
+                    {
+                        itemId: { type: String, trim: true, required: true },
+                        name: { type: String, trim: true, default: '' },
+                        variantId: { type: String, trim: true, default: '' },
+                        variantName: { type: String, trim: true, default: '' },
+                        quantity: { type: Number, min: 1, required: true }
+                    },
+                    { _id: false }
+                )
+            ],
+            default: undefined
         }
     },
     { _id: false }

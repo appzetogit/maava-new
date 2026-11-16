@@ -435,6 +435,22 @@ export default function FoodApproval() {
                   </div>
                 )}
 
+                {selectedRequest.isCombo && (
+                  <div className="col-span-full">
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Dishes in this combo</label>
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 space-y-1">
+                      {(selectedRequest.comboItems || []).map((dish) => (
+                        <p key={`${dish.itemId}-${dish.variantId}`} className="text-sm text-gray-700">
+                          {dish.quantity} x {dish.name || "Removed dish"}{dish.variantName ? ` (${dish.variantName})` : ""}
+                        </p>
+                      ))}
+                      {selectedRequest.otherPrice > 0 && (
+                        <p className="text-xs text-gray-500 pt-1">Worth ₹{selectedRequest.otherPrice} if ordered separately</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Images */}
                 {(() => {
                   const allImages = (selectedRequest.images || []).filter(img => img && typeof img === 'string');

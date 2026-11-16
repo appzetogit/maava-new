@@ -1641,7 +1641,7 @@ export async function processRefund(req, res, next) {
                 {
                     title: 'Refund Processed! 💸',
                     body: `Your refund of ₹${refundAmount || order.totalAmount || order.total || 0} for Order #${order.orderId} has been processed successfully.`,
-                    image: 'https://res.cloudinary.com/drbbc0l3a/image/upload/v1770098888/appzeto/business/logo/g0mvyt8uug5rtfiqcdeh.png',
+                    image: 'https://ik.imagekit.io/7fbrbwgbc/cloudinary/drbbc0l3a/appzeto/business/logo/g0mvyt8uug5rtfiqcdeh.png',
                     data: {
                         type: 'refund_processed',
                         orderId: String(order.orderId),

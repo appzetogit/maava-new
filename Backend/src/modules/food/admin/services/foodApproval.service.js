@@ -4,6 +4,7 @@ import { FoodItem } from '../models/food.model.js';
 import { FoodAddon } from '../../restaurant/models/foodAddon.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { syncMenuItemApprovalStatus } from '../../restaurant/services/restaurantMenu.service.js';
+import { attachComboDetails } from '../../shared/combo.util.js';
 import { getFoodDisplayOtherPrice, getFoodDisplayPrice, serializeFoodVariants } from './foodVariant.service.js';
 
 const toRestaurantDisplayId = (mongoId) => {
@@ -32,8 +33,9 @@ export async function listPendingFoodApprovals(query = {}) {
         .sort({ requestedAt: -1, createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .select('restaurantId categoryName name price variants image foodType approvalStatus requestedAt createdAt')
-        .lean();
+        .select('restaurantId categoryName name description price otherPrice isCombo comboItems variants image foodType approvalStatus requestedAt createdAt')
+        .lean()
+        .then((foods) => attachComboDetails(foods));
 
     const addonList = await FoodAddon.find({ approvalStatus: 'pending' })
         .sort({ requestedAt: -1, createdAt: -1 })
@@ -61,6 +63,9 @@ export async function listPendingFoodApprovals(query = {}) {
         category: f.categoryName || '',
         itemName: f.name,
         foodType: f.foodType || 'Non-Veg',
+        description: f.description || '',
+        isCombo: f.isCombo === true,
+        comboItems: f.isCombo ? f.comboItems : [],
         sectionName: f.categoryName || '',
         subsectionName: '',
         approvalStatus: f.approvalStatus || 'pending',
@@ -128,7 +133,7 @@ export async function approveFoodItem(id) {
                 {
                     title: 'Dish Approved! 🍲',
                     body: `Your dish "${updated.name}" has been approved and is now visible to customers.`,
-                    image: updated.image || 'https://res.cloudinary.com/drbbc0l3a/image/upload/v1770098888/appzeto/business/logo/g0mvyt8uug5rtfiqcdeh.png',
+                    image: updated.image || 'https://ik.imagekit.io/7fbrbwgbc/cloudinary/drbbc0l3a/appzeto/business/logo/g0mvyt8uug5rtfiqcdeh.png',
                     data: {
                         type: 'food_approved',
                         foodId: String(updated._id),
@@ -173,7 +178,7 @@ export async function rejectFoodItem(id, reason) {
                 {
                     title: 'Dish Rejected ❌',
                     body: `Your dish "${updated.name}" was rejected. Reason: ${r}`,
-                    image: updated.image || 'https://res.cloudinary.com/drbbc0l3a/image/upload/v1770098888/appzeto/business/logo/g0mvyt8uug5rtfiqcdeh.png',
+                    image: updated.image || 'https://ik.imagekit.io/7fbrbwgbc/cloudinary/drbbc0l3a/appzeto/business/logo/g0mvyt8uug5rtfiqcdeh.png',
                     data: {
                         type: 'food_rejected',
                         foodId: String(updated._id),

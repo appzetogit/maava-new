@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, Component, useMemo } from "react"
 import { createPortal } from "react-dom"
+import ComboDetails from "../../../components/ComboDetails"
 import { motion, AnimatePresence } from "framer-motion"
 import { useParams, useNavigate, useSearchParams } from "react-router-dom"
 import { restaurantAPI, diningAPI, orderAPI } from "@food/api"
@@ -2565,6 +2566,8 @@ function RestaurantDetailsContent() {
                                 )}
                               </div>
 
+                              <ComboDetails item={item} />
+
                               {/* Description - Show if available */}
                               {item.description && (
                                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{item.description}</p>
@@ -2791,6 +2794,8 @@ function RestaurantDetailsContent() {
                                             </div>
                                           )}
                                         </div>
+
+                                        <ComboDetails item={item} />
 
                                         {/* Description - Show if available */}
                                         {item.description && (

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { describeCombo } from "@food/utils/comboItems"
 import { Eye, MapPin, Package, User, Phone, Mail, Calendar, Clock, Truck, CreditCard, X, Receipt, CheckCircle2, History, Banknote } from "lucide-react"
 import {
   Dialog,
@@ -367,6 +368,11 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order }) {
                       </div>
                       {item.description && (
                         <p className="text-xs text-slate-500 mt-1 ml-8">{item.description}</p>
+                      )}
+                      {item.comboItems?.length > 0 && (
+                        <p className="text-xs text-slate-500 mt-1 ml-8">
+                          Combo: {describeCombo(item.comboItems)}
+                        </p>
                       )}
                     </div>
                     <DualMoney

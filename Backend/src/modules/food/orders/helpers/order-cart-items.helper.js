@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodAddon } from '../../restaurant/models/foodAddon.model.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
+import { resolveComboForOrder } from '../../shared/combo.util.js';
 
 function toObjectIds(ids = []) {
   return [...new Set(ids)]
@@ -162,7 +163,9 @@ export async function resolveOrderCartItems(restaurantId, rawItems = []) {
         );
       }
 
+      const combo = foodDoc.isCombo ? await resolveComboForOrder(foodDoc, quantity) : null;
       const pricing = resolveFoodItemPrice(foodDoc, rawItem);
+      if (combo) pricing.otherPrice = combo.otherPrice;
       const addons = resolveAttachedAddons(rawItem?.addons);
       const addonsTotal = addons.reduce((sum, a) => sum + a.price, 0);
 
@@ -174,6 +177,7 @@ export async function resolveOrderCartItems(restaurantId, rawItems = []) {
         // every total derived from it match what the app displayed.
         price: pricing.price + addonsTotal,
         addons,
+        ...(combo ? { comboItems: combo.comboItems } : {}),
         quantity,
         // Carried onto the line so tax is computed per product rather than at
         // one rate for the whole basket. null defers to the order-wide rate.

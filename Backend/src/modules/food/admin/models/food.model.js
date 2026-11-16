@@ -10,6 +10,16 @@ const foodVariantSchema = new mongoose.Schema(
     { _id: true }
 );
 
+const comboItemSchema = new mongoose.Schema(
+    {
+        itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodItem', required: true },
+        /** Set when the dish has sizes, so the combo names exactly which one is included. */
+        variantId: { type: String, trim: true, default: '' },
+        quantity: { type: Number, required: true, min: 1 }
+    },
+    { _id: false }
+);
+
 const foodSchema = new mongoose.Schema(
     {
         restaurantId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodRestaurant', required: true, index: true },
@@ -21,6 +31,13 @@ const foodSchema = new mongoose.Schema(
         /** Compare-at / other-platform price for strikethrough UI. Existing items stay 0. */
         otherPrice: { type: Number, min: 0, default: 0 },
         variants: { type: [foodVariantSchema], default: [] },
+        /**
+         * A combo is an ordinary menu item that also lists the dishes inside it,
+         * which keeps the menu, cart, coupons, commission and refunds unchanged.
+         * It has no stock of its own: selling one takes stock from its dishes.
+         */
+        isCombo: { type: Boolean, default: false, index: true },
+        comboItems: { type: [comboItemSchema], default: undefined },
         /**
          * The dish's primary image, kept as the first entry of [images].
          *

@@ -121,14 +121,11 @@ export default function UserRouter() {
   return (
     <Routes>
       <Route element={nextShell ? <NextLayout /> : <UserLayout />}>
-        {/* Home & Discovery */}
+        {/* Home & Discovery: open to visitors. Sign-in is asked for at the
+            cart, orders and profile, which are protected below. */}
         <Route
           path=""
-          element={
-            <ProtectedRoute requiredRole="user" loginPath="/food/user/auth/sign-in">
-              {nextShell ? <RouteSuspense fallback={null}><FoodHome /></RouteSuspense> : <Home />}
-            </ProtectedRoute>
-          }
+          element={nextShell ? <RouteSuspense fallback={null}><FoodHome /></RouteSuspense> : <Home />}
         />
         <Route path="in-mart" element={<InMart />} />
         <Route path="in-mart/categories" element={<RouteSuspense fallback={null}><MartCategories /></RouteSuspense>} />

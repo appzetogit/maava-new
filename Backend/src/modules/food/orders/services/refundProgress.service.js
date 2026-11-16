@@ -18,9 +18,11 @@ import { fetchRazorpayPayment, fetchRazorpayRefund } from '../helpers/razorpay.h
 const LOOKUP_TTL_MS = 5 * 60 * 1000;
 const lookups = new Map(); // refundId -> { at, value }
 
-// Bank credit after Razorpay processes a normal-speed refund, in working days.
-const WORKING_DAYS_BY_METHOD = { upi: 3, wallet: 3, card: 7, netbanking: 7, emi: 7 };
-const DEFAULT_WORKING_DAYS = 7;
+// Bank credit after a normal-speed refund: we promise customers 3-5 working days.
+const WORKING_DAYS_BY_METHOD = {};
+const DEFAULT_WORKING_DAYS = 5;
+export const REFUND_INITIATED_MESSAGE =
+    'Your refund has been initiated and will be credited to your account within 3–5 working days.';
 
 const METHOD_LABELS = {
     upi: 'UPI account',
@@ -138,8 +140,7 @@ export async function buildRefundProgress(order) {
         message = `It should have reached your ${where} by ${formatDay(expectedBy)}. If it has not, `
             + (arn ? `share the bank reference ${arn} with your bank.` : 'contact support with your order ID.');
     } else {
-        message = `Banks usually take ${workingDays === 3 ? '2-3' : '5-7'} working days. `
-            + `Expected by ${formatDay(expectedBy)}.`;
+        message = `${REFUND_INITIATED_MESSAGE} Expected by ${formatDay(expectedBy)}.`;
     }
 
     return {

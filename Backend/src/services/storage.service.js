@@ -5,6 +5,7 @@ import axios from 'axios';
 import sharp from 'sharp';
 import { config } from '../config/env.js';
 import { ValidationError } from '../core/auth/errors.js';
+import { logger } from '../utils/logger.js';
 
 const ALLOWED_MIME_TYPES = new Set([
     'image/jpeg',
@@ -164,6 +165,48 @@ export const optimizeImageForStorage = async (inputBuffer, mimeType) => {
     };
 };
 
+const imagekitEnabled = () => Boolean(config.imagekitPrivateKey && config.imagekitUrlEndpoint);
+const imagekitAuth = () => `Basic ${Buffer.from(`${config.imagekitPrivateKey}:`).toString('base64')}`;
+
+/**
+ * Stores an upload on ImageKit under the same folder/name it would have had
+ * on the VPS. Returns null on any failure so the caller falls back to disk:
+ * an outage at ImageKit must not stop restaurants and riders uploading.
+ */
+const uploadToImagekit = async (buffer, relativePath, mimeType) => {
+    if (!imagekitEnabled()) return null;
+    try {
+        const form = new FormData();
+        form.append('file', new Blob([buffer], { type: mimeType }), path.posix.basename(relativePath));
+        form.append('fileName', path.posix.basename(relativePath));
+        form.append('folder', `/${path.posix.dirname(relativePath)}`);
+        form.append('useUniqueFileName', 'false');
+        const response = await fetch('https://upload.imagekit.io/api/v1/files/upload', {
+            method: 'POST',
+            headers: { Authorization: imagekitAuth() },
+            body: form,
+            signal: AbortSignal.timeout(30000)
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || !body.url) {
+            throw new Error(`HTTP ${response.status} ${body.message || ''}`.trim());
+        }
+        return body.url;
+    } catch (error) {
+        logger.warn(`ImageKit upload failed for ${relativePath}, saving on the server instead: ${error?.message || error}`);
+        return null;
+    }
+};
+
+/** Writes to ImageKit when configured, otherwise (or if that fails) to the VPS folder. */
+const storeBuffer = async (buffer, safeFolder, relativePath, mimeType) => {
+    const imagekitUrl = await uploadToImagekit(buffer, relativePath, mimeType);
+    if (imagekitUrl) return imagekitUrl;
+    await ensureUploadStorageReady(safeFolder);
+    await fs.writeFile(getAbsolutePath(relativePath), buffer);
+    return buildPublicUrl(relativePath);
+};
+
 /** Create upload root (and optional subfolder) if missing. */
 export const ensureUploadStorageReady = async (folder = '') => {
     const root = path.resolve(config.uploadStorageRoot);
@@ -191,13 +234,10 @@ export const saveImageFile = async (file, folder) => {
     const optimized = await optimizeImageForStorage(file.buffer, mimeType);
     const filename = buildFilename(optimized.extension);
     const relativePath = path.posix.join(safeFolder, filename);
-    const absolutePath = getAbsolutePath(relativePath);
-
-    await ensureUploadStorageReady(safeFolder);
-    await fs.writeFile(absolutePath, optimized.buffer);
+    const url = await storeBuffer(optimized.buffer, safeFolder, relativePath, optimized.mimeType);
 
     return {
-        url: buildPublicUrl(relativePath),
+        url,
         path: relativePath,
         filename,
         mimeType: optimized.mimeType,
@@ -226,9 +266,8 @@ export const saveJpegImage = async (file, folder, { maxWidth = 1600, quality = 8
         .toBuffer();
     const filename = buildFilename('.jpg');
     const relativePath = path.posix.join(safeFolder, filename);
-    await ensureUploadStorageReady(safeFolder);
-    await fs.writeFile(getAbsolutePath(relativePath), buffer);
-    return { url: buildPublicUrl(relativePath), path: relativePath, filename, mimeType: 'image/jpeg', size: buffer.length };
+    const url = await storeBuffer(buffer, safeFolder, relativePath, 'image/jpeg');
+    return { url, path: relativePath, filename, mimeType: 'image/jpeg', size: buffer.length };
 };
 
 export const saveImageBuffer = async (buffer, folder, options = {}) => {
@@ -242,9 +281,38 @@ export const saveImageBuffer = async (buffer, folder, options = {}) => {
     );
 };
 
+/** Best-effort removal from ImageKit by path. Never throws. */
+const deleteFromImagekit = async (relativePath) => {
+    if (!imagekitEnabled()) return false;
+    try {
+        // The list API cannot search by full path, only by folder plus name.
+        const folder = encodeURIComponent(`/${path.posix.dirname(relativePath)}`);
+        const query = encodeURIComponent(`name = "${path.posix.basename(relativePath)}"`);
+        const found = await fetch(`https://api.imagekit.io/v1/files?path=${folder}&searchQuery=${query}&limit=1`, {
+            headers: { Authorization: imagekitAuth() },
+            signal: AbortSignal.timeout(15000)
+        }).then((r) => (r.ok ? r.json() : []));
+        const fileId = Array.isArray(found) ? found[0]?.fileId : null;
+        if (!fileId) return false;
+        const removed = await fetch(`https://api.imagekit.io/v1/files/${fileId}`, {
+            method: 'DELETE',
+            headers: { Authorization: imagekitAuth() },
+            signal: AbortSignal.timeout(15000)
+        });
+        return removed.ok;
+    } catch (error) {
+        logger.warn(`ImageKit delete failed for ${relativePath}: ${error?.message || error}`);
+        return false;
+    }
+};
+
 export const deleteStoredFile = async (relativePath) => {
     const safePath = String(relativePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
     if (!safePath) return false;
+
+    // Uploads made before ImageKit live on disk, newer ones on ImageKit; try both.
+    const removedFromImagekit = await deleteFromImagekit(safePath);
+    if (removedFromImagekit) return true;
 
     const absolutePath = getAbsolutePath(safePath);
     try {
@@ -273,6 +341,7 @@ export const isHostedUploadUrl = (url) => {
     if (!normalized) return false;
     const base = String(config.uploadBaseUrl || '').replace(/\/+$/, '');
     if (base && normalized.startsWith(base)) return true;
+    if (config.imagekitUrlEndpoint && normalized.startsWith(config.imagekitUrlEndpoint)) return true;
     return /\/uploads\//i.test(normalized);
 };
 

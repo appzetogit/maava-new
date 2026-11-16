@@ -4,6 +4,7 @@ import { FoodRestaurant } from '../models/restaurant.model.js';
 import { getFoodDisplayOtherPrice, getFoodDisplayPrice, serializeFoodVariants } from '../../admin/services/foodVariant.service.js';
 import { restoreExpiredFoodAvailability } from './foodAvailability.service.js';
 import { isValidZoneId } from '../../shared/zoneServiceability.js';
+import { attachComboDetails } from '../../shared/combo.util.js';
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -70,10 +71,12 @@ export async function listPublicFoods(query = {}) {
         });
     }
 
-    const list = await FoodItem.find(foodFilter)
-        .sort({ createdAt: -1 })
-        .limit(isSwitch99Promo ? Math.max(limit, 2000) : limit)
-        .lean();
+    const list = await attachComboDetails(
+        await FoodItem.find(foodFilter)
+            .sort({ createdAt: -1 })
+            .limit(isSwitch99Promo ? Math.max(limit, 2000) : limit)
+            .lean()
+    );
 
     const foods = list
         .map((food) => {
@@ -110,6 +113,8 @@ export async function listPublicFoods(query = {}) {
                 : (food.image ? [food.image] : []),
             foodType: food.foodType || 'Non-Veg',
             isAvailable: food.isAvailable !== false,
+            isCombo: food.isCombo === true,
+            ...(food.isCombo ? { comboItems: food.comboItems } : {}),
             preparationTime: food.preparationTime || '',
             approvalStatus: food.approvalStatus || 'approved'
         };

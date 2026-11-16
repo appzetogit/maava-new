@@ -137,6 +137,12 @@ export const config = {
     uploadWebpQuality: Number(process.env.UPLOAD_WEBP_QUALITY || 90),
     /** Max width in px; larger images are resized (aspect ratio kept). */
     uploadWebpMaxWidth: Number(process.env.UPLOAD_WEBP_MAX_WIDTH || 2560),
+    /**
+     * ImageKit. When both are set, new uploads are stored there; the VPS
+     * folder above stays the fallback if ImageKit is unreachable.
+     */
+    imagekitPrivateKey: String(process.env.IMAGEKIT_PRIVATE_KEY || '').trim(),
+    imagekitUrlEndpoint: String(process.env.IMAGEKIT_URL_ENDPOINT || '').trim().replace(/\/+$/, ''),
     /** @deprecated Use uploadStorageRoot — kept for backward compatibility */
     uploadPath: process.env.UPLOAD_PATH || process.env.UPLOAD_STORAGE_ROOT || '/var/www/uploads',
 

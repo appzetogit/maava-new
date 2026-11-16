@@ -1,0 +1,158 @@
+/*
+ * Desktop layout for the customer site.
+ *
+ * Every rule sits behind min-width: 1024px, so phones and tablets keep the
+ * app layout untouched. On wide screens the bottom tabs give way to a top bar,
+ * and the 640px phone column widens: browsing screens to 1200px, task screens
+ * (cart, orders, profile, addresses, tracking) to 760px so forms stay readable.
+ */
+.mv-dh { display: none; }
+
+@media (min-width: 1024px) {
+  /* ---------- Top bar ---------- */
+  .mv-dh {
+    display: block;
+    border-bottom: 1px solid var(--mv-border);
+    background: var(--mv-surface);
+  }
+  .mv-dh__inner {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    max-width: 1200px;
+    height: 68px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+  .mv-dh__logo {
+    flex: none;
+    color: var(--mv-brand);
+    font: 900 26px/1 var(--mv-font);
+    letter-spacing: -0.02em;
+    text-decoration: none;
+  }
+  .mv-dh__modes { display: flex; flex: none; gap: 4px; padding: 4px; border-radius: 999px; background: var(--mv-bg); }
+  .mv-dh__mode {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: var(--mv-text-2);
+    font: 700 13px/1 var(--mv-font);
+    cursor: pointer;
+  }
+  .mv-dh__mode svg { width: 16px; height: 16px; }
+  .mv-dh__mode[aria-pressed="true"] { background: var(--mv-surface); color: var(--mv-brand); box-shadow: 0 1px 4px rgb(0 0 0 / 0.08); }
+  .mv-dh__search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+    max-width: 420px;
+    height: 42px;
+    padding: 0 16px;
+    border: 1px solid var(--mv-border);
+    border-radius: 999px;
+    background: var(--mv-bg);
+    color: var(--mv-text-2);
+    font: 400 14px/1 var(--mv-font);
+    text-align: left;
+    cursor: text;
+  }
+  .mv-dh__search svg { width: 18px; height: 18px; flex: none; }
+  .mv-dh__search span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mv-dh__nav { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+  .mv-dh__link {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 40px;
+    padding: 0 12px;
+    border-radius: 10px;
+    color: var(--mv-text);
+    font: 600 14px/1 var(--mv-font);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .mv-dh__link svg { width: 18px; height: 18px; }
+  .mv-dh__link:hover { background: var(--mv-bg); }
+  .mv-dh__link--on { color: var(--mv-brand); }
+  .mv-dh__badge {
+    display: grid;
+    place-items: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--mv-brand);
+    color: #fff;
+    font: 700 11px/1 var(--mv-font);
+    font-variant-numeric: tabular-nums;
+  }
+  .mv-dh__signin {
+    display: inline-flex;
+    align-items: center;
+    height: 40px;
+    margin-left: 6px;
+    padding: 0 20px;
+    border-radius: 999px;
+    background: var(--mv-brand);
+    color: #fff;
+    font: 700 14px/1 var(--mv-font);
+    text-decoration: none;
+  }
+  .mv-dh a:focus-visible,
+  .mv-dh button:focus-visible { outline: 2px solid var(--mv-brand); outline-offset: 2px; }
+
+  /* ---------- Phone chrome the top bar replaces ---------- */
+  .mv .mv-nav--fixed,
+  .mv .mv-nav-spacer { display: none; }
+  .mv .mv-cartbar:not(.mv-cartbar--inline) { bottom: calc(24px + env(safe-area-inset-bottom)); }
+  .mv .fh-avatar { display: none; }
+
+  /* ---------- Page widths ---------- */
+  .mv .fh,
+  .mv .fh-filter,
+  .mv .fr,
+  .mv .fs { max-width: 1200px; }
+  .mv .fc,
+  .mv .fo,
+  .mv .fp,
+  .mv .fa,
+  .mv .ft { max-width: 760px; }
+
+  /* ---------- Home ---------- */
+  .mv .fh { --fh-banner-h: 380px; padding-top: 16px; padding-bottom: 48px; }
+  .mv .fh-banner { margin: 0 24px; border-radius: 24px; }
+  .mv .fh-search-row,
+  .mv .fh-head,
+  .mv .fh-99head { padding-left: 24px; padding-right: 24px; }
+  .mv .fh-search-row { max-width: 760px; margin: 0 auto; width: 100%; }
+  .mv .fh-pills { padding-left: 24px; padding-right: 24px; flex-wrap: wrap; }
+  .mv .fh-head h2 { font-size: 18px; }
+  .mv .fh-99title { font-size: 18px; }
+  .mv .fh-99grid { grid-auto-columns: 168px; grid-template-rows: repeat(2, 190px); gap: 14px; padding-left: 24px; padding-right: 24px; }
+  .mv .fh-99card__img { height: 112px; }
+  .mv .fh-99card__add { top: 96px; }
+  .mv .fh-near { gap: 20px; padding-left: 24px; padding-right: 24px; }
+  .mv .fh-near__card { width: 216px; }
+  .mv .fh-near__media { height: 140px; }
+  .mv .fh-brands { padding-left: 24px; padding-right: 24px; }
+  .mv .fh-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; padding-left: 24px; padding-right: 24px; }
+  .mv .fh-zone { margin-left: 24px; margin-right: 24px; }
+  .mv .fh-body { gap: 24px; padding-top: 20px; }
+
+  /* ---------- Restaurant menu ---------- */
+  .mv .fr-sections { padding-left: 24px; padding-right: 24px; }
+  .mv .fr-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 28px 20px; }
+}
+
+@media (min-width: 1280px) {
+  .mv .fh-list { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}

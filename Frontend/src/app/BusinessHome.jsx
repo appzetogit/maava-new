@@ -101,7 +101,7 @@ const FAQ = [
   },
   {
     q: "How long does a refund take?",
-    a: "Refunds to your Maava wallet are instant. Refunds to UPI usually arrive within 2-3 working days, and to cards or net banking within 5-7 working days. The order screen shows each step and the bank reference.",
+    a: "Refunds to your Maava wallet are instant. Refunds to your UPI, card or bank account are initiated automatically and credited within 3–5 working days. The order screen shows each step and the bank reference.",
   },
   {
     q: "How do I list my restaurant or store?",

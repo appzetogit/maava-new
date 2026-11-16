@@ -7,6 +7,8 @@
  * printed "₹" as garbage (Helvetica has no rupee glyph) and carried no totals.
  */
 
+import { describeCombo } from "./comboItems";
+
 const escapeHtml = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (ch) => ({
     "&": "&amp;",
@@ -61,6 +63,7 @@ export const normalizeOrderForInvoice = (order = {}) => {
       name: item.name || "Item",
       variant: item.variantName || item.variant?.name || "",
       addons: (item.addons || []).map((a) => a?.name).filter(Boolean),
+      combo: describeCombo(item.comboItems),
       quantity,
       price,
       lineTotal: price * quantity,
@@ -128,6 +131,7 @@ export const buildInvoiceHtml = (order, { details = [] } = {}) => {
         <tr>
           <td>
             ${escapeHtml(item.name)}${item.variant ? ` (${escapeHtml(item.variant)})` : ""}
+            ${item.combo ? `<div class="sub">${escapeHtml(item.combo)}</div>` : ""}
             ${item.addons.length ? `<div class="sub">+ ${escapeHtml(item.addons.join(", "))}</div>` : ""}
           </td>
           <td class="c">${item.quantity}</td>

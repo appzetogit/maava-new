@@ -5,8 +5,10 @@ import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodCategory } from '../../admin/models/category.model.js';
 import { getFoodDisplayOtherPrice, getFoodDisplayPrice, serializeFoodVariants } from '../../admin/services/foodVariant.service.js';
 import { restoreExpiredFoodAvailability } from './foodAvailability.service.js';
+import { attachComboDetails } from '../../shared/combo.util.js';
 
-const buildMenuFromFoods = async (foods = []) => {
+const buildMenuFromFoods = async (rawFoods = [], comboOptions = {}) => {
+    const foods = await attachComboDetails(rawFoods, comboOptions);
     const categoryIds = Array.from(
         new Set(
             (foods || [])
@@ -64,6 +66,8 @@ const buildMenuFromFoods = async (foods = []) => {
                 : (food.image ? [food.image] : []),
             foodType: food.foodType || 'Non-Veg',
             isAvailable: food.isAvailable !== false,
+            isCombo: food.isCombo === true,
+            ...(food.isCombo ? { comboItems: food.comboItems, comboBlockedBy: food.comboBlockedBy } : {}),
             // null means the seller does not count this item, which the app has
             // to tell apart from zero so it does not render "0 left" on
             // everything that predates inventory.
@@ -131,7 +135,7 @@ export async function getRestaurantMenu(restaurantId) {
         .sort({ createdAt: -1 })
         .limit(5000)
         .lean();
-    return buildMenuFromFoods(foods);
+    return buildMenuFromFoods(foods, { keepOwnToggle: true });
 }
 
 export async function updateRestaurantMenu(restaurantId, body = {}) {

@@ -6,6 +6,7 @@ import { useCart } from "../../context/CartContext"
 import { BrandProvider } from "../BrandProvider"
 import { BottomNav, ModeSwitchButton } from "../components/chrome"
 import { AppModeProvider, MOUNT, useAppMode } from "./AppModeProvider"
+import DesktopHeader from "./DesktopHeader"
 import { useMartEnabled } from "./featureFlags"
 
 /**
@@ -133,11 +134,12 @@ function ShellFrame() {
 
   return (
     <BrandProvider mode={mode}>
+      <DesktopHeader mode={mode} itemCount={itemCount} showSwitch={martEnabled} onSwitch={switchModule} />
       <LocationPrompt />
       <Outlet />
       {showBar && (
         <>
-          <div aria-hidden="true" style={{ height: 88 }} />
+          <div aria-hidden="true" className="mv-nav-spacer" style={{ height: 88 }} />
           <BottomNav
             key={mode}
             variant={mode}

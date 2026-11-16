@@ -16,6 +16,7 @@ import {
     categoryAllowsFoodType,
     GLOBAL_CATEGORY_FILTER
 } from '../../shared/categoryWorkflow.js';
+import { normalizeComboInput } from '../../shared/combo.util.js';
 
 const toStr = (v) => (v != null ? String(v).trim() : '');
 const APPROVED_CATEGORY_FILTER = [
@@ -250,7 +251,7 @@ const getRestaurantContext = async (restaurantId) => {
     }
 
     const restaurant = await FoodRestaurant.findById(restaurantId)
-        .select('pureVegRestaurant')
+        .select('pureVegRestaurant vertical')
         .lean();
     if (!restaurant?._id) {
         throw new ValidationError('Restaurant not found');
@@ -258,8 +259,98 @@ const getRestaurantContext = async (restaurantId) => {
 
     return {
         restaurantId: new mongoose.Types.ObjectId(String(restaurantId)),
-        pureVegRestaurant: restaurant.pureVegRestaurant === true
+        pureVegRestaurant: restaurant.pureVegRestaurant === true,
+        vertical: restaurant.vertical
     };
+};
+
+/**
+ * The seller's own "Combos" category, created on their first combo.
+ *
+ * Approved from the start, unlike other seller categories: it only ever holds
+ * combos, and each combo still goes through approval itself. A "Combos" category
+ * the seller already asked for is reused rather than left waiting beside this one.
+ */
+const ensureComboCategory = async (context) => {
+    const fields = {
+        foodTypeScope: context.pureVegRestaurant ? 'Veg' : 'Both',
+        approvalStatus: 'approved',
+        isApproved: true,
+        isActive: true,
+        rejectionReason: ''
+    };
+    const existing = await FoodCategory.findOneAndUpdate(
+        { restaurantId: context.restaurantId, name: { $regex: /^combos$/i } },
+        { $set: fields },
+        { new: true }
+    ).lean();
+    if (existing) return existing;
+
+    return FoodCategory.create({
+        ...fields,
+        name: 'Combos',
+        sortOrder: -1,
+        restaurantId: context.restaurantId,
+        createdByRestaurantId: context.restaurantId,
+        approvedAt: new Date()
+    });
+};
+
+const comboOtherPrice = (price, worth) => {
+    if (!Number.isFinite(price) || price <= 0) throw new ValidationError('Price must be greater than 0');
+    if (price > worth) {
+        throw new ValidationError(`The combo price cannot be above the ${worth} its dishes cost separately`);
+    }
+    return worth > price ? worth : 0;
+};
+
+/** Turns a new-combo request into a normal food request plus its list of dishes. */
+const prepareNewCombo = async (context, body) => {
+    if (context.vertical === 'quick') throw new ValidationError('Combos are only available for restaurants');
+
+    const combo = await normalizeComboInput(context.restaurantId, body.comboItems, {
+        pureVeg: context.pureVegRestaurant
+    });
+    const prepared = {
+        ...body,
+        variants: [],
+        variations: [],
+        foodType: combo.foodType,
+        otherPrice: comboOtherPrice(Number(body.price), combo.worth),
+        description: toStr(body.description) || combo.autoDescription,
+        stockQty: undefined,
+        lowStockThreshold: undefined
+    };
+    if (!toStr(body.categoryId) && !toStr(body.categoryName)) {
+        prepared.categoryId = String((await ensureComboCategory(context))._id);
+    }
+    return { prepared, comboItems: combo.comboItems };
+};
+
+/**
+ * Same for an edit. The saving and veg/non-veg are recalculated whenever the
+ * dishes or the price change; a plain on/off edit touches neither.
+ */
+const prepareComboEdit = async (context, existing, body) => {
+    const prepared = { ...body };
+    for (const key of ['variants', 'variations', 'stockQty', 'lowStockThreshold', 'otherPrice', 'foodType']) {
+        delete prepared[key];
+    }
+    if (body.comboItems === undefined && body.price === undefined) return { prepared };
+
+    const options = { pureVeg: context.pureVegRestaurant };
+    const combo = await normalizeComboInput(context.restaurantId, body.comboItems ?? existing.comboItems, options);
+    const price = body.price !== undefined ? Number(body.price) : Number(existing.price);
+    prepared.otherPrice = comboOtherPrice(price, combo.worth);
+    prepared.foodType = combo.foodType;
+    if (body.comboItems === undefined) return { prepared };
+
+    // A description the system wrote follows the dishes; one the seller wrote is theirs.
+    const previous = await normalizeComboInput(context.restaurantId, existing.comboItems, options).catch(() => null);
+    const description = toStr(body.description ?? existing.description);
+    if (!description || description === previous?.autoDescription) prepared.description = combo.autoDescription;
+
+    return { prepared, comboItems: combo.comboItems };
 };
 
 const getAccessibleCategoryFilter = (context) => ({
@@ -397,6 +488,15 @@ export async function updateRestaurantFoodStock(restaurantId, entries = []) {
             continue;
         }
 
+        if (
+            entry?.stockQty !== undefined &&
+            entry?.stockQty !== null &&
+            await FoodItem.exists({ _id: foodId, restaurantId: context.restaurantId, isCombo: true })
+        ) {
+            failed.push({ itemId: foodId, reason: 'A combo has no stock of its own. Update its dishes instead.' });
+            continue;
+        }
+
         try {
             const { update, unset } = buildAvailabilityUpdate({
                 stockQty: entry?.stockQty,
@@ -455,8 +555,12 @@ export async function listLowStockFoods(restaurantId) {
     return { items: low, total: low.length };
 }
 
-export async function createRestaurantFood(restaurantId, body = {}) {
+export async function createRestaurantFood(restaurantId, rawBody = {}) {
     const context = await getRestaurantContext(restaurantId);
+
+    const isCombo = rawBody.isCombo === true;
+    const newCombo = isCombo ? await prepareNewCombo(context, rawBody) : null;
+    const body = newCombo ? newCombo.prepared : rawBody;
 
     const name = toStr(body.name);
     if (!name) throw new ValidationError('Item name is required');
@@ -481,6 +585,7 @@ export async function createRestaurantFood(restaurantId, body = {}) {
         price,
         otherPrice,
         variants,
+        ...(newCombo ? { isCombo: true, comboItems: newCombo.comboItems } : {}),
         // Same normaliser the admin service uses, so a dish gets the same
         // image/images relationship regardless of which panel created it.
         ...(normalizeFoodImages(body) ?? { image: '', images: [] }),
@@ -517,7 +622,7 @@ export async function createRestaurantFood(restaurantId, body = {}) {
     return doc.toObject();
 }
 
-export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
+export async function updateRestaurantFood(restaurantId, foodId, rawBody = {}) {
     const context = await getRestaurantContext(restaurantId);
     if (!foodId || !mongoose.Types.ObjectId.isValid(String(foodId))) {
         throw new ValidationError('Invalid food id');
@@ -526,7 +631,11 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
     const existing = await FoodItem.findOne({ _id: foodId, restaurantId }).lean();
     if (!existing) return null;
 
+    const comboEdit = existing.isCombo ? await prepareComboEdit(context, existing, rawBody) : null;
+    const body = comboEdit ? comboEdit.prepared : rawBody;
+
     const update = {};
+    if (comboEdit?.comboItems) update.comboItems = comboEdit.comboItems;
 
     if (body.name !== undefined) {
         const name = toStr(body.name);
@@ -577,7 +686,7 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
         // customers are shown, so it goes back through approval for the same
         // reason a changed primary image always did.
         'name', 'description', 'image', 'images', 'price', 'variants',
-        'foodType', 'categoryId', 'categoryName', 'preparationTime'
+        'foodType', 'categoryId', 'categoryName', 'preparationTime', 'comboItems'
     ];
     const shouldResubmitForApproval = Object.keys(update).some(key => CRITICAL_APPROVAL_FIELDS.includes(key));
 
@@ -633,6 +742,20 @@ export async function deleteRestaurantFood(restaurantId, foodId) {
 
     if (!foodId || !mongoose.Types.ObjectId.isValid(foodId)) {
         throw new ValidationError('Invalid product id');
+    }
+
+    const usedInCombos = await FoodItem.find({
+        restaurantId: context.restaurantId,
+        isCombo: true,
+        'comboItems.itemId': new mongoose.Types.ObjectId(foodId),
+    })
+        .select('name')
+        .limit(5)
+        .lean();
+    if (usedInCombos.length > 0) {
+        throw new ValidationError(
+            `This dish is in ${usedInCombos.map((c) => c.name).join(', ')}. Remove it from the combo first.`,
+        );
     }
 
     const deleted = await FoodItem.findOneAndDelete({
