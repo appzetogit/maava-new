@@ -303,7 +303,10 @@ const buildMessagePayload = (payload = {}, token) => {
                 (isNewOrderAlert ? NEW_ORDER_CHANNEL_ID : DEFAULT_CHANNEL_ID),
             default_vibrate_timings: true,
             default_light_settings: true,
-            click_action: 'FLUTTER_NOTIFICATION_CLICK',
+            // No click_action: with one, Android opens only an activity that
+            // declares that action, and only the Mart seller app does -- so a
+            // tap on any push did nothing in the customer, restaurant and rider
+            // apps. Without it the tap opens the app's launch screen.
             // A tag makes the OS-rendered copy addressable: the app can cancel
             // exactly this notification (cancel(0, tag)) once its own richer
             // alert is on screen, so hybrid pushes don't double-notify on

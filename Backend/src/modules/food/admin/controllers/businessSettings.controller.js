@@ -179,6 +179,59 @@ export async function updatePowerScanningSettings(req, res, next) {
     }
 }
 
+const CAROUSEL_DEFAULT_TITLE = 'Combos';
+
+const carouselFrom = (settings) => {
+    const raw = settings?.restaurantCarousel || {};
+    const title = String(raw.title || '').trim().slice(0, 40);
+    return {
+        enabled: raw.enabled === true,
+        title: title || CAROUSEL_DEFAULT_TITLE,
+    };
+};
+
+/** Public: read by the customer app on every restaurant page. */
+export async function getRestaurantCarouselSettings(req, res, next) {
+    try {
+        const settings = await FoodBusinessSettings.findOne().lean();
+        return sendResponse(res, 200, 'Restaurant carousel settings fetched successfully', {
+            restaurantCarousel: carouselFrom(settings),
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function updateRestaurantCarouselSettings(req, res, next) {
+    try {
+        const body = req.body || {};
+        const title = String(body.title ?? '').trim();
+        if (body.title !== undefined && (title.length === 0 || title.length > 40)) {
+            return res.status(400).json({ success: false, message: 'Section title must be 1 to 40 characters' });
+        }
+        if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
+            return res.status(400).json({ success: false, message: 'enabled must be true or false' });
+        }
+
+        let settings = await FoodBusinessSettings.findOne();
+        if (!settings) {
+            settings = new FoodBusinessSettings();
+        }
+        const current = carouselFrom(settings);
+        settings.restaurantCarousel = {
+            enabled: body.enabled ?? current.enabled,
+            title: body.title !== undefined ? title : current.title,
+        };
+        await settings.save();
+
+        return sendResponse(res, 200, 'Restaurant carousel settings updated successfully', {
+            restaurantCarousel: carouselFrom(settings),
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
 export async function getOrderAcceptanceSettings(req, res, next) {
     try {
         let settings = await FoodBusinessSettings.findOne();

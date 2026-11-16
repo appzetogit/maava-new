@@ -78,6 +78,15 @@ const businessSettingsSchema = new mongoose.Schema(
         },
         orderAcceptanceTimeMinutes: { type: Number, default: 4, min: 1, max: 20 },
         /**
+         * The horizontal card row on a restaurant's menu page in the customer
+         * app (its combos). Off by default; the title is the admin's own
+         * wording ("Combo Deals", "Top Picks", ...).
+         */
+        restaurantCarousel: {
+            enabled: { type: Boolean, default: false },
+            title: { type: String, default: 'Combos', trim: true, maxlength: 40 },
+        },
+        /**
          * Reasons a seller may pick from when rejecting an order.
          *
          * Editable here rather than built into the apps so the list can change

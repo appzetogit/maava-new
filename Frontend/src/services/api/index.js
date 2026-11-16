@@ -336,6 +336,31 @@ export const adminAPI = {
     apiClient.patch("/food/admin/restaurant-settings/order-acceptance", body ?? {}, {
       contextModule: "admin",
     }),
+  getRestaurantCarouselSettings: () =>
+    apiClient.get("/food/admin/restaurant-settings/carousel", {
+      contextModule: "admin",
+    }),
+  updateRestaurantCarouselSettings: (body = {}) =>
+    apiClient.patch("/food/admin/restaurant-settings/carousel", body ?? {}, {
+      contextModule: "admin",
+    }),
+  getTopRestaurantSlots: (params = {}) =>
+    apiClient.get("/food/admin/restaurant-settings/top-restaurants", {
+      params,
+      contextModule: "admin",
+    }),
+  createTopRestaurantSlot: (body = {}) =>
+    apiClient.post("/food/admin/restaurant-settings/top-restaurants", body, {
+      contextModule: "admin",
+    }),
+  updateTopRestaurantSlot: (id, body = {}) =>
+    apiClient.patch(`/food/admin/restaurant-settings/top-restaurants/${id}`, body, {
+      contextModule: "admin",
+    }),
+  deleteTopRestaurantSlot: (id) =>
+    apiClient.delete(`/food/admin/restaurant-settings/top-restaurants/${id}`, {
+      contextModule: "admin",
+    }),
   getFeatureSettings: () =>
     apiClient.get("/food/admin/feature-settings", {
       contextModule: "admin",

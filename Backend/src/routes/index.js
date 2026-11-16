@@ -73,6 +73,7 @@ verticalScopedRoutes.get('/dining/restaurants/public', getPublicDiningRestaurant
 // Mark business-settings/public as truly public (must be before protected admin block)
 verticalScopedRoutes.get('/admin/business-settings/public', businessSettingsController.getBusinessSettings);
 verticalScopedRoutes.get('/admin/power-scanning/public', businessSettingsController.getPowerScanningSettings);
+verticalScopedRoutes.get('/admin/restaurant-carousel/public', businessSettingsController.getRestaurantCarouselSettings);
 verticalScopedRoutes.get('/admin/feature-settings/public', adminController.getFeatureSettings);
 verticalScopedRoutes.get('/admin/fee-settings/public', adminController.getFeeSettings);
 verticalScopedRoutes.get('/admin/cashback-settings/public', getCashbackSettingsPublicController);

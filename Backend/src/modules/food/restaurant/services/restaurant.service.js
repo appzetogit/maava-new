@@ -38,6 +38,7 @@ import {
     isRazorpayConfigured,
     verifyPaymentSignature,
 } from '../../orders/helpers/razorpay.helper.js';
+import { activeTopRestaurantIds } from '../../admin/services/topRestaurants.service.js';
 
 const normalizeName = (value) =>
     String(value || '')
@@ -2062,8 +2063,29 @@ const listApprovedRestaurantsScoped = async (query = {}) => {
         location: 1,
         openingTime: 1,
         closingTime: 1,
-        openDays: 1
+        openDays: 1,
+        topRank: 1
     };
+
+    // Paid Top 10 placements for this zone, ordered by rank. Only the default
+    // orders change -- 'nearest', and no sortBy at all, which is what older
+    // app builds send: they go first, everything else keeps its place.
+    // Expired or out-of-hours slots are simply absent here.
+    const topIds = (sortBy === 'nearest' || sortBy === null) && filter.zoneId
+        ? await activeTopRestaurantIds(filter.zoneId)
+        : [];
+    const topStages = topIds.length
+        ? [{
+            $addFields: {
+                topRank: { $indexOfArray: [topIds, '$_id'] },
+            },
+        }, {
+            $addFields: {
+                topRank: { $cond: [{ $gte: ['$topRank', 0] }, { $add: ['$topRank', 1] }, null] },
+                _topSort: { $cond: [{ $gte: ['$topRank', 0] }, '$topRank', 1000] },
+            },
+        }]
+        : [];
 
     // Use $geoNear only when geo is explicitly needed (radius filter or nearest sorting).
     // This avoids accidentally hiding restaurants that do not have coordinates yet.
@@ -2099,7 +2121,8 @@ const listApprovedRestaurantsScoped = async (query = {}) => {
                     distanceInKm: { $round: [{ $divide: ['$distanceMeters', 1000] }, 2] }
                 }
             },
-            sortStage
+            ...topStages,
+            topStages.length ? { $sort: { _topSort: 1, distanceMeters: 1 } } : sortStage
         ];
 
         const [pageDocs, totalDocs] = await Promise.all([
@@ -2163,7 +2186,20 @@ const listApprovedRestaurantsScoped = async (query = {}) => {
     // order-count lookup a plain .find().sort() can't express.
     let restaurantsRaw;
     let total;
-    if (sortBy === 'trending') {
+    if (topStages.length) {
+        const topPipeline = [{ $match: filter }, ...topStages, { $sort: { _topSort: 1, createdAt: -1 } }];
+        const [pageDocs, totalCount] = await Promise.all([
+            FoodRestaurant.aggregate([
+                ...topPipeline,
+                { $project: projection },
+                { $skip: skip },
+                { $limit: limit },
+            ]),
+            FoodRestaurant.countDocuments(filter),
+        ]);
+        restaurantsRaw = pageDocs;
+        total = totalCount;
+    } else if (sortBy === 'trending') {
         const trendingPipeline = [{ $match: filter }, ...trendingSortStages()];
         const [pageDocs, totalDocs] = await Promise.all([
             FoodRestaurant.aggregate([

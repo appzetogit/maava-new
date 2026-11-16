@@ -4,6 +4,7 @@ import * as adminController from '../controllers/admin.controller.js';
 import * as foodApprovalController from '../controllers/foodApproval.controller.js';
 import * as addonsApprovalController from '../controllers/addonsApproval.controller.js';
 import * as businessSettingsController from '../controllers/businessSettings.controller.js';
+import * as topRestaurantsController from '../controllers/topRestaurants.controller.js';
 import * as feedbackExperienceController from '../controllers/feedbackExperience.controller.js';
 import * as notificationBroadcastController from '../controllers/notificationBroadcast.controller.js';
 import * as diningAdminController from '../../dining/controllers/diningAdmin.controller.js';
@@ -35,6 +36,7 @@ router.get('/business-settings/public', businessSettingsController.getBusinessSe
 router.get('/power-scanning/public', businessSettingsController.getPowerScanningSettings);
 router.get('/fee-settings/public', adminController.getFeeSettings);
 router.get('/feature-settings/public', adminController.getFeatureSettings);
+router.get('/restaurant-carousel/public', businessSettingsController.getRestaurantCarouselSettings);
 
 
 const requireAdmin = (req, _res, next) => {
@@ -313,6 +315,13 @@ router.patch('/power-scanning', businessSettingsController.updatePowerScanningSe
 // ----- Restaurant Settings -----
 router.get('/restaurant-settings/order-acceptance', businessSettingsController.getOrderAcceptanceSettings);
 router.patch('/restaurant-settings/order-acceptance', businessSettingsController.updateOrderAcceptanceSettings);
+router.get('/restaurant-settings/carousel', businessSettingsController.getRestaurantCarouselSettings);
+router.patch('/restaurant-settings/carousel', businessSettingsController.updateRestaurantCarouselSettings);
+// Paid Top 10 placements per zone (customer home list).
+router.get('/restaurant-settings/top-restaurants', topRestaurantsController.listTopRestaurantSlotsController);
+router.post('/restaurant-settings/top-restaurants', topRestaurantsController.createTopRestaurantSlotController);
+router.patch('/restaurant-settings/top-restaurants/:id', topRestaurantsController.updateTopRestaurantSlotController);
+router.delete('/restaurant-settings/top-restaurants/:id', topRestaurantsController.deleteTopRestaurantSlotController);
 
 // ----- Delivery Cash Limit -----
 router.get('/delivery-cash-limit', adminController.getDeliveryCashLimit);
