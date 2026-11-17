@@ -178,7 +178,9 @@ async function settleOrphanPayment({ paymentId, rzOrderId, paidPaise, source }) 
 // Reconciliation job: every 5 minutes, from the scheduler process.
 // ---------------------------------------------------------------------------
 
-const PENDING_MIN_AGE_MS = 2 * 60 * 1000;
+// The app normally confirms within seconds of paying; a minute's grace is
+// enough to stay out of its way before the server asks Razorpay itself.
+const PENDING_MIN_AGE_MS = 60 * 1000;
 const PENDING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const PAYMENT_SCAN_WINDOW_SEC = 3 * 60 * 60;
 const PAYMENT_SCAN_DELAY_SEC = 2 * 60;
@@ -382,5 +384,24 @@ export async function runPaymentReconciliation() {
     stats.ms = Date.now() - started;
     const acted = Object.entries(stats).filter(([k, v]) => v && !['ms', 'paymentsScanned', 'paymentsChecked', 'pendingChecked', 'already_settled', 'ignored_not_order_payment'].includes(k));
     if (acted.length) logger.info(`[Reconcile] ${JSON.stringify(stats)}`);
+    return stats;
+}
+
+/**
+ * Just step 1 of the above, cheap enough to run every minute: a paid order
+ * whose confirmation never arrived (app closed straight after paying) reaches
+ * the restaurant within about two minutes instead of up to seven.
+ */
+export async function runPendingPaymentCheck() {
+    if (running) return { skipped: true };
+    if (!isRazorpayConfigured()) return { skipped: true, reason: 'razorpay_not_configured' };
+    running = true;
+    const stats = { errors: 0 };
+    try {
+        await reconcilePendingOrders(stats);
+    } finally {
+        running = false;
+    }
+    if (stats.confirmed) logger.info(`[Reconcile] quick check confirmed ${stats.confirmed} paid order(s)`);
     return stats;
 }

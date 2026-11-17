@@ -4,13 +4,13 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node init && vite",
+    "dev": "vite",
     "tokens:maava": "node scripts/generate-maava-tokens.mjs",
-    "build": "node init && vite build",
+    "build": "vite build",
     "lint": "eslint .",
     "test": "node --test \"src/**/*.test.js\"",
     "preview": "vite preview",
-    "start": "node init && node server.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

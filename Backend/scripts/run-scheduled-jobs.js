@@ -9,12 +9,14 @@ import { logger } from '../src/utils/logger.js';
 let expireOffersInterval = null;
 let fssaiExpiryInterval = null;
 let reconcileInterval = null;
+let pendingCheckInterval = null;
 
 const shutdown = async (signal) => {
     logger.info(`${signal} received, stopping scheduled jobs`);
     if (expireOffersInterval) clearInterval(expireOffersInterval);
     if (fssaiExpiryInterval) clearInterval(fssaiExpiryInterval);
     if (reconcileInterval) clearInterval(reconcileInterval);
+    if (pendingCheckInterval) clearInterval(pendingCheckInterval);
 
     try {
         await disconnectDB();
@@ -61,12 +63,19 @@ const start = async () => {
         // Razorpay reconciliation: confirms paid orders nobody confirmed, and
         // refunds payments that have no order to go to (see
         // order-payment-reconcile.service.js). Idempotent per payment.
-        const { runPaymentReconciliation } = await import('../src/modules/food/orders/services/order-payment-reconcile.service.js');
+        const { runPaymentReconciliation, runPendingPaymentCheck } = await import('../src/modules/food/orders/services/order-payment-reconcile.service.js');
         const runReconcile = async () => {
             try {
                 await runPaymentReconciliation();
             } catch (err) {
                 logger.error(`Payment reconciliation error: ${err.message}`);
+            }
+        };
+        const runPendingCheck = async () => {
+            try {
+                await runPendingPaymentCheck();
+            } catch (err) {
+                logger.error(`Pending payment check error: ${err.message}`);
             }
         };
 
@@ -77,6 +86,7 @@ const start = async () => {
         expireOffersInterval = setInterval(runExpire, 5 * 60 * 1000);
         fssaiExpiryInterval = setInterval(runFssaiExpirySync, 60 * 60 * 1000);
         reconcileInterval = setInterval(runReconcile, 5 * 60 * 1000);
+        pendingCheckInterval = setInterval(runPendingCheck, 60 * 1000);
 
         logger.info('Scheduled jobs runner started');
     } catch (err) {
