@@ -1420,8 +1420,22 @@ export async function listOrdersUser(userId, query) {
       .lean(),
     scope(FoodOrder.countDocuments(filter)),
   ]);
+  // The list shows a refund label too, so it needs the same refund progress
+  // the details screen has -- otherwise the list read payment.refund.status
+  // ("processed" once Razorpay sends it to the bank) as done while the details
+  // said the money was still on its way. Only refunded orders pay for this,
+  // and the Razorpay lookup behind it is cached.
+  const items = await Promise.all(
+    docs.map(async (doc) => {
+      const out = normalizeOrderForClient(doc);
+      if (String(doc?.payment?.refund?.status || 'none') !== 'none' || doc?.payment?.status === 'refunded') {
+        out.refundProgress = await buildRefundProgress(doc).catch(() => null);
+      }
+      return out;
+    }),
+  );
   return buildPaginatedResult({
-    docs: docs.map((doc) => normalizeOrderForClient(doc)),
+    docs: items,
     total,
     page,
     limit,
